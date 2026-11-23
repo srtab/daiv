@@ -10,7 +10,8 @@ import pytest
 from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
-from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.executor.lock import DeadWorkerError
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository, SpendRecord, SpendTask
 from sessions.signal_defs import run_ended, run_finished
 
 from core import worker_liveness
@@ -39,6 +40,17 @@ class TestFinish:
         assert run_finished_spy.call_args.kwargs["run"] is run
         assert run_finished_spy.call_args.kwargs["skip_dispatch"] is False
         assert run_finished_spy.call_args.kwargs["never_started"] is False
+
+    def test_finish_dead_leaves_the_task_running_when_the_run_finish_is_refused(self, run_finished_spy, badge):
+        run = _create_run(status=RunStatus.RUNNING)
+        hold_slot(run, silent_for=timedelta(minutes=10))
+
+        finished = Run.objects.finish_dead(
+            run, where=Q(status=RunStatus.READY), error=DeadWorkerError, message="dead", now=timezone.now()
+        )
+
+        assert finished is False
+        assert DBTaskResult.objects.get(run=run).status == "RUNNING"
 
     def test_the_badge_refresh_waits_for_the_commit(self, badge):
         run = _create_run()
@@ -224,6 +236,9 @@ class TestCancel:
         assert (run.status, run.error_message) == (RunStatus.FAILED, CANCELLED_BY_COORDINATOR_MESSAGE)
         assert run.is_cancelled and run.finished_at is not None
         assert run_finished_spy.call_args.kwargs["never_started"] is False
+        task_result = DBTaskResult.objects.get(run=run)
+        assert task_result.status == "FAILED"
+        assert task_result.exception_class_path == "sessions.executor.lock.RunStoppedError"
 
     def test_a_repeated_cancel_finishes_a_run_whose_worker_stopped_heartbeating_since(self, run_finished_spy, badge):
         run = _create_run(status=RunStatus.RUNNING)
@@ -511,3 +526,58 @@ class TestArchived:
         assert list(Session.objects.listed_for(member_user, mine=True)) == [shown]
         assert list(Session.objects.listed_for(member_user, mine=True, archived=True)) == [archived]
         assert set(Session.objects.listed_for(member_user, mine=True, archived=None)) == {shown, archived}
+
+
+def _secret_session(user, **fields) -> Session:
+    return Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=SessionOrigin.SCHEDULE, repo_id="acme/secret", user=user, **fields
+    )
+
+
+def _spend(**fields) -> SpendRecord:
+    fields.setdefault("trigger_type", SessionOrigin.CHAT)
+    return SpendRecord.objects.create(occurred_at=timezone.now(), model="m", **fields)
+
+
+@pytest.mark.django_db
+class TestSpendRecordVisibility:
+    def test_a_member_sees_their_own_readable_and_subscribed_records(self, member_user, other_user):
+        grant_read_access(member_user, "acme/api")
+        schedule = ScheduledJob.objects.create(
+            user=other_user, name="s", prompt="p", repos=[{"repo_id": "acme/secret", "ref": ""}]
+        )
+        schedule.subscribers.add(member_user)
+        own = _spend(user=member_user, repo_id="acme/secret")
+        readable = _spend(user=other_user, repo_id="acme/api", session=_session(other_user))
+        subscribed = _spend(
+            user=other_user, repo_id="acme/secret", session=_secret_session(other_user, scheduled_job=schedule)
+        )
+        _spend(user=other_user, repo_id="acme/secret", session=_secret_session(other_user))
+
+        assert set(SpendRecord.objects.visible_to(member_user)) == {own, readable, subscribed}
+
+    def test_a_session_with_an_unreadable_extra_repository_hides_its_records(self, member_user, other_user):
+        grant_read_access(member_user, "acme/api")
+        session = _session(other_user)
+        SessionRepository.objects.create(session=session, position=1, repo_id="acme/secret")
+        _spend(user=other_user, repo_id="acme/api", session=session)
+
+        assert not SpendRecord.objects.visible_to(member_user).exists()
+
+    def test_a_record_with_no_session_passes_on_its_repository_or_its_person(self, member_user, other_user, admin_user):
+        grant_read_access(member_user, "acme/api")
+        consolidation = _spend(task=SpendTask.MEMORY_CONSOLIDATION, trigger_type="", repo_id="acme/api")
+        batch_title = _spend(task=SpendTask.TITLE, trigger_type="", user=other_user)
+
+        assert set(SpendRecord.objects.visible_to(member_user)) == {consolidation}
+        assert set(SpendRecord.objects.visible_to(other_user)) == {batch_title}
+        assert set(SpendRecord.objects.visible_to(admin_user)) == {consolidation, batch_title}
+
+    def test_started_by_and_the_kind_filters(self, member_user, other_user):
+        SocialAccount.objects.create(user=member_user, provider="gitlab", uid="77")
+        mine = _spend(user=member_user)
+        linked = _spend(task=SpendTask.TITLE, trigger_type="", external_provider="gitlab", external_uid="77")
+        _spend(user=other_user)
+
+        assert set(SpendRecord.objects.started_by(member_user)) == {mine, linked}
+        assert list(SpendRecord.objects.started_by(member_user).run_spend()) == [mine]

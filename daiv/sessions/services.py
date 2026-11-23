@@ -37,7 +37,7 @@ logger = logging.getLogger("daiv.sessions")
 @dataclass(frozen=True)
 class RepoTarget:
     """``references`` add to the batch's for this repository; ``waits_for_run_id`` holds its run QUEUED until that
-    run has finished."""
+    run has finished. ``merge_request_iid`` runs the job on that merge request in place of ``ref``."""
 
     repo_id: str
     ref: str = ""
@@ -45,6 +45,7 @@ class RepoTarget:
     prompt: str = ""
     references: tuple[RefIn, ...] = ()
     waits_for_run_id: uuid.UUID | None = None
+    merge_request_iid: int | None = None
 
 
 @dataclass(frozen=True)
@@ -234,14 +235,14 @@ class TaskRun:
 async def aget_task_run(task_result_id: uuid.UUID | str) -> TaskRun:
     """The ``Run`` linked to a task result; an empty :class:`TaskRun` when none is.
 
-    A webhook callback commits the Run with its task (see ``webhooks.dispatch``), so a worker that sees the task
-    sees its Run too.
+    An addressor's Run commits with its task (``sessions.merge_request_runs.starter.RunStarter``), so a worker that
+    sees the task sees its Run too.
     """
-    row = await Run.objects.filter(task_result_id=task_result_id).values_list("pk", "user_id").afirst()
-    if row is None:
+    run = await Run.objects.filter(task_result_id=task_result_id).only("pk", "user_id", "acts_as_user").afirst()
+    if run is None:
         logger.warning("No run is linked to task result %s; running without one", task_result_id)
         return TaskRun()
-    return TaskRun(run_id=str(row[0]), user_id=row[1])
+    return TaskRun(run_id=str(run.pk), user_id=run.acting_user_id)
 
 
 async def areset_session_ref(*, thread_id: str, new_ref: str) -> None:
@@ -279,11 +280,14 @@ def create_run(
     agent_model: str = "",
     agent_thinking_level: str = "",
     merge_request_iid: int | None = None,
+    merge_request_web_url: str = "",
     scheduled_job: ScheduledJob | None = None,
     user: User | None = None,
     external_username: str = "",
     external_provider: str = "",
     external_uid: str = "",
+    acts_as_user: bool = True,
+    runs_alone: bool = False,
     muted: bool | None = None,
     batch_id: uuid.UUID | None = None,
     thread_id: str | None = None,
@@ -322,6 +326,8 @@ def create_run(
         external_username=external_username,
         external_provider=external_provider,
         external_uid=external_uid,
+        acts_as_user=acts_as_user,
+        runs_alone=runs_alone,
         repo_id=repo_id,
         ref=ref,
         prompt=prompt,
@@ -332,6 +338,7 @@ def create_run(
         title=title[: Run._meta.get_field("title").max_length],
         sandbox_environment_id=sandbox_environment_id,
         merge_request_iid=merge_request_iid,
+        merge_request_web_url=merge_request_web_url,
         waits_for_id=waits_for_id,
     )
 
@@ -431,6 +438,9 @@ async def asubmit_batch_runs(
     trigger_type: str,
     scheduled_job: ScheduledJob | None = None,
     external_username: str = "",
+    external_provider: str = "",
+    external_uid: str = "",
+    acts_as_user: bool = True,
     thread_id: str | None = None,
     mcp_overrides: dict | None = None,
     references: Sequence[RefIn] | None = None,
@@ -449,13 +459,15 @@ async def asubmit_batch_runs(
     ``thread_id`` naming an existing session posts a ``follow_up_job`` to its inbox instead
     (:func:`_asubmit_follow_up`).
 
+    ``external_*`` name the platform account a run is attributed to. A run that doesn't act as its ``user``
+    (``acts_as_user=False``, a CI identity token's, whose access the platform proved) loads none of their personal
+    tools, and their access is not checked.
+
     Best-effort: a per-repo failure (run creation, refs merge, enqueue or link) lands in
     ``result.failed`` while siblings continue. Every row is created before any task is queued.
     """
     _validate(repos)
-    if user is not None:
-        # Gate only when a user is attached. All current callers supply one; the None branch
-        # is a defensive allowance for future internal callers with no user context.
+    if user is not None and acts_as_user:
         await aassert_repo_access(user, [target.repo_id for target in repos])
     if thread_id is not None:
         if not thread_id:
@@ -507,6 +519,9 @@ async def asubmit_batch_runs(
             "scheduled_job": scheduled_job,
             "user": user,
             "external_username": external_username,
+            "external_provider": external_provider,
+            "external_uid": external_uid,
+            "acts_as_user": acts_as_user,
             "muted": muted,
             "batch_id": batch_id,
             "thread_id": effective_thread_id,

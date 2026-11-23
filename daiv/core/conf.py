@@ -14,6 +14,12 @@ class CoreSettings(BaseSettings):
     )
 
     EXTERNAL_URL: HttpUrl = Field(default=HttpUrl("https://127.0.0.1:8000"), description="URL of the DAIV webapp")
+    JOBS_CI_IDENTITY_AUDIENCE: str | None = Field(
+        default=None,
+        description=(
+            "The audience (`aud`) a CI identity token must carry to submit jobs. Defaults to DAIV_EXTERNAL_URL."
+        ),
+    )
 
     SANDBOX_URL: HttpUrl = Field(default=HttpUrl("http://sandbox:8000"), description="URL of the sandbox service")
     SANDBOX_COMMAND_POLICY_DISALLOW: tuple[str, ...] = Field(

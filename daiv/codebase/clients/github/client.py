@@ -777,7 +777,9 @@ class GitHubClient(RepoClient):
         """
         repo = self.client.get_repo(repo_id, lazy=True)
         mr = repo.get_pull(merge_request_id)
-        return self._serialize_pull_request(repo_id, mr, merged=mr.merged)
+        return self._serialize_pull_request(
+            repo_id, mr, merged=mr.merged, closed=mr.state == "closed" and not mr.merged
+        )
 
     def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
         """
@@ -843,7 +845,9 @@ class GitHubClient(RepoClient):
             author=User(id=comment.user.id, username=comment.user.login),
         )
 
-    def _serialize_pull_request(self, repo_id: str, pr: PullRequest, *, merged: bool = False) -> MergeRequest:
+    def _serialize_pull_request(
+        self, repo_id: str, pr: PullRequest, *, merged: bool = False, closed: bool = False
+    ) -> MergeRequest:
         return MergeRequest(
             repo_id=repo_id,
             merge_request_id=pr.number,
@@ -857,4 +861,5 @@ class GitHubClient(RepoClient):
             author=User(id=pr.user.id, username=pr.user.login, name=pr.user.name),
             draft=pr.draft,
             merged=merged,
+            closed=closed,
         )

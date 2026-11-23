@@ -8,6 +8,7 @@
   ``MAX_EVENT_ATTEMPTS``, logged with ``logger.error`` |
 | A leg follow-up's run ended, taken or not | ``handled`` when it succeeded, ``dismissed`` when it was cancelled, else
   ``failed`` (``run_failed``), never retried: a second run would start after its batch finished |
+| A merge request job's run ended, taken or not | as a leg follow-up's: the job reports that one run |
 
 A run that still holds its session's slot when it ends frees it: the drain claimed the slot when it created the run,
 and only the run's task releases it, so a run stopped or failed before its task ran would keep it. The session is then
@@ -21,6 +22,9 @@ A failed post is logged; the events keep their state. When a run a CI failure wo
 having pushed nothing, or the CI failure fails for good with none of the runs that tried it having pushed, and its
 session was delegated, the parent session remembers it as a ``no_push`` ``delegated_ci_outcome`` (FR-021).
 
+A run that took a merge request job posts its answer as a new comment on the job's merge request when it ended
+SUCCESSFUL or WAITING_INPUT; its failure is said there by :mod:`sessions.inbox.merge_request_jobs`.
+
 A run that took mentions and ended SUCCESSFUL or WAITING_INPUT answers them on their merge request (research.md R10):
 its final message, its question with how to answer it, or, when it ended with nothing to say, the note that DAIV could
 not address them, goes in the latest mention's thread, and each earlier mention's thread gets a line pointing there.
@@ -28,7 +32,8 @@ Mentions whose runs kept failing get that note in their threads once they fail f
 events keep their state.
 
 The sweep (``sessions.tasks.drain_inboxes_cron_task``) settles events the same way when their run's slot went stale
-before the run ended.
+before the run ended. A leg follow-up or a merge request job waits for its run's end instead, which ``sync_stuck_runs``
+writes when the run's worker died.
 
 An inline chat turn takes its events under its holder id until its clone is ready; when the turn ends before that,
 :meth:`sessions.inbox.chat_claim.ChatClaim.arelease` puts them back as ``pending`` for the next turn, without spending
@@ -53,8 +58,8 @@ from codebase.base import GitPlatform
 from core import ui_events
 from core.constants import BOT_NAME
 from sessions.executor.lock import SessionLock, stale_cutoff
-from sessions.inbox.drain import Drain
-from sessions.inbox.leg_follow_ups import LegFollowUps
+from sessions.inbox.drain import OWN_RUNS, Drain
+from sessions.inbox.kinds import OWN_RUN_KINDS
 from sessions.inbox.post import Inbox
 from sessions.live.notify import session_changed
 from sessions.models import (
@@ -119,16 +124,18 @@ class RunEnd:
         return await sync_to_async(self.withdraw)()
 
     def settle_events(self) -> None:
-        """Move the events the run took to the state its outcome calls for, its leg follow-up's first, taken or not.
-        SYNC ONLY."""
+        """Move the events the run took to the state its outcome calls for, the event it was posted with first, taken
+        or not. SYNC ONLY."""
         run = self.run
-        LegFollowUps.end_with_run(run)
+        for own_runs in OWN_RUNS.values():
+            own_runs.end_with_run(run)
         taken = InboxEvent.objects.filter(run=run, state=EventState.TAKEN)
         if run.status in (RunStatus.SUCCESSFUL, RunStatus.WAITING_INPUT):
             woken_by_ci = list(taken.filter(kind=EventKind.CI_FAILED, wake=True, merge_request_iid__isnull=False))
             mentions = list(
                 taken.filter(kind=EventKind.MENTION, merge_request_iid__isnull=False).order_by("created_at", "id")
             )
+            jobs = list(taken.filter(kind=EventKind.MERGE_REQUEST_JOB))
             if taken.update(state=EventState.HANDLED, updated_at=timezone.now()):
                 session_changed(run.session_id)
             if woken_by_ci:
@@ -136,6 +143,10 @@ class RunEnd:
                 self._tell_parent_if_nothing_was_pushed(woken_by_ci)
             if mentions:
                 self._reply_to_mentions(mentions)
+            if jobs:
+                MergeRequestReplies.comment_on_events(
+                    jobs, run, lambda replies: replies.answer(run, asker=jobs[0].author_username)
+                )
         elif run.status == RunStatus.FAILED and run.cancel_requested_at is not None:
             if taken.update(state=EventState.DISMISSED, updated_at=timezone.now()):
                 session_changed(run.session_id)
@@ -144,18 +155,21 @@ class RunEnd:
             if taken.update(state=EventState.PENDING, run=None, claim_token="", updated_at=timezone.now()):
                 session_changed(run.session_id)
         elif run.status == RunStatus.FAILED:
-            FailedAttempt(taken.exclude(kind=EventKind.LEG_FOLLOW_UP), cause=f"run={run.pk} failed").record()
+            FailedAttempt(taken.exclude(kind__in=OWN_RUN_KINDS), cause=f"run={run.pk} failed").record()
 
     @classmethod
     def recover_stale_events(cls) -> int:
         """Settle the events taken on sessions whose slot went stale: by their run's outcome when it ended, else as a
-        failed attempt, since their run will never end. Returns how many events moved. SYNC ONLY."""
+        failed attempt, since their run will never end. A leg follow-up or merge request job whose run has not ended is
+        left to that end, which settles it and tells its merge request (:mod:`sessions.inbox.own_runs`). Returns how
+        many events moved. SYNC ONLY."""
         stale = InboxEvent.objects.filter(state=EventState.TAKEN, session__last_active_at__lt=stale_cutoff())
         moved = 0
         for run in Run.objects.filter(pk__in=stale.filter(run__status__in=RunStatus.terminal()).values("run_id")):
             moved += InboxEvent.objects.filter(run=run, state=EventState.TAKEN).count()
             cls(run).settle_events()
-        orphaned = stale.filter(Q(run__isnull=True) | ~Q(run__status__in=RunStatus.terminal()))
+        unended = ~Q(run__status__in=RunStatus.terminal()) & ~Q(kind__in=OWN_RUN_KINDS)
+        orphaned = stale.filter(Q(run__isnull=True) | unended)
         for thread_id in set(orphaned.values_list("session_id", flat=True)):
             events = orphaned.filter(session_id=thread_id)
             moved += events.count()
@@ -168,10 +182,7 @@ class RunEnd:
         run = self.run
         if not Session.objects.filter(pk=run.session_id, user__isnull=True).exists() or not run.response_text:
             return
-        MergeRequestReplies.comment_on_merge_requests(
-            {(event.effective_repo_id(run.repo_id), event.merge_request_iid) for event in woken_by_ci},
-            lambda replies: replies.reply(run, asker=""),
-        )
+        MergeRequestReplies.comment_on_events(woken_by_ci, run, lambda replies: replies.reply(run, asker=""))
 
     def _reply_to_mentions(self, mentions: list[InboxEvent]) -> None:
         """Post the run's answer in the thread of the latest mention on each merge request, then in each earlier
@@ -220,7 +231,7 @@ class FailedAttempt:
         for event in self.events:
             sessions.add(event.session_id)
             event.attempts += 1
-            if event.kind == EventKind.LEG_FOLLOW_UP:
+            if event.kind in OWN_RUN_KINDS:
                 event.state, event.failure = EventState.FAILED, EventFailure.RUN_FAILED
             elif event.attempts >= MAX_EVENT_ATTEMPTS:
                 event.state, event.failure = EventState.FAILED, EventFailure.RETRIES_EXHAUSTED
@@ -325,6 +336,15 @@ class MergeRequestReplies:
             except Exception:
                 logger.exception("inbox: could not comment on %s!%s", repo_id, iid)
 
+    @classmethod
+    def comment_on_events(
+        cls, events: Iterable[InboxEvent], run: Run, body: Callable[[MergeRequestReplies], str]
+    ) -> None:
+        """Post ``body`` on each merge request one of ``events``, of ``run``'s session, names."""
+        cls.comment_on_merge_requests(
+            {(event.effective_repo_id(run.repo_id), event.merge_request_iid) for event in events}, body
+        )
+
     def reply(self, run: Run, *, asker: str) -> str:
         """``run``'s final message, or its question followed by how ``asker`` answers it: a reply mentioning DAIV. A
         blank ``asker`` leaves the question to whoever reads it."""
@@ -345,14 +365,15 @@ class MergeRequestReplies:
             return self.unable_note()
         return self.reply(run, asker=asker)
 
-    def unable_note(self) -> str:
-        """The note that DAIV could not address the request."""
+    def unable_note(self, *, failure_message: str | None = None) -> str:
+        """The note that DAIV could not address the request; ``failure_message`` replaces its generic first line."""
         return render_to_string(
             "core/unable_address_review.txt",
             {
                 "bot_name": BOT_NAME,
                 "bot_username": self.client.current_user.username,
                 "draft_published": False,
+                "failure_message": failure_message,
                 "is_gitlab": self.client.git_platform == GitPlatform.GITLAB,
             },
         )

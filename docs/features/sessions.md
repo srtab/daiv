@@ -36,7 +36,7 @@ Each session carries the origin that created it:
 | **API Run** | [Jobs API](jobs-api.md) `POST /api/jobs` | A CI pipeline or script submits a prompt |
 | **MCP Run** | [MCP endpoint](mcp-endpoint.md) `submit_job` tool | Claude Code or Cursor delegates a task |
 | **Scheduled Run** | [Scheduled jobs](scheduled-jobs.md) dispatch | A weekly dependency audit fires on Monday |
-| **UI Run** | The dashboard's [background run](#start-a-background-run) form | You start a run from the dashboard |
+| **Background Run** | The dashboard's [background run](#start-a-background-run) form | You start a run from the dashboard |
 | **Issue Webhook** | A GitLab or GitHub issue event | An issue is labelled `daiv` |
 | **MR/PR Webhook** | A GitLab or GitHub merge request event | A reviewer mentions `@daiv` on a merge request |
 | **Pipeline Webhook** | A CI result that DAIV's [pipeline watch](pipeline-watch.md) acts on | DAIV starts a run to fix a failed pipeline on a merge request it published |
@@ -47,7 +47,7 @@ Each session carries the origin that created it:
 
 The sidebar lists your sessions, so any of them is one click away from every page:
 
-- **Sessions**: your own sessions, most recently active first, 8 at a time. **Show more** adds 8, up to 80; past that it opens the sessions list. Each has a status dot and, while it is running, waiting for your input or failed, that state; otherwise how long ago it was active. The session you are viewing is always in the list. Sessions a schedule started are listed under their schedule instead. Beside the heading, the search icon (shortcut `/`) opens the sessions list with its search box focused, and **+** starts a chat.
+- **Sessions**: your own sessions, most recently active first, 8 at a time. **Show more** adds 8, up to 80; past that it opens the sessions list. A pulsing dot marks a running session, a diamond one waiting for your input, and a red edge one that failed; other sessions have no mark. An icon on the right shows that the session has a merge request: green while it is open, grey once merged, red if closed. Hover a row to see when the session was last active and to show its **⋯** menu (on a touch screen **⋯** is always there): open the merge request, copy the session's link, open it in a new tab, or archive it. The session you are viewing is always in the list. Sessions a schedule started are listed under their schedule instead. Beside the heading, the search icon (shortcut `/`) opens the sessions list with its search box focused, and **+** starts a chat.
 - **Scheduled**: up to 10 schedules you own or subscribe to that are enabled or ran in the last 14 days, each with its next run. Expand one for its 3 latest runs: one row per run of the schedule, with the worst status across its repositories and, past one, how many repositories it ran on. A run on one repository opens its session; a wider one opens the sessions it started. **All runs** lists every session of the schedule, and the list icon beside the heading opens the schedules page. A schedule whose latest run failed or is waiting for input starts expanded; otherwise this browser remembers whether you expanded it.
 - **Settings**, the cog beside your account, slides in the pages you set up once (**Sandbox environments**, **MCP servers** and **Memory**, under **Agent setup**, and for admins **Users**, **Configuration**, **Schedule templates**, **Skills** and **Global MCP servers**, under **Admin**) along with the documentation links. Nothing changes on the page until you pick one. **Back** (or Escape) slides your sessions back in.
 
@@ -75,9 +75,9 @@ Team statistics are on **Insights**, linked as **Team insights** at the top of H
 
 ## Insights
 
-**Insights** (`/dashboard/insights/`) shows how DAIV is used across the repositories you can see. Choose a period: **Today**, **7 days** (the default), **30 days**, **90 days** or **All time**.
+**Insights** has two tabs. **Activity** (`/dashboard/insights/`) shows how DAIV is used across the repositories you can see, and **Spend** shows what it spent; [Spend](spend.md) describes that tab. On **Activity**, choose a period: **Today**, **7 days** (the default), **30 days**, **90 days** or **All time**.
 
-- **Agent activity**: runs, success rate, runs that changed code and average duration, each compared with the period of the same length immediately before, up to the same time of day (the page names both periods). **Running now** is live and not compared.
+- **Agent activity**: runs, success rate, runs that changed code and average duration, each compared with the period of the same length immediately before, up to the same time of day (the page names both periods).
 - **Runs over time**: a column per day (per week for 30 and 90 days, per month for all time), stacked by outcome: changed code, done without changes, needs input, failed. A column opens the sessions active in its days. The chart is hidden for **Today**.
 - **Sessions by origin**: each origin's sessions this period and the period before, the change, and a small bar per day. Every count for this period opens the session list it counts. The previous period and the bars count sessions with a run in those days, so later activity does not move them.
 - **Code velocity**: see [merge metrics](merge-metrics.md).
@@ -86,40 +86,53 @@ Team statistics are on **Insights**, linked as **Team insights** at the top of H
 
 **Sessions** lists sessions, most recently active first. Each row shows:
 
-- A status dot for the latest run (queued, pending, running, done, needs input or failed).
-- The title, generated from the first prompt or the issue or merge request subject.
-- The repository, the branch, and the merge request when there is one.
+- A status dot while the latest run is **Running** (it pulses) or **Needs input** (a diamond). A failed latest run marks the row with a red edge. Other states have no mark.
+- The title, generated from the first prompt or the issue or merge request subject, and beside it the merge request when there is one.
+- Under the title, the repository and the branch.
 - An icon for the session's [origin](#session-origins).
-- The latest run's model, its duration and the session's cost, then the owner and when the session was last active.
+- The latest run's model and the session's run spend, then how long ago the session was last active, such as `5m`, `3h`, `13d` or `3w`, and the owner. Hover over the model for its provider, over the time for the date and time, and over the owner for their name. The run's duration is on the session's page. Run spend is the priced cost of the session's runs, the figure its **Spend** section totals; background spend is left out.
 
 An API or MCP job that continues a busy session does not start at once. It joins the session's next run for its branch, shown as **Queued**, which starts when the current run ends ([The session inbox](#the-session-inbox) describes how).
 
-The list shows your own sessions (**Mine**) or everyone's you can see (**Everyone**). A link that carries a repository, merge request, schedule or batch filter opens on **Everyone**.
+The list shows your own sessions (**Mine**) or everyone's you can see (**Everyone**). A link that carries a repository, merge request, schedule, batch or spend filter opens on **Everyone**.
 
 ### Filter the list
 
+Search matches a session's title or repository. **Filter** (or the `F` key) opens the list of filters; pick one to see its values, and pick a value to apply it. Type in the box at the top of the menu to find a filter. **Repository**, **Spent by**, **Model** and **Provider** list their 50 most recently used values; type to find any other.
+
 | Filter | What it does |
 |--------|--------------|
-| Search | Matches a session's title or repository |
-| Status | **All**, **Needs input**, **Failed**, **Running**, **Queued**, **Pending** or **Done**, by the session's latest run |
-| **Type** | One [origin](#session-origins), or **All types** |
-| **Time** | **All time** (the default), **Today**, **Last 2 days**, **Last 7 days**, **Last 30 days**, or a **Custom range** of two dates |
-| **Archived** | Swaps the list for the [archived sessions](#archived-sessions) |
+| **Status** | **Needs input**, **Failed**, **Running**, **Queued**, **Pending** or **Done**, by the session's latest run |
+| **Type** | One [origin](#session-origins) |
+| **Active** | When the session was last active: **Today**, **Last 2 days**, **Last 7 days**, **Last 30 days**, or a **Custom range** of two dates |
+| **Repository** | One repository of the sessions in **Mine** or **Everyone**; clearing it clears the merge request too |
+| **Spent by**, **Model**, **Provider** | Sessions with spend by that person, on that model or through that provider. The choices are those in the spend records you can see. These filters show only when you can see spend |
 
-Six more filters have no control. They appear as chips when you arrive from a link, and each chip has a button that clears it:
+Each filter you apply shows as a chip under the toolbar, with the count on the **Filter** button. Select a chip to change its value, or its clear button to remove it; **Clear all** clears every chip, the search and a **From Spend** line, and keeps **Mine** or **Everyone**, the sort and the grouping.
+
+Five more chips come only from links:
 
 | Chip | Where the link comes from |
 |------|---------------------------|
-| **Repository** | A repository filter; clearing it clears the merge request too |
 | **Merge request** | The **view sessions** link in a merge request description, or a repository card's menu; always paired with a repository, since merge request numbers are per project |
 | **Ran on** | A day's column in **Your week** on **Home** or in **Runs over time** on **Insights** |
 | **Schedule** | The run count on a scheduled job |
 | **Batch** | A multi-repository submission: one prompt sent to several repositories shares a batch |
 | **Including archived** | A link that must show sessions whatever their state: the **view sessions** link in a merge request description, **Other sessions on !N** in a repository card's menu, a day in **Your week** on **Home** and its link to more merge requests, and a column in **Runs over time** or a count in **Sessions by origin** on **Insights**. The list then includes [archived sessions](#archived-sessions) |
 
+A row or chart column on the [Spend](spend.md) page opens the list with spend filters. A person, a model or a provider shows as its chip. A spend period, a repository, a trigger type or a background task reads as one **From Spend** line above the list, whose button clears them all. Together they match the sessions with one spend record that fits them all, so the list holds exactly the sessions behind the figure that linked there.
+
 Filters combine, and they are in the URL, so you can bookmark or share a filtered list.
 
-Sessions with a run in flight (**Queued**, **Pending** or **Running**) update in place, status dot and timing included, without a reload.
+### Group and sort the list
+
+**Display** sets how the list is laid out:
+
+- **Group by**: **Date** (the default) puts sessions under the day they were last active, **Status** puts them under their latest run's status with a count of each, the states that need you first (**Needs input**, **Running**, **Pending**, **Queued**, **Failed**, **Done**, then sessions with no run), and **None** shows one list. Sorted by cost, the list has no date groups.
+- **Sort by**: **Most recent** activity, or **Cost**, the session's run spend, costliest first, with sessions that have no priced spend last. With a spend period from the [Spend](spend.md) page, the cost counts only the spend in that period.
+- **Show archived** swaps the list for the [archived sessions](#archived-sessions), and an **Archived sessions** chip says so.
+
+Sessions with a run in flight (**Queued**, **Pending** or **Running**) update their status dot and red edge in place, without a reload. Grouped by status, a session moves to its new group when its status changes.
 
 ### Archived sessions
 
@@ -148,9 +161,8 @@ An archived session refuses new work:
 
 You need to be able to run agents on the session's repository. Archiving hides the session for everyone else, so check that nobody needs it first.
 
-1. Open the session.
-2. Select **⋯** → **Archive**.
-3. In **Archive this session?**, select **Archive**.
+1. Open the session and select **⋯** → **Archive**, or in the sidebar, select the session's **⋯** → **Archive**.
+2. In **Archive this session?**, select **Archive**.
 
 #### Unarchive a session
 
@@ -229,7 +241,7 @@ Published files appear in the transcript, in the turn that published them. Adjac
 
 The limits on a file's size and on the files per run, and the storage that the `app` and `worker` containers must share, are on [Artifacts](../reference/env-variables.md#artifacts) and in the [deployment guide](../getting-started/deployment.md). Deleting a run deletes its artifacts and their files.
 
-Select **Artifacts** in the sidebar (`/dashboard/artifacts/`) for every artifact you can see across all sessions: those of your own sessions and of sessions on repositories you can read (admins see them all). The list is newest first, grouped by date (**Today**, **Yesterday**, **Previous 7 days**, **Previous 30 days**, then by month), 25 per page. Search by title or filename, and filter by kind (**All**, **Markdown**, **HTML**, **Image**, **Text** or **File**) and repository. Each row links to the viewer, back to the session and run that produced it, and to a download.
+Select **Artifacts** in the sidebar (`/dashboard/artifacts/`) for every artifact you can see across all sessions: those of your own sessions and of sessions on repositories you can read (admins see them all). The list is newest first, grouped by date (**Today**, **Yesterday**, **Previous 7 days**, **Previous 30 days**, then by month), 25 per page. Search by title or filename, and filter by **Kind** (**All kinds**, **Markdown**, **HTML**, **Image**, **Text** or **File**) and **Repository**. Each row links to the viewer, back to the session and run that produced it, and to a download.
 
 The [jobs API](jobs-api.md#poll-job-status) and [MCP](mcp-endpoint.md) job-status responses list artifacts too, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.
 
@@ -350,7 +362,7 @@ A background run hands a task to the agent without a chat: you describe the task
 4. Optional: set the [fields below the message box](#background-run-fields).
 5. Select **Start run**.
 
-You land on the **Sessions** list filtered to the run's batch, where each repository's new session has its own row. Runs started this way have the **UI Run** origin.
+You land on the **Sessions** list filtered to the run's batch, where each repository's new session has its own row. Runs started this way have the **Background Run** origin.
 
 ### Background run fields
 
@@ -373,7 +385,7 @@ You can retry when all of these hold:
 
 - You own the session, can run agents on its repository, and the session is not archived.
 - The failed run is the newest one, and no run is working or queued.
-- The run was a chat turn, or an API, MCP, UI or scheduled run. A webhook run, or a run delegated by another session, reports back through its own flow and does not offer **Retry**.
+- The run was a chat turn, or an API, MCP, UI or scheduled run. A webhook run, a run delegated by another session, or a [job on a merge request](jobs-api.md#run-a-job-on-a-merge-request) reports back through its own flow and does not offer **Retry**.
 
 To retry:
 

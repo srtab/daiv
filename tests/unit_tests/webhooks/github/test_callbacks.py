@@ -1,5 +1,7 @@
 from unittest.mock import ANY, AsyncMock, Mock, patch
 
+from django.utils import timezone
+
 import pytest
 from sessions.inbox.drain import Drain
 from sessions.inbox.ownership import Ownerships
@@ -236,6 +238,7 @@ def create_pull_request_callback(
     labels: list[Label] | None = None,
     user_login: str = "developer",
     base_ref: str = "main",
+    draft: bool = False,
 ) -> PullRequestCallback:
     """Helper to create a PullRequestCallback instance."""
     return PullRequestCallback(
@@ -247,6 +250,7 @@ def create_pull_request_callback(
             number=42,
             title="Some PR",
             state="closed" if merged else "open",
+            draft=draft,
             merged=merged,
             merged_at="2026-04-01T10:00:00Z" if merged else None,
             head=Ref(ref="feat/something", sha="abc123"),
@@ -281,13 +285,22 @@ class TestPullRequestCallback:
 
         archive.assert_not_called()
 
-    @pytest.mark.parametrize(("action", "merged"), [("closed", True), ("closed", False), ("reopened", False)])
-    def test_accept_a_close_or_a_reopen(self, action, merged):
+    @pytest.mark.parametrize(
+        ("action", "merged"),
+        [
+            ("closed", True),
+            ("closed", False),
+            ("reopened", False),
+            ("converted_to_draft", False),
+            ("ready_for_review", False),
+            ("synchronize", False),
+        ],
+    )
+    def test_accept_a_close_a_reopen_a_draft_toggle_or_a_push(self, action, merged):
         assert create_pull_request_callback(action=action, merged=merged).accept_callback() is True
 
-    @pytest.mark.parametrize("action", ["opened", "synchronize"])
-    def test_reject_the_rest(self, action):
-        assert create_pull_request_callback(action=action, merged=False).accept_callback() is False
+    def test_reject_the_rest(self):
+        assert create_pull_request_callback(action="opened", merged=False).accept_callback() is False
 
     async def test_a_merge_into_the_default_branch_records_metrics_and_tells_the_owner(self):
         callback = create_pull_request_callback()
@@ -328,7 +341,7 @@ class TestPullRequestCallback:
         with patch.object(Ownerships, "areopen", autospec=True) as reopen:
             await callback.process_callback()
 
-        reopen.assert_awaited_once_with(ANY, 42, by_username="sfr")
+        reopen.assert_awaited_once_with(ANY, 42, by_username="sfr", draft=False)
         assert reopen.await_args.args[0].repo_id == "owner/repo"
 
     async def test_process_callback_coalesces_none_merged_at(self):
@@ -364,6 +377,33 @@ class TestPullRequestStateOnAnOwnedPullRequest:
         assert event.source_key.startswith(f"mr-state:42:{state}:")
         await ownership.arefresh_from_db()
         assert ownership.closed_at is not None
+
+    async def test_a_push_records_whether_it_is_a_draft(self):
+        ownership = await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)
+
+        await create_pull_request_callback(action="synchronize", merged=False, draft=True).process_callback()
+
+        await ownership.arefresh_from_db()
+        assert (ownership.draft, ownership.closed_at) == (True, None)
+
+    async def test_a_reopen_records_whether_it_is_a_draft(self):
+        ownership = await amake_owned_merge_request(
+            repo_id="owner/repo", merge_request_iid=42, closed_at=timezone.now()
+        )
+
+        await create_pull_request_callback(action="reopened", merged=False, draft=True).process_callback()
+
+        await ownership.arefresh_from_db()
+        assert (ownership.draft, ownership.closed_at) == (True, None)
+
+    async def test_converting_to_draft_and_back(self):
+        ownership = await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)
+
+        for action, draft in (("converted_to_draft", True), ("ready_for_review", False)):
+            await create_pull_request_callback(action=action, merged=False, draft=draft).process_callback()
+            await ownership.arefresh_from_db()
+            assert (ownership.draft, ownership.closed_at) == (draft, None)
+        assert not await InboxEvent.objects.aexists()
 
     async def test_an_unowned_pull_request_posts_nothing(self):
         await create_pull_request_callback(merged=False).process_callback()
@@ -611,7 +651,7 @@ class TestReviewCommentsOnAnOwnedPullRequest:
         mock_repo_config.allowed_usernames = ("someone-else",)
         await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=42)
 
-        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+        with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
             await deliver(create_review_comment_callback())
 
         task.get_or_enqueue.assert_not_called()
@@ -620,7 +660,7 @@ class TestReviewCommentsOnAnOwnedPullRequest:
 
     @pytest.mark.parametrize("body", ["@daiv why this line?", "Nit: rename this"])
     async def test_an_unowned_pull_request_gets_nothing(self, mock_repo_client, body):
-        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+        with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
             await create_review_comment_callback(body).process_callback()
 
         task.get_or_enqueue.assert_not_called()
@@ -729,7 +769,7 @@ class TestPullRequestCommentsOutsideTheAllowlist:
     async def test_a_mention_posts_and_starts_nothing(self, mock_repo_client):
         await amake_owned_merge_request(repo_id="owner/repo", merge_request_iid=99)
 
-        with patch("webhooks.dispatch.address_mr_comments_task") as task:
+        with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
             await deliver(self._comment("@daiv fix it"))
 
         task.get_or_enqueue.assert_not_called()

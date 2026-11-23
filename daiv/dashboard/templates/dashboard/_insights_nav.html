@@ -1,0 +1,14 @@
+{% load i18n icon_tags %}
+{% comment %}
+The views of Insights, each its own URL; the other view opens with the same filters.
+{% endcomment %}
+{% with current=request.resolver_match.url_name %}
+<nav aria-label="{% translate 'Insights' %}" class="segmented-nav">
+    <a href="{% url 'insights' %}{% querystring %}" class="segmented-nav__item segmented-nav__item--icon"{% if current == "insights" %} aria-current="page"{% endif %}>
+        {% icon "chart-bar" "h-4 w-4 shrink-0" %}{% translate "Activity" %}
+    </a>
+    <a href="{% url 'insights_spend' %}{% querystring %}" class="segmented-nav__item segmented-nav__item--icon"{% if current == "insights_spend" %} aria-current="page"{% endif %}>
+        {% icon "currency-dollar" "h-4 w-4 shrink-0" %}{% translate "Spend" %}
+    </a>
+</nav>
+{% endwith %}

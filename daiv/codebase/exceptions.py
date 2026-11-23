@@ -24,3 +24,7 @@ class CloneRefNotFoundError(RuntimeError):
         super().__init__(f"Ref '{ref}' does not exist on the remote for repository '{repo_slug}'.")
         self.ref = ref
         self.repo_slug = repo_slug
+
+
+class CloneCredentialUnavailableError(RuntimeError):
+    """Raised when no ephemeral clone token could be provisioned and the PAT can't stand in for it."""

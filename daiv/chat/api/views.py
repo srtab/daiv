@@ -12,7 +12,7 @@ from mcp_connectors.selection import build_selection_pool, diff_selection, parse
 from ninja import Router, Schema
 from ninja.errors import HttpError
 from ninja.security import django_auth
-from pydantic import BaseModel, Field, StringConstraints, TypeAdapter, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 from sandbox_envs.selection import aresolve_repo_envs, resolve_env_for_run
 from sessions.admission import AdmissionError, RepoAccessError, aassert_repo_access, aresolve_environment
 from sessions.executor.lock import SessionLock, session_activity, stale_cutoff
@@ -30,6 +30,7 @@ from sessions.spend import build_session_spend
 from accounts.api.security import AuthBearer
 from automation.agent.validators import AgentOverrideError, ensure_agent_model_available, validate_agent_override
 from codebase.authorization import can_view
+from codebase.base import RepoId, normalize_repo_id
 from core.api.throttling import JobsRateThrottle
 from core.constants import CANCELLED_BY_USER_MESSAGE
 from core.sse import KEEP_ALIVE_FRAME, STREAM_MAX_DURATION_S, data_frame, end_frame, retry_frame, sse_response
@@ -180,7 +181,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
     ``forwarded_props.repos`` (``[{repo_id, ref}]``) opens a new session over several repositories: first turn
     only, its first entry must match ``X-Repo-ID``/``X-Ref``, and a continuation ignores it.
     """
-    repo_id = request.headers.get(HEADER_REPO_ID)
+    repo_id = normalize_repo_id(request.headers.get(HEADER_REPO_ID, ""))
     if not repo_id:
         raise Http404("Repository ID not found")
     # Blank runs on the default branch: a job submitted without a ref leaves its session's ref blank.
@@ -388,7 +389,7 @@ async def create_chat_completion(request: HttpRequest, input_data: RunAgentInput
 
 
 class ForwardedRepo(BaseModel):
-    repo_id: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    repo_id: RepoId
     ref: str = ""
 
 

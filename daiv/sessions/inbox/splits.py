@@ -1,8 +1,9 @@
 """Where one requester's waking requests split into runs.
 
-Two requests run alone. A builtin slash command, as ``SlashCommandMiddleware`` answers it only when it opens a run's
+Three requests run alone. A builtin slash command, as ``SlashCommandMiddleware`` answers it only when it opens a run's
 request, and then ends the run: its run takes nothing else, remembered events included. A leg follow-up, so it stays
-unattended and answers only its coordinator: its run still takes the branch's remembered events as context
+unattended and answers only its coordinator, and a merge request job, so each job gets its own result: their runs still
+take the branch's remembered events as context, unless their request is a builtin slash command
 (:meth:`RequestSplits.takes_context`).
 """
 
@@ -12,9 +13,8 @@ import re
 from typing import TYPE_CHECKING
 
 from codebase.base import Scope
-from sessions.inbox.kinds import PERSON_KINDS
+from sessions.inbox.kinds import OWN_RUN_KINDS, PERSON_KINDS
 from sessions.inbox.render import RunInput
-from sessions.models import EventKind
 from slash_commands.parser import parse_slash_command
 from slash_commands.registry import slash_command_registry
 
@@ -28,8 +28,8 @@ _MENTIONED = re.compile(r"(?<![\w@])@([\w.-]+)")
 
 class RequestSplits:
     """``asked``, one requester's waking events for a branch oldest first, split into the runs that take them in turn
-    (:attr:`splits`): a builtin slash command or a leg follow-up (:meth:`runs_alone`) alone, and the requests between
-    two of them together."""
+    (:attr:`splits`): a builtin slash command or a request posted with its own run (:meth:`runs_alone`) alone, and the
+    requests between two of them together."""
 
     def __init__(self, asked: list[InboxEvent]):
         self.splits: list[list[InboxEvent]] = []
@@ -44,28 +44,31 @@ class RequestSplits:
 
     @staticmethod
     def runs_alone(event: InboxEvent) -> bool:
-        """Whether the waking ``event`` takes a run of its own: a leg follow-up, or a person's request that, as a run
-        renders it (:meth:`RunInput.request`), is a builtin slash command. Inbox runs run in the GLOBAL scope
-        (``run_job_task``).
+        """Whether the waking ``event`` takes a run of its own: one posted with its own run (a leg follow-up or a merge
+        request job), or a person's request that is a builtin slash command (:meth:`is_builtin_command`)."""
+        if event.kind in OWN_RUN_KINDS:
+            return event.wake
+        return event.kind in PERSON_KINDS and event.wake and RequestSplits.is_builtin_command(event)
+
+    @staticmethod
+    def takes_context(event: InboxEvent) -> bool:
+        """Whether the run ``event`` opens also takes the branch's remembered events: every request but a builtin slash
+        command, one posted with its own run included."""
+        return event.kind not in (PERSON_KINDS | OWN_RUN_KINDS) or not RequestSplits.is_builtin_command(event)
+
+    @staticmethod
+    def is_builtin_command(event: InboxEvent) -> bool:
+        """Whether the request ``event`` makes, as a run renders it (:meth:`RunInput.request`), is a builtin slash
+        command. Inbox runs run in the GLOBAL scope (``run_job_task``).
 
         The bot's username is not known here, so a command after any mention counts: a wrong match costs only a run of
         its own, while a command that joined other requests would answer for all of them, or be read as prose."""
-        if event.kind == EventKind.LEG_FOLLOW_UP:
-            return event.wake
-        if event.kind not in PERSON_KINDS or not event.wake:
-            return False
         text = RunInput([event]).request()
         for name in set(_MENTIONED.findall(text)) or {""}:
             command = parse_slash_command(text, name)
             if command is not None and slash_command_registry.get_commands(scope=Scope.GLOBAL, command=command.command):
                 return True
         return False
-
-    @staticmethod
-    def takes_context(event: InboxEvent) -> bool:
-        """Whether the run ``event`` opens also takes the branch's remembered events: every request but a builtin slash
-        command."""
-        return event.kind == EventKind.LEG_FOLLOW_UP or not RequestSplits.runs_alone(event)
 
     def holding(self, run_id: uuid.UUID) -> int:
         """The index of the split the next run ``run_id`` serves: the last holding one of its events, else the first.

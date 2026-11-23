@@ -34,3 +34,8 @@ as far as the next reader is concerned.
 | Leg | One piece of delegated work: a session whose `parent` is the coordinator, publishing to a branch and merge request of its own | sub-job, child |
 | Batch | The new legs and leg follow-ups one `delegate_jobs` call sent, sharing a `batch_id`; the coordinator is resumed once when all have ended | — |
 | Leg follow-up | A coordinator's request to continue a leg it delegated earlier, in the leg's session and on its branch (`leg_follow_up` inbox event) | follow-up job, follow-up |
+| Spend record | One model's spend through one provider, for one Run or one background task call: tokens by kind, cost and cache figures, with its person, repository and trigger type or task (`SpendRecord`) | usage row, cost entry |
+| Run spend | The spend of every model call inside one Run, fallbacks, subagents and models tools call included; written as each call finishes | run cost |
+| Background spend | The spend of model calls DAIV makes outside a Run for a Session or repository: titles, run classification, memory extraction and consolidation (`SpendTask`) | overhead |
+| Prompt cache hit rate | Cache-read tokens over all input tokens, over records whose provider reported cache use; weighted by tokens, not calls | cache ratio |
+| Cache saving | The estimated cost cache reads avoided: cache-read tokens times the gap between the model's list input and cache-read prices | cache discount |

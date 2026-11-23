@@ -4,6 +4,7 @@ import uuid
 from unittest.mock import Mock, patch
 
 import pytest
+from asgiref.sync import sync_to_async
 from mcp_connectors.models import MCPServer
 from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.admission import (
@@ -22,7 +23,7 @@ from sessions.services import RepoTarget
 
 from codebase.authorization import REPO_ACCESS_DENIED_MESSAGE, RepositoryAccessDenied
 from core.site_settings import site_settings
-from tests.unit_tests.mcp_connectors.helpers import only_servers
+from tests.unit_tests.mcp_connectors.helpers import make_server, only_servers
 
 _DENIED = RepositoryAccessDenied(["a/b"])
 
@@ -136,6 +137,84 @@ async def test_aadmit_resolves_each_target_when_no_environment_is_named(member_u
     )
 
     assert [t.sandbox_environment_id for t in admission.targets] == [str(user_env.id), str(global_default.id)]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aadmit_resolves_no_ones_environments_for_a_caller_acting_as_no_one(
+    member_user, user_env, global_default
+):
+    admission = await aadmit(
+        user=None,
+        repos=[RepoTarget(repo_id="a/b")],
+        agent_model=None,
+        agent_thinking_level=None,
+        environment=None,
+        access_proven=True,
+    )
+
+    assert [t.sandbox_environment_id for t in admission.targets] == [str(global_default.id)]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aadmit_refuses_a_personal_environment_by_name_for_a_caller_acting_as_no_one(member_user, user_env):
+    with pytest.raises(UnknownEnvironmentError):
+        await aadmit(
+            user=None,
+            repos=[RepoTarget(repo_id="a/b")],
+            agent_model=None,
+            agent_thinking_level=None,
+            environment="mine",
+            access_proven=True,
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aadmit_refuses_a_personal_mcp_server_for_a_caller_acting_as_no_one(member_user, mcp_pool):
+    await sync_to_async(make_server)("mine", scope=MCPServer.Visibility.USER, user=member_user)
+
+    with pytest.raises(InvalidMcpOverridesError, match="mine"):
+        await aadmit(
+            user=None,
+            repos=[RepoTarget(repo_id="a/b")],
+            agent_model=None,
+            agent_thinking_level=None,
+            environment=None,
+            mcp_overrides={"mine": True},
+            access_proven=True,
+        )
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aadmit_with_access_proven_checks_only_the_catalog():
+    with (
+        patch("sessions.admission.assert_can_run", new=Mock(side_effect=_DENIED)) as can_run,
+        patch("sessions.admission.assert_catalogued", new=Mock(return_value=None)) as catalogued,
+    ):
+        admission = await aadmit(
+            user=None,
+            repos=[RepoTarget(repo_id="a/b")],
+            agent_model=None,
+            agent_thinking_level=None,
+            environment=None,
+            access_proven=True,
+        )
+
+    can_run.assert_not_called()
+    catalogued.assert_called_once_with(["a/b"])
+    assert [target.repo_id for target in admission.targets] == ["a/b"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_aadmit_with_access_proven_refuses_an_uncatalogued_repository():
+    with patch("sessions.admission.assert_catalogued", new=Mock(side_effect=_DENIED)), pytest.raises(RepoAccessError):
+        await aadmit(
+            user=None,
+            repos=[RepoTarget(repo_id="a/b")],
+            agent_model=None,
+            agent_thinking_level=None,
+            environment=None,
+            access_proven=True,
+        )
 
 
 @pytest.fixture

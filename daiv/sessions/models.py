@@ -17,7 +17,8 @@ from django.utils.translation import gettext_lazy as _
 
 from automation.agent.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.constants import INTERRUPTED_MESSAGE
-from core.models import ThinkingLevelChoices
+from core.models import ProviderFailureKind, ThinkingLevelChoices
+from core.provider_failures import failure_message
 from sessions.artifacts import ArtifactKind, artifact_kind
 from sessions.executor.result import parse_agent_result
 from sessions.managers import (
@@ -25,12 +26,14 @@ from sessions.managers import (
     RunArtifactManager,
     RunManager,
     SessionManager,
+    SpendRecordManager,
     ToolResultMediaManager,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from automation.agent.usage_tracking import LedgerEntry
     from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.sessions")
@@ -54,6 +57,11 @@ class RunStatus(models.TextChoices):
     @classmethod
     def terminal(cls) -> frozenset[str]:
         return frozenset({cls.SUCCESSFUL, cls.WAITING_INPUT, cls.FAILED})
+
+    @classmethod
+    def attention_order(cls) -> tuple[str, ...]:
+        """Statuses ordered by how much they need a person: waiting on them first, done last."""
+        return (cls.WAITING_INPUT, cls.RUNNING, cls.READY, cls.QUEUED, cls.FAILED, cls.SUCCESSFUL)
 
 
 class PublishStatus(models.TextChoices):
@@ -86,7 +94,7 @@ class SessionOrigin(models.TextChoices):
     API_JOB = "api_job", _("API Run")
     MCP_JOB = "mcp_job", _("MCP Run")
     SCHEDULE = "schedule", _("Scheduled Run")
-    UI_JOB = "ui_job", _("UI Run")
+    UI_JOB = "ui_job", _("Background Run")
     ISSUE_WEBHOOK = "issue_webhook", _("Issue Webhook")
     MR_WEBHOOK = "mr_webhook", _("MR/PR Webhook")
     PIPELINE_WEBHOOK = "pipeline_webhook", _("Pipeline Webhook")
@@ -317,6 +325,17 @@ def usage_field_updates(usage: dict, *, run_ref: object) -> dict[str, Any]:
     return updates
 
 
+def usage_supersedes(stored_total: int | None, usage_fields: dict[str, Any]) -> bool:
+    """Whether ``usage_fields`` cover more calls than a run's stored figures. Every writer reads one run's usage
+    handler, so the larger total is the later snapshot."""
+    return stored_total is None or (usage_fields.get("total_tokens") or 0) > stored_total
+
+
+def stored_usage_superseded_q(usage_fields: dict[str, Any]) -> models.Q:
+    """``usage_supersedes`` as a filter on ``Run`` rows, for a write that must not lose a later snapshot."""
+    return models.Q(total_tokens__isnull=True) | models.Q(total_tokens__lt=usage_fields.get("total_tokens") or 0)
+
+
 def agent_result_field_updates(result: AgentResult) -> dict[str, Any]:
     """Map an agent result to the ``Run`` fields it fills, leaving out the ones it has no value for.
 
@@ -409,6 +428,19 @@ class Run(models.Model):
     external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
     external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
     external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
+    acts_as_user = models.BooleanField(
+        _("acts as user"),
+        default=True,
+        help_text=_("Whether the run loads its user's personal tools and environments; false for CI identity runs."),
+    )
+    runs_alone = models.BooleanField(
+        _("runs alone"),
+        default=False,
+        help_text=_(
+            "Created for one job on a merge request: never a next run other events join, nor the session's one active "
+            "job run."
+        ),
+    )
     title = models.CharField(_("title"), max_length=120, blank=True, default="")
     batch_id = models.UUIDField(_("batch ID"), null=True, blank=True, db_index=True)
     continuation_of_batch_id = models.UUIDField(
@@ -465,6 +497,10 @@ class Run(models.Model):
     # Denormalized result / error / usage — copied verbatim from Activity.
     result_summary = models.TextField(_("result summary"), blank=True, default="")
     error_message = models.TextField(_("error message"), blank=True, default="")
+    failure_kind = models.CharField(
+        _("failure kind"), max_length=32, choices=ProviderFailureKind.choices, blank=True, default=""
+    )
+    failure_provider = models.CharField(_("failure provider"), max_length=32, blank=True, default="")
     code_changes = models.BooleanField(_("code changes"), default=False)
     publish_status = models.CharField(
         _("publish status"), max_length=16, choices=PublishStatus.choices, blank=True, default=""
@@ -524,8 +560,8 @@ class Run(models.Model):
         ]
         constraints = [
             # At most one active (READY or RUNNING) API/MCP/delegation run per session. QUEUED is
-            # intentionally outside the constraint so FIFO siblings can stack; webhook
-            # triggers share deterministic sessions and are intentionally excluded.
+            # intentionally outside the constraint so FIFO siblings can stack; webhook triggers and
+            # merge request jobs (``runs_alone``) share deterministic sessions and are intentionally excluded.
             # Exact port of activity_one_active_per_thread. The status/trigger_type
             # literals here must equal {RunStatus.READY, RunStatus.RUNNING} and
             # {SessionOrigin.API_JOB, SessionOrigin.MCP_JOB, SessionOrigin.DELEGATED_JOB,
@@ -536,6 +572,7 @@ class Run(models.Model):
                 condition=models.Q(
                     status__in=["READY", "RUNNING"],
                     trigger_type__in=["api_job", "mcp_job", "delegated_job", "delegation_resume"],
+                    runs_alone=False,
                 ),
                 name="run_one_active_per_session",
             ),
@@ -543,12 +580,16 @@ class Run(models.Model):
             # linked. The literals must equal ``inbox.kinds.INBOX_TRIGGERS``.
             models.UniqueConstraint(
                 fields=["session", "ref", "user"],
-                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=False),
+                condition=models.Q(
+                    status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=False, runs_alone=False
+                ),
                 name="run_one_next_run_per_user",
             ),
             models.UniqueConstraint(
                 fields=["session", "ref", "external_provider", "external_uid"],
-                condition=models.Q(status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=True),
+                condition=models.Q(
+                    status="QUEUED", trigger_type__in=_INBOX_TRIGGER_LITERALS, user__isnull=True, runs_alone=False
+                ),
                 name="run_one_next_run_per_account",
             ),
             # The insert of a batch's continuation is the election when several legs finish at once; a FAILED one
@@ -575,6 +616,11 @@ class Run(models.Model):
     def __str__(self) -> str:
         return f"{self.get_trigger_type_display()} on {self.repo_id} ({self.status})"
 
+    def provider_failure_message(self) -> str | None:
+        if self.failure_kind not in ProviderFailureKind.values:
+            return None
+        return failure_message(self.failure_kind, self.failure_provider)
+
     def primary_merge_request_url(self) -> str | None:
         """The main repository's merge request URL, else the first one the run opened in another repository."""
         return self.merge_request_web_url or next((link["url"] for link in self.merge_request_links()), None)
@@ -587,6 +633,11 @@ class Run(models.Model):
         if not links and self.merge_request_web_url:
             links = [{"repo_id": self.repo_id, "url": self.merge_request_web_url}]
         return links
+
+    @property
+    def acting_user_id(self) -> int | None:
+        """The DAIV user the run acts as: its ``user``, unless it is only attributed to them."""
+        return self.user_id if self.acts_as_user else None
 
     @property
     def effective_muted(self) -> bool:
@@ -687,8 +738,9 @@ class Run(models.Model):
                 self.question = question
                 changed.append("question")
 
-            if (usage := parsed["usage"]) and self.input_tokens is None:
-                for field, value in usage_field_updates(usage, run_ref=self.pk).items():
+            usage_fields = usage_field_updates(parsed["usage"], run_ref=self.pk) if parsed["usage"] else {}
+            if usage_fields and usage_supersedes(self.total_tokens, usage_fields):
+                for field, value in usage_fields.items():
                     setattr(self, field, value)
                     changed.append(field)
 
@@ -826,8 +878,13 @@ class MergeRequestState(models.TextChoices):
     """What an MR pill shows for a merge request: ``MergeRequestOwnership.state``, ``open`` for one DAIV doesn't own."""
 
     OPEN = "open", _("Open")
+    DRAFT = "draft", _("Draft")
     MERGED = "merged", _("Merged")
     CLOSED = "closed", _("Closed")
+
+    @property
+    def is_open(self) -> bool:
+        return self in (MergeRequestState.OPEN, MergeRequestState.DRAFT)
 
 
 class MergeRequestOwnership(models.Model):
@@ -863,6 +920,7 @@ class MergeRequestOwnership(models.Model):
     last_pipeline_id = models.BigIntegerField(_("last pipeline judged"), null=True, blank=True)
     last_pipeline_status = models.CharField(_("last pipeline status judged"), max_length=32, blank=True, default="")
     last_reconciled_at = models.DateTimeField(_("CI last re-read"), null=True, blank=True)
+    draft = models.BooleanField(_("draft"), default=False)
     merged = models.BooleanField(_("merged"), default=False)
     closed_at = models.DateTimeField(_("closed at"), null=True, blank=True)
     created_at = models.DateTimeField(_("created at"), default=timezone.now, editable=False)
@@ -890,7 +948,7 @@ class MergeRequestOwnership(models.Model):
     @property
     def state(self) -> MergeRequestState:
         if self.closed_at is None:
-            return MergeRequestState.OPEN
+            return MergeRequestState.DRAFT if self.draft else MergeRequestState.OPEN
         return MergeRequestState.MERGED if self.merged else MergeRequestState.CLOSED
 
     @classmethod
@@ -903,7 +961,7 @@ class MergeRequestOwnership(models.Model):
             (row.repo_id, row.merge_request_iid): row.state
             for row in cls.objects.filter(
                 reduce(or_, (models.Q(repo_id=repo_id, merge_request_iid=iid) for repo_id, iid in keys))
-            ).only("repo_id", "merge_request_iid", "merged", "closed_at")
+            ).only("repo_id", "merge_request_iid", "draft", "merged", "closed_at")
         }
         return {key: owned.get(key, MergeRequestState.OPEN) for key in keys}
 
@@ -945,6 +1003,7 @@ class EventKind(models.TextChoices):
     DELEGATED_CI_OUTCOME = "delegated_ci_outcome", _("Delegated session CI")
     NOTICE = "notice", _("Notice")
     LEG_FOLLOW_UP = "leg_follow_up", _("Leg follow-up")
+    MERGE_REQUEST_JOB = "merge_request_job", _("Merge request job")
 
 
 class EventState(models.TextChoices):
@@ -1072,3 +1131,131 @@ class InboxEvent(models.Model):
             f"{prefix}repo_id": "",
             f"{prefix}session__repo_id": repo_id,
         })
+
+
+class SpendTask(models.TextChoices):
+    """The model calls DAIV makes outside a run, on behalf of a session or repository."""
+
+    TITLE = "title", _("Session titles")
+    RUN_CLASSIFICATION = "run_classification", _("Run classification")
+    MEMORY_EXTRACTION = "memory_extraction", _("Memory extraction")
+    MEMORY_CONSOLIDATION = "memory_consolidation", _("Memory consolidation")
+
+
+class SpendRecord(models.Model):
+    """One model's spend through one provider, for one run (run spend) or one background task call.
+
+    Run spend carries the run's ``trigger_type`` and is rewritten as each call finishes; background spend
+    carries a ``task`` and is written once. The person is ``user``, else the git platform account in the
+    ``external_*`` fields, else the deleted user whose id and name were stamped as it was deleted, else DAIV.
+    One row per run has ``counts_run``, so runs are counted with a plain sum. Rows outlive their run and
+    session, so past totals never move.
+    """
+
+    occurred_at = models.DateTimeField(_("occurred at"))
+    run = models.ForeignKey(
+        Run, on_delete=models.SET_NULL, null=True, blank=True, related_name="spend_records", verbose_name=_("run")
+    )
+    session = models.ForeignKey(
+        Session,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        related_name="spend_records",
+        verbose_name=_("session"),
+    )
+    repo_id = models.CharField(_("repository"), max_length=255, blank=True, default="")
+    trigger_type = models.CharField(
+        _("trigger type"), max_length=20, choices=SessionOrigin.choices, blank=True, default=""
+    )
+    task = models.CharField(_("background task"), max_length=24, choices=SpendTask.choices, blank=True, default="")
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_index=False,
+        related_name="spend_records",
+        verbose_name=_("user"),
+    )
+    external_provider = models.CharField(_("external provider"), max_length=32, blank=True, default="")
+    external_uid = models.CharField(_("external account ID"), max_length=191, blank=True, default="")
+    external_username = models.CharField(_("external username"), max_length=255, blank=True, default="")
+    person_name = models.CharField(_("person name"), max_length=255, blank=True, default="")
+    deleted_user_id = models.BigIntegerField(_("deleted user ID"), null=True, blank=True)
+    model = models.CharField(_("model"), max_length=255)
+    provider_slug = models.CharField(_("provider"), max_length=32, blank=True, default="")
+    provider_name = models.CharField(_("provider name"), max_length=64, blank=True, default="")
+    input_tokens = models.PositiveBigIntegerField(_("input tokens"), default=0)
+    cache_read_tokens = models.PositiveBigIntegerField(_("cache read tokens"), default=0)
+    cache_write_tokens = models.PositiveBigIntegerField(_("cache write tokens"), default=0)
+    output_tokens = models.PositiveBigIntegerField(_("output tokens"), default=0)
+    reasoning_tokens = models.PositiveBigIntegerField(_("reasoning tokens"), default=0)
+    total_tokens = models.PositiveBigIntegerField(_("total tokens"), default=0)
+    cost_usd = models.DecimalField(_("cost (USD)"), max_digits=12, decimal_places=6, default=Decimal(0))
+    reported_cost_usd = models.DecimalField(
+        _("reported cost (USD)"), max_digits=12, decimal_places=6, null=True, blank=True
+    )
+    cost_reported = models.BooleanField(_("cost reported"), default=False)
+    unpriced_tokens = models.PositiveBigIntegerField(_("unpriced tokens"), default=0)
+    cache_reported = models.BooleanField(_("cache reported"), default=False)
+    cache_saving_usd = models.DecimalField(_("cache saving (USD)"), max_digits=12, decimal_places=6, default=Decimal(0))
+    cache_unpriced_tokens = models.PositiveBigIntegerField(_("cache unpriced tokens"), default=0)
+    counts_run = models.BooleanField(_("counts its run"), default=False)
+    updated_at = models.DateTimeField(_("updated at"), auto_now=True)
+
+    objects = SpendRecordManager()
+
+    NO_PERSON = {"user_id": None, "external_provider": "", "external_uid": "", "external_username": ""}
+
+    class Meta:
+        verbose_name = _("Spend record")
+        verbose_name_plural = _("Spend records")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["run", "provider_slug", "model"],
+                condition=models.Q(task="", run__isnull=False),
+                name="spend_run_model_uniq",
+            ),
+            models.CheckConstraint(condition=models.Q(task="") ^ models.Q(trigger_type=""), name="spend_kind_check"),
+        ]
+        indexes = [
+            models.Index(fields=["occurred_at"], name="spend_occurred_idx"),
+            models.Index(fields=["user", "occurred_at"], name="spend_user_occurred_idx"),
+            models.Index(fields=["repo_id", "occurred_at"], name="spend_repo_occurred_idx"),
+            models.Index(fields=["session", "occurred_at"], name="spend_session_occurred_idx"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.model} {self.cost_usd} ({self.task or self.trigger_type})"
+
+    @staticmethod
+    def person_fields(source: Run | Session) -> dict[str, Any]:
+        """The person fields of a ``Run`` or ``Session``."""
+        return {
+            "user_id": source.user_id,
+            "external_provider": source.external_provider,
+            "external_uid": source.external_uid,
+            "external_username": source.external_username,
+        }
+
+    @staticmethod
+    def entry_fields(entry: LedgerEntry) -> dict[str, Any]:
+        """A ledger entry's figures as ``SpendRecord`` fields."""
+        return {
+            "provider_name": entry.provider_name,
+            "input_tokens": entry.input_tokens,
+            "cache_read_tokens": entry.cache_read_tokens,
+            "cache_write_tokens": entry.cache_write_tokens,
+            "output_tokens": entry.output_tokens,
+            "reasoning_tokens": entry.reasoning_tokens,
+            "total_tokens": entry.total_tokens,
+            "cost_usd": entry.cost,
+            "reported_cost_usd": entry.reported_cost,
+            "cost_reported": entry.cost_reported,
+            "unpriced_tokens": entry.unpriced_tokens,
+            "cache_reported": entry.cache_reported,
+            "cache_saving_usd": entry.cache_saving,
+            "cache_unpriced_tokens": entry.cache_unpriced_tokens,
+        }

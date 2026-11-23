@@ -12,17 +12,35 @@ from django.utils import timezone
 
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
+from sessions.executor.lock import DeadWorkerError
 from sessions.management.commands.sync_stuck_runs import NEVER_QUEUED_AFTER
 from sessions.models import EventState, Run, RunStatus, Session, SessionArchive, SessionOrigin
 from sessions.queue import ENQUEUE_FAILED_PREFIX
 
-from tests.unit_tests.sessions.conftest import create_archive
+from core import worker_liveness
+from tests.unit_tests.sessions.conftest import create_archive, make_task_result
 from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
 def _make_session(*, thread_id: str | None = None) -> Session:
     return Session.objects.create(
         thread_id=thread_id or str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="group/project"
+    )
+
+
+def _task_backed_run(trigger: str, *, started_ago: timedelta, heartbeat_ago: timedelta) -> Run:
+    """A RUNNING run of ``trigger`` and its RUNNING task, claimed by a worker that never said it is alive."""
+    now = timezone.now()
+    session = Session.objects.create(
+        thread_id=str(uuid.uuid4()), origin=trigger, repo_id="group/project", last_active_at=now - heartbeat_ago
+    )
+    return Run.objects.create(
+        session=session,
+        trigger_type=trigger,
+        repo_id="group/project",
+        status=RunStatus.RUNNING,
+        started_at=now - started_ago,
+        task_result=make_task_result(status="RUNNING", started_at=now - started_ago, worker_ids=[str(uuid.uuid4())]),
     )
 
 
@@ -180,43 +198,81 @@ class TestSyncStuckRunsCommand:
         assert run.status == RunStatus.RUNNING
 
     @pytest.mark.parametrize(
-        ("started_ago", "heartbeat_ago", "status"),
+        ("started_ago", "heartbeat_ago", "worker_alive", "status"),
         [
-            (timedelta(hours=1), timedelta(hours=1), RunStatus.FAILED),
-            (timedelta(hours=1), timedelta(minutes=1), RunStatus.RUNNING),
-            (timedelta(minutes=1), timedelta(hours=1), RunStatus.RUNNING),
+            (timedelta(hours=1), timedelta(hours=1), False, RunStatus.FAILED),
+            (timedelta(hours=1), timedelta(minutes=1), False, RunStatus.RUNNING),
+            (timedelta(minutes=1), timedelta(hours=1), False, RunStatus.RUNNING),
+            (timedelta(hours=1), timedelta(hours=1), True, RunStatus.RUNNING),
         ],
-        ids=["dead", "heartbeating", "just-started-on-an-idle-session"],
+        ids=["dead", "heartbeating", "just-started-on-an-idle-session", "stalled-on-a-live-worker"],
     )
-    @pytest.mark.parametrize(
-        "trigger", [SessionOrigin.API_JOB, SessionOrigin.CHAT, SessionOrigin.MR_WEBHOOK, SessionOrigin.PIPELINE_WEBHOOK]
-    )
+    @pytest.mark.parametrize("trigger", list(SessionOrigin))
     def test_a_task_backed_run_a_worker_crash_left_running_is_failed_once_its_heartbeat_is_stale(
-        self, create_db_task_result, trigger, started_ago, heartbeat_ago, status
+        self, trigger, started_ago, heartbeat_ago, worker_alive, status
     ):
-        """Its task stays RUNNING for good: a job run keeps its session's one active job place, an inbox run shows
-        RUNNING with the events it took never settled."""
-        now = timezone.now()
-        session = Session.objects.create(
-            thread_id=str(uuid.uuid4()),
-            origin=SessionOrigin.API_JOB,
-            repo_id="group/project",
-            last_active_at=now - heartbeat_ago,
-        )
-        task = create_db_task_result(status="RUNNING", started_at=now - started_ago)
-        run = Run.objects.create(
-            session=session,
-            trigger_type=trigger,
-            repo_id="group/project",
-            status=RunStatus.RUNNING,
-            started_at=now - started_ago,
-            task_result=task,
-        )
+        """Its task stays RUNNING for good unless the sweep fails it too: a job run keeps its session's one active job
+        place, an inbox run shows RUNNING with the events it took never settled, and a dedup task blocks a repeat."""
+        run = _task_backed_run(trigger, started_ago=started_ago, heartbeat_ago=heartbeat_ago)
+        if worker_alive:
+            worker_liveness.refresh(run.task_result.worker_ids[-1])
 
         call_command("sync_stuck_runs")
 
         run.refresh_from_db()
-        assert run.status == status
+        run.task_result.refresh_from_db()
+        assert (run.status, run.task_result.status) == (status, status)
+
+    @pytest.mark.parametrize(
+        ("run_status", "worker_alive", "task_status"),
+        [
+            (None, False, "FAILED"),
+            (None, True, "RUNNING"),
+            (RunStatus.FAILED, False, "FAILED"),
+            (RunStatus.RUNNING, False, "RUNNING"),
+        ],
+        ids=["unlinked-dead-worker", "unlinked-live-worker", "finished-run-dead-worker", "unfinished-run"],
+    )
+    def test_a_running_task_whose_worker_is_gone_is_failed_unless_an_unfinished_run_stands_for_it(
+        self, caplog, create_db_task_result, run_status, worker_alive, task_status
+    ):
+        worker_id = str(uuid.uuid4())
+        task = create_db_task_result(status="RUNNING", started_at=timezone.now(), worker_ids=[worker_id])
+        if run_status is not None:
+            Run.objects.create(
+                session=_make_session(),
+                trigger_type=SessionOrigin.ISSUE_WEBHOOK,
+                repo_id="group/project",
+                status=run_status,
+                started_at=timezone.now(),
+                task_result=task,
+            )
+        if worker_alive:
+            worker_liveness.refresh(worker_id)
+
+        with caplog.at_level("INFO", logger="daiv.sessions"):
+            call_command("sync_stuck_runs")
+
+        task.refresh_from_db()
+        assert task.status == task_status
+        failed = int(task_status == "FAILED")
+        assert any(f"dead-worker tasks failed: {failed}" in rec.message for rec in caplog.records)
+
+    def test_a_dead_runs_task_finished_meanwhile_keeps_its_outcome(self):
+        run = _task_backed_run(SessionOrigin.SCHEDULE, started_ago=timedelta(hours=1), heartbeat_ago=timedelta(hours=1))
+        task = run.task_result
+        finish = Run.objects.finish
+
+        def _task_succeeds_then_finish(*args, **kwargs):
+            type(task).objects.filter(pk=task.pk).update(status="SUCCESSFUL")
+            return finish(*args, **kwargs)
+
+        with patch.object(Run.objects, "finish", side_effect=_task_succeeds_then_finish):
+            call_command("sync_stuck_runs")
+
+        run.refresh_from_db()
+        task.refresh_from_db()
+        assert (run.status, task.status) == (RunStatus.FAILED, "SUCCESSFUL")
 
     def test_a_dead_inbox_run_ends_putting_its_events_back_and_draining_its_session(
         self, caplog, create_db_task_result
@@ -242,14 +298,15 @@ class TestSyncStuckRunsCommand:
         ):
             call_command("sync_stuck_runs")
 
-        dead.refresh_from_db()
+        dead = Run.objects.select_related("task_result").get(pk=dead.pk)
         failure.refresh_from_db()
         assert dead.status == RunStatus.FAILED
+        assert dead.task_result.task_result.errors[0].exception_class is DeadWorkerError
         assert failure.attempts == 1
         rerun = Run.objects.get(session=session, status=RunStatus.READY)
         assert (failure.state, failure.run_id) == (EventState.TAKEN, rerun.pk)
         assert Session.objects.get(pk=session.pk).active_run_id == str(rerun.pk)
-        assert any("dead inbox runs reaped: 1" in rec.message for rec in caplog.records)
+        assert any("dead task runs reaped: 1" in rec.message for rec in caplog.records)
 
     def test_a_ready_run_never_queued_is_failed_and_releases_its_sessions_queue(self, create_db_task_result):
         session = _make_session()

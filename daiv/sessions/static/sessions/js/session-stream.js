@@ -2,9 +2,11 @@
  * Alpine.js component for real-time session/run status updates via SSE.
  *
  * sessionStream (list page) — tracks multiple runs in place:
- *   dotClass(id, fallback)    → object toggling status-dot-{variant} classes
- *   statusClass(id, fallback) → object toggling status-badge-{variant} classes
+ *   dotClass(id, fallback)    → object toggling status-dot-{variant} classes, hidden unless running or waiting
+ *   rowClass(id, fallback)    → object toggling the row's session-row--failed edge
  *   statusLabel(id, fallback) → human-readable label
+ *
+ * A frame that changes the status a row shows dispatches `sessions:status-changed` on window.
  *
  * Object class maps (rather than a single string) are required so Alpine
  * removes the previously rendered variant class when the status transitions —
@@ -55,6 +57,7 @@ document.addEventListener("alpine:init", () => {
             // already show the correct status (server-rendered fallback), so this only
             // restores LIVE updates for the new page. Ids are read from the swapped fragment.
             const el = document.getElementById("session-in-flight");
+            this.updates = {};
             if (this._source) this._source.close();
             this._source = null;
             // Reset the reconnect budget: `_maxReconnects` caps stream-timeout retries WITHIN
@@ -92,7 +95,12 @@ document.addEventListener("alpine:init", () => {
                     }
                     return;
                 }
+                const row = document.querySelector(`[data-run-id="${data.id}"]`);
+                const before = this.updates[data.id]?.status ?? row?.dataset.runStatus;
                 this.updates[data.id] = data;
+                if (row && before !== data.status) {
+                    window.dispatchEvent(new CustomEvent("sessions:status-changed", { detail: { id: data.id, status: data.status } }));
+                }
             };
             source.onerror = () => {
                 // Let EventSource auto-reconnect on transient drops; only warn once
@@ -102,11 +110,12 @@ document.addEventListener("alpine:init", () => {
                 }
             };
         },
-        statusClass(id, fallback) {
-            return variantClassMap("status-badge-", statusVariantFor(this.updates[id]?.status || fallback));
-        },
         dotClass(id, fallback) {
-            return variantClassMap("status-dot-", statusVariantFor(this.updates[id]?.status || fallback));
+            const variant = statusVariantFor(this.updates[id]?.status || fallback);
+            return { ...variantClassMap("status-dot-", variant), hidden: variant !== "running" && variant !== "waiting" };
+        },
+        rowClass(id, fallback) {
+            return { "session-row--failed": (this.updates[id]?.status || fallback) === "FAILED" };
         },
         statusLabel(id, fallback) {
             const update = this.updates[id];

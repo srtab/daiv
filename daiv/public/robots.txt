@@ -1,6 +1,9 @@
 User-agent: *
 Allow: /
+Allow: /accounts/login/
 Disallow: /accounts/
 Disallow: /dashboard/
 Disallow: /api/
 Disallow: /-/
+
+Sitemap: https://daivagent.com/sitemap.xml

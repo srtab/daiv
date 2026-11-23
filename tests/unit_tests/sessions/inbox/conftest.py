@@ -1,13 +1,22 @@
 import uuid
 from datetime import timedelta
 from itertools import count
+from unittest.mock import patch
 
 from django.utils import timezone
 
+import pytest
 from sessions.inbox import kinds
+from sessions.inbox.drain import Drain
 from sessions.models import EventKind, EventState, InboxEvent, Session, SessionOrigin
 
 _clock = count()
+
+
+@pytest.fixture
+def drain():
+    with patch.object(Drain, "start_logged", autospec=True) as drain:
+        yield drain
 
 
 def ci_payload(pipeline_id: int = 830724, *, sha: str = "e96f1f77aa", status: str = "failed", jobs=("build",)) -> dict:
@@ -102,3 +111,21 @@ def post_leg_follow_up(
     return LegFollowUps(Leg(session)).post(
         prompt=prompt, batch_id=batch_id or uuid.uuid4(), user=user, muted=muted, references=references or []
     )
+
+
+def post_merge_request_job(ownership, *, request_key: str = "job:1", **fields):
+    """A job on the merge request ``ownership`` names, from an unlinked CI actor unless ``fields`` say otherwise;
+    ``fields`` are the ``Caller``'s and the ``Request``'s, a ``sandbox_environment_id`` one the caller named.
+    Returns its run. SYNC ONLY."""
+    from sessions.inbox.merge_request_jobs import MergeRequestJobs
+    from sessions.merge_request_runs.starter import Caller, Request
+
+    person = {"user": None, "username": "pusher", "provider": "gitlab", "uid": "9", "acts_as_user": False}
+    person |= {name: fields.pop(name) for name in list(fields) if name in person}
+    request = Request(
+        **{"prompt": "/code-review", "trigger_type": SessionOrigin.API_JOB, "request_key": request_key}
+        | fields
+        | {"references": tuple(fields.get("references", ())), "environment_named": "sandbox_environment_id" in fields}
+    )
+    jobs = MergeRequestJobs(ownership.session_id, ownership.repo_id, ownership.merge_request_iid)
+    return jobs.post(Caller(**person), request, ref=ownership.source_branch)

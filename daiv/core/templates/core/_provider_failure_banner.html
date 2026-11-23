@@ -1,0 +1,29 @@
+{% load i18n icon_tags %}
+{% if provider_failures %}
+<div class="shrink-0 px-4 pt-4 sm:px-(--app-content-gutter)">
+  <div class="alert-error" role="alert">
+    {% icon "exclamation-triangle" "alert-error__icon" %}
+    <div class="min-w-0">
+      {% for failure in provider_failures %}
+      {% with provider=failure.display_name model=failure.failure_model since=failure.failing_since|date:"M j, H:i T" %}
+      {% if failure.failure_kind == "out_of_credits" %}
+      <p class="alert-error__title break-words text-sm {% if not forloop.first %}mt-2{% endif %}">
+        {% blocktranslate %}{{ provider }} can't cover requests to {{ model }}: out of credits since {{ since }}. Runs that use it are failing, or falling back to the fallback model if one is set.{% endblocktranslate %}
+      </p>
+      {% elif failure.failure_kind == "spend_limit_reached" %}
+      <p class="alert-error__title break-words text-sm {% if not forloop.first %}mt-2{% endif %}">
+        {% blocktranslate %}DAIV's {{ provider }} key has hit its spending limit since {{ since }}. Runs that use it are failing, or falling back to the fallback model if one is set.{% endblocktranslate %}
+      </p>
+      {% elif failure.failure_kind == "auth_failed" %}
+      <p class="alert-error__title break-words text-sm {% if not forloop.first %}mt-2{% endif %}">
+        {% blocktranslate %}{{ provider }} has been rejecting DAIV's API key since {{ since }}. Runs that use it are failing, or falling back to the fallback model if one is set.{% endblocktranslate %}
+      </p>
+      {% endif %}
+      {% endwith %}
+      {% endfor %}
+      <p class="alert-error__body mt-2 break-words text-sm">{% translate "This clears on the provider's next successful request, when you save the provider settings, or after 24 hours without a new failure." %}</p>
+      <a href="{% url 'site_configuration' group_key='providers' %}" class="mt-2 inline-block text-sm font-medium text-red-100 underline underline-offset-2 hover:text-white">{% translate "Open provider settings" %}</a>
+    </div>
+  </div>
+</div>
+{% endif %}

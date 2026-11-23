@@ -110,6 +110,17 @@ class LegFollowUpPayload(TypedDict):
     muted: NotRequired[bool]
 
 
+class MergeRequestJobPayload(TypedDict):
+    prompt: str
+    trigger_type: str
+    agent_model: NotRequired[str]
+    agent_thinking_level: NotRequired[str]
+    muted: NotRequired[bool]
+    references: NotRequired[list[dict[str, Any]]]
+    mcp_switches: NotRequired[dict[str, bool]]
+    sandbox_environment_id: NotRequired[str]
+
+
 PAYLOADS: dict[str, type] = {
     EventKind.CHAT_MESSAGE: ChatMessagePayload,
     EventKind.MENTION: CommentPayload,
@@ -126,6 +137,7 @@ PAYLOADS: dict[str, type] = {
     EventKind.DELEGATED_CI_OUTCOME: DelegatedCiOutcomePayload,
     EventKind.NOTICE: NoticePayload,
     EventKind.LEG_FOLLOW_UP: LegFollowUpPayload,
+    EventKind.MERGE_REQUEST_JOB: MergeRequestJobPayload,
 }
 
 #: Waking kinds, highest precedence first: the run that takes several gets the trigger type of the first (R6).
@@ -134,6 +146,7 @@ PRECEDENCE: dict[str, int] = {
     EventKind.MENTION: 2,
     EventKind.FOLLOW_UP_JOB: 3,
     EventKind.LEG_FOLLOW_UP: 3,
+    EventKind.MERGE_REQUEST_JOB: 3,
     EventKind.DELEGATION_FINISHED: 4,
     EventKind.CI_FAILED: 5,
 }
@@ -143,7 +156,15 @@ WAKING_KINDS = frozenset(PRECEDENCE)
 GATED_KINDS = frozenset({EventKind.CI_FAILED, EventKind.DELEGATION_FINISHED})
 
 #: Waking kinds a person asked for; their words are the run's request, and their author may start it.
-PERSON_KINDS = frozenset({EventKind.CHAT_MESSAGE, EventKind.MENTION, EventKind.FOLLOW_UP_JOB})
+PERSON_KINDS = frozenset({
+    EventKind.CHAT_MESSAGE,
+    EventKind.MENTION,
+    EventKind.FOLLOW_UP_JOB,
+    EventKind.MERGE_REQUEST_JOB,
+})
+
+#: Kinds posted with a QUEUED run of their own, which only they run and whose end settles them, never retried.
+OWN_RUN_KINDS = frozenset({EventKind.LEG_FOLLOW_UP, EventKind.MERGE_REQUEST_JOB})
 
 _TRIGGERS: dict[str, str] = {
     EventKind.CHAT_MESSAGE: SessionOrigin.CHAT,
@@ -189,7 +210,7 @@ class EventContent:
         with, never a next run, so its trigger is outside ``INBOX_TRIGGERS``."""
         if self.kind == EventKind.LEG_FOLLOW_UP:
             return SessionOrigin.DELEGATED_JOB
-        if self.kind == EventKind.FOLLOW_UP_JOB:
+        if self.kind in (EventKind.FOLLOW_UP_JOB, EventKind.MERGE_REQUEST_JOB):
             trigger = self.payload.get("trigger_type")
             return trigger if trigger in _JOB_TRIGGERS else SessionOrigin.API_JOB
         if self.kind not in _TRIGGERS:

@@ -1,0 +1,7 @@
+{% load i18n %}
+{% include "sessions/_filter_options.html" %}
+{% if not options %}
+<p class="filter-menu__note">{% translate "No matches." %}</p>
+{% elif more %}
+<p class="filter-menu__note">{% blocktranslate %}Showing the {{ limit }} most recent. Type to find others.{% endblocktranslate %}</p>
+{% endif %}

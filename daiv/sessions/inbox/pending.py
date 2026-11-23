@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
+from sessions.inbox.kinds import OWN_RUN_KINDS
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.requester import Requester
 from sessions.live.notify import session_changed
-from sessions.models import EventKind, EventState, InboxEvent
+from sessions.models import EventState, InboxEvent
 
 if TYPE_CHECKING:
     import uuid
@@ -72,7 +73,7 @@ class PendingEvents:
         InboxEvent.objects.filter(pk__in=[event.pk for event in moved if not event.repo_id]).update(
             ref=session.ref, updated_at=timezone.now()
         )
-        released = [event for event in moved if event.run_id not in kept and event.kind != EventKind.LEG_FOLLOW_UP]
+        released = [event for event in moved if event.run_id not in kept and event.kind not in OWN_RUN_KINDS]
         InboxEvent.objects.filter(pk__in=[event.pk for event in released]).update(run=None, updated_at=timezone.now())
         session_changed(session.thread_id)
         for event in moved:

@@ -1,0 +1,188 @@
+# Research: Merge Request Automations
+
+Phase 0 of [plan.md](plan.md). Each decision names what was chosen, why, and what was rejected. Paths are under `daiv/` unless they start with `docs/`, `tests/` or `specs/`.
+
+The plan covers user stories 1 and 2 only. The decisions for repository automations (stories 3 and 4), R7–R14 in this branch's first commit `1b15a6c93`, are deferred with them.
+
+## R1. A job on a merge request reuses the two mention paths
+
+**Decision**: FR-006 says a job runs where a mention by its caller would. DAIV already has two paths for a mention, and the job uses whichever one a mention would take:
+
+- **No DAIV session owns the merge request:** the direct path. Today this is `webhooks/dispatch.py` `dispatch_mr_comment_run` and `_start_run`, then `webhooks/tasks.py` `address_mr_comments_task`, then `webhooks/managers/review_addressor.py`. The run goes into the merge request's own session (`sessions/ids.py` `compute_thread_id`, scope `MERGE_REQUEST`), with `Scope.MERGE_REQUEST` and the `MergeRequest` in `RuntimeCtx`, and its final message is posted on the merge request (`_on_success`, `review_addressor.py:123-132`).
+- **A DAIV session owns it:** an inbox event in the owning session, which the drain turns into a run acting as the requester. The reply is posted on the merge request (`sessions/inbox/complete.py` `_reply_to_mentions`).
+
+The direct path moves from `webhooks` into a new `sessions/merge_request_runs/` package, so that `jobs`, `mcp_api` and `webhooks` can all call it. Trigger apps cannot import each other ([layering](../../constitutions/architecture/layering.md) layer 11). Everything that moves imports only from `sessions` or below: `Author`, `Mention`, `_start_run`, `_post_comment`, `_reply_archived`, `_fetch_source_branch`, the owned-versus-unowned branching of `dispatch_mr_comment_run`, `address_mr_comments_task`, `managers/review_addressor.py` and `managers/base.py`. `webhooks/dispatch.py` keeps the issue paths and calls the moved service for merge request mentions.
+
+The moved task registers under a new path. `webhooks/tasks.py` re-exports it for one release, so task rows already queued under `webhooks.tasks.address_mr_comments_task` still resolve. `jobs/tasks.py` re-exports `run_job_task` the same way. This is an import from a higher layer into a lower one, so it needs no `ignore_imports` line.
+
+**Rationale**: "Where a mention would run" is exactly what these two paths already do: the session, the lock, the merge request context the code-review skill reads as a review on the merge request, the reply, the archived-session reply and the merged-merge-request guard. Reusing them guarantees the parity FR-006 asks for.
+
+**Alternatives rejected**:
+- *Route every merge-request-targeted job through the inbox, including on merge requests no session owns.* The run would then go through the inbox (`Scope.GLOBAL`, with the merge request found from the branch by `GitMiddleware`) while mentions on the same session still take the direct path. One session would have two execution paths, and mentions and jobs on the same merge request would behave differently.
+- *Duplicate the direct path in `jobs`.* That creates a second mechanism for one job (Principle II).
+
+## R2. Merge-request-targeted runs leave the one-active-run constraint
+
+**Decision**: Add `merge_request_iid__isnull=True` to the condition of `Run`'s `run_one_active_per_session` constraint (`sessions/models.py:557-563`). API and MCP runs on a merge request then behave like webhook runs, which share deterministic sessions and are already outside the constraint. The session slot (`sessions/executor/lock.py` `wait_for_slot`, one slot per session whatever the holder) still serialises them.
+
+**Rationale**: Two CI jobs on one merge request, a minute apart, must both run, one after the other. Under today's constraint the second `create_run` would raise `IntegrityError`. Job runs never set `merge_request_iid` today (`sessions/services.py:494`), so the condition changes nothing for existing runs.
+
+**Alternatives rejected**: *Answer the second job with `QUEUED` through the inbox*: that is R1's rejected mixed path. *A new trigger type outside the constraint*: it would split the "Started by" spend rows for API jobs in two.
+
+## R3. A new inbox event kind for a job on an owned merge request, with a run of its own
+
+**Decision**: Add `EventKind.MERGE_REQUEST_JOB` (wake) with the payload `{prompt, trigger_type, agent_model?, agent_thinking_level?, muted?, references?, mcp_switches?, sandbox_environment_id?}`; `acts_as_user` lives on its run. It follows the leg follow-up pattern (`sessions/inbox/leg_follow_ups.py`) rather than joining the requester's next run:
+- **Posting** (`sessions/inbox/merge_request_jobs.py`, `MergeRequestJobs.post`): the event and its own `QUEUED` run are created in one transaction, with the session row locked. Under that lock, an archived session or a merge request that is no longer open refuses the post, so the job lands in `failed` (R9).
+- **Requester:** the job's caller, or the token's triggering account (R5).
+- **Its run** carries what a direct-path run carries:
+  - the requester as its person, through `Caller.run_fields` (`user`, or `external_provider`, `external_uid` and `external_username`), so spend and token polling find it;
+  - `acts_as_user`, `muted`, the prompt and `merge_request_iid`;
+  - trigger type `API_JOB` or `MCP_JOB`, from the event's `source`;
+  - `runs_alone = True` (below).
+- **Kept apart from next runs:** a `QUEUED` run with an inbox trigger type and linked events is, to the inbox, the requester's next run for its branch. Without a marker the job's run would collide with the `run_one_next_run_per_user` and `run_one_next_run_per_account` constraints when the same person has another job or a next run on that branch. Other events would also join it, and the take could drop it. A new column, `Run.runs_alone`, marks it. Both constraints gain `runs_alone=False`, and `NextRuns.queued` leaves such runs out. Leg follow-ups don't need it, because their trigger, `delegated_job`, is not an inbox trigger.
+- **No subject:** the event has none, so the drain never supersedes one job with a newer one on the same merge request. Each job runs, as on the direct path.
+- **Taking:** the drain takes it alone, with the session's remembered events, and promotes its own run to `READY` (`RequestSplits.runs_alone`). `Drain.take`'s own-run step, written for `LEG_FOLLOW_UP` today, covers both kinds: each kind's class (`LegFollowUps`, `MergeRequestJobs`) gives its own `stop_reason`, `stop` and `settle_unstartable`.
+- **Stopping:** at take time, when its merge request was merged or closed meanwhile, or the session was archived, the drain stops it instead of running it (R9).
+- **Rendering** (`sessions/inbox/render.py`): the prompt as a request from the requester, with the same note `MENTION_REPLY_NOTE` carries: the final message is posted on the merge request.
+- **Reply** (`complete.py`): a `MERGE_REQUEST_JOB` event has no `discussion_id`, so its reply is a new top-level comment on the merge request. A failure after `MAX_EVENT_ATTEMPTS` posts the same "could not complete" note mentions get.
+
+**Rationale**:
+- A `MENTION` event is defined by a platform comment: it has a note id, a thread and a 👀 reaction. A job has none of these, and spend must show it as an API or MCP run, not a webhook one.
+- Each job needs a status of its own: one job can fail without starting (FR-004) while another on the same merge request runs. A run shared with other events can't report that. Leg follow-ups already solve this exact problem, and a job then runs as one turn, as it does on the direct path.
+
+**Alternatives rejected**:
+- *Reuse `MENTION` with empty note fields*: the reply code and the reaction both assume a comment exists.
+- *Join the requester's next run, as mentions do*: two jobs would share one `job_id`, and the drain could not fail one of them without failing the other.
+- *A trigger type of its own for the job's run, as leg follow-ups have*: it would split the "Started by" spend rows for API and MCP jobs, and lose which of the two started the run.
+- *Exclude runs with a `merge_request_iid` from the next-run constraints*: a mention's next run on an owned merge request sets it too, so mentions would lose their one-next-run rule.
+- *Tell the job's run apart by its event's kind*: the database constraints can't look at another table.
+
+## R4. CI identity tokens are verified with PyJWT against the platform's published keys
+
+**Decision**:
+- **Library:** add `pyjwt[crypto]` as a direct dependency. It is already in `uv.lock` at 2.15.1, pulled in by allauth, mcp and pygithub. `jwt.PyJWKClient` fetches the platform's published signing keys (JWKS), caches them for 5 minutes and refetches on an unknown `kid` at most once per 30 s cooldown. DAIV's subclass reports every failure to get a usable key set (unreachable, not JSON, not an object, no usable key) as unreachable, so the only signature refusal from the lookup is a `kid` no key matches.
+- **Algorithms:** only `RS256`.
+- **Clock leeway:** 60 seconds.
+- **Required claims:** `iss`, `aud`, `exp`, `iat`, `jti` (R10), plus the repository and actor claims below.
+
+| | GitLab | GitHub |
+|---|---|---|
+| Issuer (`iss`) | `CODEBASE_GITLAB_ID_TOKEN_ISSUER`, else `CODEBASE_GITLAB_URL`, else `https://gitlab.com` | `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`, else `https://token.actions.SUBDOMAIN.ghe.com` when the host of `CODEBASE_GITHUB_URL` is `SUBDOMAIN.ghe.com` or `api.SUBDOMAIN.ghe.com` (GHE.com), else `https://HOST/_services/token` when the host of `CODEBASE_GITHUB_URL` is neither `github.com` nor `api.github.com` (GitHub Enterprise Server), else `https://token.actions.githubusercontent.com` |
+| Signing keys | `{CODEBASE_GITLAB_URL}/oauth/discovery/keys`, else `https://gitlab.com/oauth/discovery/keys` | `{issuer}/.well-known/jwks` |
+| Repository | `project_id`, matched against the repository's platform id; `project_path` for logs | `repository_id`, matched against the repository's id; `repository` for logs |
+| Triggering account | `user_id`, `user_login` | `actor_id`, `actor` |
+| Commit | `sha` | `sha` when present. GitHub's claim reference doesn't list it, so it is optional |
+| Attempt | not checked | `run_attempt` must be `1` |
+
+- **Audience:** `DAIV_EXTERNAL_URL` (`core/conf.py:16`), the address DAIV already advertises. Operators can override it with `DAIV_JOBS_CI_IDENTITY_AUDIENCE`.
+- **Repository match:** done by the stable numeric id the platform reports for the targeted `repo_id`, which `RepoClient` already loads. Paths can be renamed; GitLab warns against trusting mutable claims alone.
+- **Re-runs:** GitHub's `actor` claim is `github.actor`, the account that started the run's first attempt; a re-run's token does not carry the re-runner (`github.triggering_actor`). DAIV refuses a GitHub token whose `run_attempt` is above 1 (check `re-run`), and one without `run_attempt` as a missing claim, so a re-run can't be attributed to, or pass `allowed_usernames` as, someone else. GitLab retries name the retrier.
+- **Fail closed:** when DAIV can't get a usable key set, or the platform fails to answer for the repository, the request gets `401` and the failure logs once at ERROR. Every other refusal logs at WARNING (R10). GitLab can't issue a token for a fork pipeline that names the upstream project, because in merge request pipelines `project_path` is the source project, so it fails the repository match. GitHub gives fork `pull_request` workflows no `id-token` permission unless a private repository sends write tokens to workflows from fork pull requests; such a workflow runs in the base repository, so its token passes the repository match and `allowed_usernames` is what limits it.
+
+**Rationale**: This is the standard keyless CI-to-service exchange (cloud workload identity, Vault, PyPI trusted publishing). It removes the long-lived key from CI and binds each request to one pipeline, one repository and one person.
+
+**Alternatives rejected**:
+- *joserfc or authlib*: they are transitive through fastmcp and offer no key cache we'd use.
+- *allauth's `jwtkit`*: it's an internal module, not a public API.
+- *Trusting `GITLAB_USER_ID` from the body*: any branch's CI file could set it.
+
+## R5. The CI principal and what it may do
+
+**Decision**: Add `CIIdentityBearer` (`accounts/api/ci_identity.py`). `jobs_router` uses `auth=[CIIdentityBearer(), AuthBearer()]`; django-ninja tries them in order (`operation.py:575-592`).
+- **Which tokens it claims:** only a bearer value that is a three-segment JWT whose header names a `kid`. For anything else it returns `None`, so API keys keep working. Being first, it stops JWTs from costing an API-key lookup.
+- **`request.auth`:** a `CIIdentity`, not a `User`. It carries the platform, the repository id and path, the actor id and login, the linked DAIV user or `None`, and `pk`, the linked user's pk, else `"ci:{provider}:{actor_id}"`, which `JobsRateThrottle` keys on (FR-012).
+- **Submissions:**
+  - exactly one `repos` entry, whose repository is the token's;
+  - no `thread_id`, no `shared_session`, no `references`;
+  - `mcp_overrides` may name global servers only (FR-009, FR-011).
+- **Access:** the token is the access proof. Only a pipeline of that repository can obtain it, and the repository must be in DAIV's catalog. DAIV does not consult `RepositoryAccess`, because an unlinked actor has no rows.
+- **Allowlist:** the repository's `allowed_usernames` must include the actor's login when the list is set (FR-012). It is checked against `user_login` or `actor`, which is safe here because the platform signs it.
+- **Status polling:** `GET /api/jobs/{id}` with a token returns a run when its repository is the token's and the run's person is the token's actor (`Run.user`, or `external_provider` and `external_uid`). Any other run answers `404`.
+- **Notifications:** `muted` defaults to `true` for token-authenticated submissions. An explicit `"muted": false` keeps notifications for a linked user. (Spec refinement SR2.)
+
+**Rationale**: The token describes a pipeline, not a DAIV user. Pretending it's a `User` would pass `AuthBearer`-shaped checks that assume an account with stored access rows.
+
+**Alternatives rejected**: *Exchanging the token for a short-lived DAIV API key*: an extra round trip and a credential to revoke, for no gain.
+
+## R6. Attribution without authority: `Run.acts_as_user`
+
+**Decision**: Add `Run.acts_as_user` (boolean, default `true`). Runs started by a CI identity token set it to `false`.
+- **Where it applies:** every place that turns `Run.user` into an acting user — `queue.py:75`, `aget_task_run`, the drain (`drain.py:362,421`) and admission (`admission.py:103-117,134-136`) — yields `None` when it is `false`.
+- **Effect:**
+  - no personal MCP servers: `build_runtime_servers` adds USER rows only for an acting user;
+  - no USER sandbox environment: `resolve_env_for_run(user=None)`;
+  - no assignee taken from the acting user (`publishers.py:573-596`).
+- **Unchanged:** `Run.user` and the `external_*` fields still decide spend, visibility and "Mine".
+
+**Rationale**: Today `acting_user_id` is always `Run.user_id`, and there is no way to attribute a run to a person without lending it their tools.
+
+**Finding (out of scope)**: [MCP tools](../../docs/customization/mcp-tools.md) line 164 says a mention on a merge request no session owns has no acting user. The code acts as the linked user there (`webhooks/dispatch.py:307`, `webhooks/tasks.py:156`). Only the sandbox environment skips USER environments. The page should be corrected separately.
+
+## R7. Agent behaviour and measurement
+
+**Decision**: What the model sees changes in two places:
+1. The new `MERGE_REQUEST_JOB` rendering (R3). It reuses the mention note's wording.
+2. Merge-request-targeted runs on the direct path give the model the prompt where a mention's comment would be. That is the same `HumanMessage` shape the direct path already uses, with the caller's name.
+
+Neither changes a skill, tool description or subagent. Measure with `make eval-prompts SUITES="inbox code_review"` before and after (Principle V), compared with `evals/compare_runs.py`. ReviewBench is not needed, because `/code-review` is unchanged.
+
+## R8. Documentation
+
+**Decision** (Principle VII):
+- **Jobs API** ([jobs-api.md](../../docs/features/jobs-api.md)):
+  - the `merge_request` field;
+  - a "CI identity tokens" section with GitLab `id_tokens` and GitHub Actions examples;
+  - polling rules;
+  - the code-review-on-every-push example replacing the comment-posting workaround (FR-028).
+- **Pull request assistant** ([pull-request-assistant.md](../../docs/features/pull-request-assistant.md)): a pointer from review reports to the jobs API merge request target.
+- **Environment variables** ([env-variables.md](../../docs/reference/env-variables.md)): `DAIV_JOBS_CI_IDENTITY_AUDIENCE`, `CODEBASE_GITLAB_ID_TOKEN_ISSUER` and `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER`.
+- **Changelog:** `CHANGELOG.md` gets two `Added` lines.
+
+## R9. A job that cannot start
+
+**Decision**: Spec clarifications 5 and 6 (FR-004) are applied on both paths:
+
+| When | Direct path (no owner) | Owned path (inbox) | On the merge request | Job |
+|---|---|---|---|---|
+| At submission, the session is archived | `MergeRequestRuns.astart` returns `StartOutcome.archived` for a `Request`, before enqueueing | `MergeRequestJobs.post` refuses under the session lock | nothing | `failed` entry with the session link |
+| Before its run starts, the merge request was merged or closed | `address_merge_request_task` checks the `merged` and `closed` flags of `get_merge_request` first | the drain checks `MergeRequestOwnership.states_of` at take time | one note, posted after the stop commits | `FAILED`, never started, with the note as its error |
+| Before its run starts, the session was archived | the task checks `Session.archived_at` first | the drain stops held `MERGE_REQUEST_JOB` events, as `LegFollowUps.stop_held` does | nothing | `FAILED`, never started |
+
+- **The note:** "This merge request was merged before the job could start, so I didn't run it." The closed form says "closed".
+- **Open check:** the owned path uses `MergeRequestState.is_open`, under which a draft counts as open, as leg follow-ups do.
+- **Closed flag:** the platform `MergeRequest` value object (`codebase/base.py`) carries `merged` and `draft`, but nothing that tells a closed merge request from an open one. `get_merge_request` sets a new `closed: bool` on both clients, as it sets `merged`. `codebase` can't import `sessions`' `MergeRequestState`, so the flag stays a boolean. FR-004's check at submission reads it too.
+- **Stopping on the owned path:** the event fails with `EventFailure.MR_MERGED`, `MR_CLOSED` or `SESSION_ARCHIVED`, labels that already exist. Its own run finishes through `Run.objects.finish(…, never_started=True)`, as `LegFollowUps.stop` does. The note is posted with `transaction.on_commit`, so the drain's transaction makes no platform call.
+- **Mentions are unchanged:** a mention on an archived session still gets the archived reply, and a mention's run on a merged merge request still posts today's note and ends successful.
+
+**Rationale**:
+- The caller is the one who must act on an archived session, and a CI job on every push would otherwise repeat the same notice on the merge request.
+- A merge request that closes while a job waits is information the people on it can use. The note keeps SC-002's one-comment guarantee, and `FAILED` gives CI a status it can act on.
+- Auto-archive already skips sessions with live work (`without_live_work`), so an archive after acceptance is rare. Without a stop, though, a held event on the owned path would leave its job `QUEUED` forever.
+
+**Alternatives rejected**: *Keep the mention behaviour for jobs*: a closed merge request would still be worked on, and a merged one would report success for a job that did nothing.
+
+## R10. One submission per CI token, and refusal logs
+
+**Decision**:
+- **Single use (FR-009):** `CIIdentity` carries the token's `jti` and expiry. `CISubmission.arefusal` claims the token after its other checks and before anything starts, with `cache.aadd(f"jobs:ci-token:{provider}:{jti}", …)`, which is atomic in Redis. The entry expires at the token's `exp` plus the 60 s leeway. A claim that finds the key refuses with `401`.
+- **Release:** a submission refused before the claim (its shape, the repository or the allowlist) never holds the key. When admission refuses the submission (`AdmissionError`: `400` or `404`) or it accepts no job (a `failed` entry), `CISubmission.asubmit` deletes the key, so a retry with the same token works. An unexpected exception keeps it, since the job may have started.
+- **Polling:** `GET /api/jobs/{id}` never claims, so a used token still reads its job's status.
+- **Fail closed:** when the cache can't be reached, the submission gets `401` and the failure logs at ERROR.
+- **Refusal logs (FR-008):** every refusal logs once at WARNING with the check that failed and the repository path the token claims, never the token. The checks are `malformed`, `algorithm`, `signature`, `issuer`, `audience`, `expired`, `missing claim`, `re-run`, `repository`, `allowed usernames` and `reused`. Signing keys or a repository that can't be read from the platform (`signing keys unreachable`, `repository unreachable`) log once at ERROR where they are raised and not again at WARNING, and a cache that can't be reached logs at ERROR. Before the signature is verified the path is unverified, so the message calls it "claimed", and logs it escaped (`%r`) and cut to 200 characters.
+
+**Rationale**:
+- A leaked token, for example one printed in a public job log, can otherwise start runs with any prompt until it expires, and GitLab tokens can live as long as the job timeout. Single use bounds that to the one job the pipeline sent (Principle I).
+- Both platforms put a unique `jti` in every token, so single use needs no new table: the cache already holds short-lived keys.
+- A forged or misconfigured token isn't something the operator must fix, so it doesn't belong at ERROR (Principle VI), and a WARNING doesn't reach Sentry ([errors](../../constitutions/patterns/errors.md) rule 1). An operator can still answer "why does my CI get 401" from the logs.
+
+**Alternatives rejected**:
+- *Bind the token to its pipeline's merge request*: the platforms report the branch differently in merge request pipelines, and it would block a pipeline on the default branch that reviews open merge requests.
+- *Mark the token used only after the run is created*: two concurrent submissions with the same token would both pass the check.
+
+## Spec refinements for approval
+
+These change the spec's wording. The maintainer approved them with the plan on 2026-11-21, and they are applied to the spec:
+
+- **SR1 (FR-005):** add "For a job authenticated by a CI identity token, the platform-signed token naming the repository is the access proof" (R5).
+- **SR2 (FR-011):** add that a token-authenticated job is muted unless the request sets `muted` to false (R5).
+- **SR3 (FR-016):** add that when DAIV cannot list every changed path, the paths filter lets the run start. It belongs to the deferred automations and applies when they are planned.

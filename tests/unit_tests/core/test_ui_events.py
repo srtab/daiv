@@ -132,6 +132,16 @@ class TestPublish:
         publisher_with(client).notifications_changed(42)
         client.publish.assert_called_once_with("daiv:ui-events:user:42", UIEventKind.NOTIFICATIONS.as_payload())
 
+    def test_sidebar_changed_goes_to_that_user_alone(self):
+        client = Mock()
+        publisher_with(client).sidebar_changed(42)
+        client.publish.assert_called_once_with("daiv:ui-events:user:42", UIEventKind.SIDEBAR.as_payload())
+
+    def test_sidebar_changed_without_a_user_is_a_no_op(self):
+        client = Mock()
+        publisher_with(client).sidebar_changed(None)
+        client.publish.assert_not_called()
+
     def test_session_changed_bumps_the_revision_then_pokes_the_session_channel(self, settings):
         settings.DJANGO_REDIS_CHECKPOINT_TTL_MINUTES = 90
         pipe = Mock()

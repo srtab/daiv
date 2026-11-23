@@ -160,7 +160,7 @@
                 {% if tool_choices %}
                 <div data-tool-list>
                     <input type="text" data-tool-filter placeholder="{% translate 'Filter tools…' %}" class="mb-2">
-                    <div class="mcp-tool-list__scroll">
+                    <div class="mcp-tool-list__scroll scrollbar-thin">
                         {% for row in tool_choices %}
                         <label data-tool-row data-tool-name="{{ row.name }}" class="mcp-tool-row">
                             <input type="checkbox" name="tool_filter_items" value="{{ row.value }}" class="mt-0.5" {% if row.checked %}checked{% endif %}>

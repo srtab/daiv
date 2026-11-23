@@ -452,7 +452,8 @@ async def test_a_failed_start_says_so_then_latches_unavailable(stagehand_stubs, 
 async def test_a_start_that_fails_once_its_container_runs_stops_it_so_the_retry_gets_a_fresh_one(
     stagehand_stubs, monkeypatch, init
 ):
-    monkeypatch.setattr(browser_module, "START_BUDGET_SECONDS", 0.05)
+    if init == "hangs":
+        monkeypatch.setattr(browser_module, "START_BUDGET_SECONDS", 0.05)
     create = browser_module.Stagehand.create.side_effect
 
     async def broken_once(**kwargs):

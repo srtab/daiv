@@ -1,6 +1,12 @@
 from datetime import UTC, datetime
 
-from core.context_processors import _compute_build_info, build_info
+from django.contrib.auth.models import AnonymousUser
+from django.utils import timezone
+
+import pytest
+
+from core.context_processors import _compute_build_info, build_info, provider_health
+from core.models import Provider, ProviderFailureKind
 from daiv import __version__
 
 FULL_SHA = "5e4f0d09441f31cf8fc6e59b3cc316ecad1205b5"
@@ -50,3 +56,36 @@ def test_compute_with_malformed_build_date(monkeypatch):
 
     assert info["build_date"] is None
     assert info["sha_short"] == "5e4f0d0"
+
+
+def _mark_provider(slug: str, kind: str, when=None):
+    when = when or timezone.now()
+    Provider.objects.filter(slug=slug).update(
+        failure_kind=kind, failure_model="gpt-x", last_failed_at=when, failing_since=when, is_enabled=True
+    )
+    Provider.invalidate_cache()
+
+
+@pytest.mark.django_db
+def test_provider_health_is_empty_for_a_non_admin(rf, member_user):
+    request = rf.get("/")
+    request.user = member_user
+
+    assert provider_health(request) == {}
+
+
+@pytest.mark.django_db
+def test_provider_health_is_empty_for_an_anonymous_user(rf):
+    request = rf.get("/")
+    request.user = AnonymousUser()
+
+    assert provider_health(request) == {}
+
+
+@pytest.mark.django_db
+def test_provider_health_lists_the_marked_provider_for_an_admin(rf, admin_user):
+    _mark_provider("openrouter", ProviderFailureKind.OUT_OF_CREDITS)
+    request = rf.get("/")
+    request.user = admin_user
+
+    assert [row.slug for row in provider_health(request)["provider_failures"]] == ["openrouter"]

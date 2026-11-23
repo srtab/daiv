@@ -1,3 +1,5 @@
+from codebase.base import normalize_repo_id
+
 MAX_REPOS_PER_BATCH = 20
 
 
@@ -19,7 +21,7 @@ def validate_repo_list(raw) -> list[dict]:
             raise ValueError("Each entry must be an object with keys 'repo_id' and 'ref'.")
         repo_id = entry["repo_id"]
         ref = entry["ref"] or ""
-        if not isinstance(repo_id, str) or not repo_id.strip():
+        if not isinstance(repo_id, str) or not (repo_id := normalize_repo_id(repo_id)):
             raise ValueError("repo_id must be a non-empty string.")
         if not isinstance(ref, str):
             raise ValueError("ref must be a string (empty for default branch).")

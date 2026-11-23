@@ -2,6 +2,7 @@ import json
 from types import SimpleNamespace
 
 from django.urls import reverse
+from django.utils.cache import has_vary_header
 
 import pytest
 from sandbox_envs.models import SandboxEnvironment, Visibility
@@ -664,3 +665,13 @@ def test_the_browser_radio_has_no_note_when_the_site_switch_is_on(client, user, 
 
     assert 'name="browser_choice"' in content
     assert SITE_OFF_NOTE not in content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("url_name", ["sandbox_envs:create", "sandbox_envs:edit", "sandbox_envs:delete"])
+def test_drawer_views_vary_on_the_htmx_header(client, user, url_name):
+    env = SandboxEnvironment.objects.create(scope=Visibility.USER, user=user, name="dev", base_image="x")
+    client.force_login(user)
+    args = [] if url_name == "sandbox_envs:create" else [env.id]
+
+    assert has_vary_header(client.get(reverse(url_name, args=args)), "HX-Request")

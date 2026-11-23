@@ -31,7 +31,7 @@ The admin-only pages are under **Admin** in the sidebar's **Settings** menu, the
 
 ## Repository access
 
-A member sees and acts on a repository only when they have access to it on the connected Git platform, GitLab or GitHub. DAIV mirrors each user's repository membership from the platform and checks it before it shows or runs anything on a repository. There is no separate DAIV-side permission to manage. Admins skip these checks.
+A member sees and acts on a repository only when they have access to it on the connected Git platform, GitLab or GitHub. DAIV mirrors each user's repository membership from the platform and checks it before it shows or runs anything on a repository. There is no separate DAIV-side permission to manage. Admins skip these checks, but they too can start runs only on repositories DAIV can work on: the ones the sync lists, where its GitLab user is a Maintainer or its GitHub App is installed. Until the first sync has run, admins can start runs on any repository.
 
 DAIV checks two tiers, matched to the platform's own roles:
 
@@ -162,7 +162,7 @@ An inactive user cannot sign in, and their API keys and MCP tokens stop working 
 Delete a user only when you will never restore their access. Deactivating keeps their history and ownership of runs: see [Deactivate a user](#deactivate-a-user).
 
 !!! warning "Deleting a user cannot be undone"
-    Deleting removes the user's account, their API keys and all data associated with them. You cannot delete your own account.
+    Deleting removes the user's account, their API keys and the data associated with them. Their [spend records](../features/spend.md) stay, under the name they had, so past totals do not change. You cannot delete your own account.
 
 1. Under **Admin** → **Users**, select the user.
 2. Select **Delete user**.

@@ -22,9 +22,8 @@ theme:
   logo: assets/mark.svg
   favicon: assets/favicon.png
 
-  font:
-    text: Inter
-    code: JetBrains Mono
+  # Geist is self-hosted from docs/assets/fonts, declared in extra.css.
+  font: false
 
   features:
     - search.highlight
@@ -38,30 +37,11 @@ theme:
     - content.code.copy
     - content.action.edit
 
+  # Keep this a mapping: a list makes Material restore a visitor's old light-mode choice.
   palette:
-    # Palette toggle for automatic mode
-    - media: "(prefers-color-scheme)"
-      toggle:
-        icon: material/brightness-auto
-        name: Switch to light mode
-
-    # Palette toggle for light mode
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      primary: deep purple
-      accent: deep purple
-      toggle:
-        icon: material/brightness-7
-        name: Switch to dark mode
-
-    # Palette toggle for dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      primary: deep purple
-      accent: deep purple
-      toggle:
-        icon: material/brightness-4
-        name: Switch to system preference
+    scheme: slate
+    primary: custom
+    accent: custom
 
 hooks:
   - docs/overrides/hooks/seo.py
@@ -99,6 +79,7 @@ plugins:
         - features/mcp-endpoint.md
         - features/notifications.md
         - features/merge-metrics.md
+        - features/spend.md
         - features/slash-commands.md
         - features/subagents.md
         - features/sandbox.md
@@ -174,6 +155,7 @@ nav:
     - MCP endpoint: features/mcp-endpoint.md
     - Notifications: features/notifications.md
     - Merge metrics: features/merge-metrics.md
+    - Spend: features/spend.md
     - Slash commands and skills: features/slash-commands.md
     - Subagents: features/subagents.md
     - Sandbox: features/sandbox.md

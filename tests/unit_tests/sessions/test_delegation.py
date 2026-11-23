@@ -121,16 +121,18 @@ class TestSessionJobDelegator:
     @pytest.mark.parametrize(
         ("setup", "targets", "message"),
         [
-            ({"run_user": False}, [_target()], "has none"),
+            ({"run_user": False}, [_target()], "acts as none"),
+            ({"acts_as_user": False}, [_target()], "acts as none"),
             ({}, [], "at least one target"),
             ({}, [_target(f"acme/r{i}") for i in range(MAX_DELEGATED_TARGETS + 1)], "At most"),
             ({}, [_target(prompt="")], "a prompt of its own"),
         ],
-        ids=["no-user-behind-the-run", "no-targets", "too-many-targets", "blank-prompt"],
+        ids=["no-user-behind-the-run", "only-attributed-to-its-user", "no-targets", "too-many-targets", "blank-prompt"],
     )
     async def test_a_refused_call_starts_nothing(self, admin_user, setup, targets, message):
         coordinator = await sync_to_async(make_coordinator)(admin_user, ref="")
         run = await sync_to_async(make_delegating_run)(coordinator, admin_user if setup.get("run_user", True) else None)
+        await Run.objects.filter(pk=run.pk).aupdate(acts_as_user=setup.get("acts_as_user", True))
 
         with patch("sessions.queue.run_job_task") as mock_task, pytest.raises(DelegationError, match=message):
             await _delegate(run, targets)
@@ -878,6 +880,21 @@ class TestLegFollowUp:
         assert (started.leg_follow_up, started.starts_after_this_turn) == (True, False)
         assert result.failed == []
         assert mock_task.aenqueue.call_args.kwargs["fork_branch"] is False
+
+    async def test_a_leg_whose_merge_request_is_a_draft_is_followed_up(self, admin_user, create_db_task_result):
+        _, run, leg = await _coordinated(admin_user)
+        await MergeRequestOwnership.objects.acreate(
+            repo_id="acme/api", merge_request_iid=4, session_id=leg.session_id, source_branch="daiv/leg-branch"
+        )
+        await Ownerships("acme/api").aset_draft(4, draft=True)
+        task = await sync_to_async(create_db_task_result)(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            _mock_enqueue(mock_task, [task])
+            result = await _delegate(run, [_follow_up(leg)])
+
+        assert result.failed == []
+        assert [started.leg_follow_up for started in result.started] == [True]
 
     async def test_a_new_leg_and_a_follow_up_share_one_batch(self, admin_user, create_db_task_result):
         _, run, leg = await _coordinated(admin_user)

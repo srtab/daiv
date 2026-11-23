@@ -7,8 +7,10 @@ from django.db.models import Count, Q
 from django.http import Http404
 from django.shortcuts import redirect
 from django.urls import reverse
+from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 from django.views import View
+from django.views.decorators.vary import vary_on_headers
 from django.views.generic import TemplateView
 
 from django_filters.views import FilterView
@@ -34,6 +36,7 @@ _STATUS_FILTERS = {
 }
 
 
+@method_decorator(vary_on_headers("HX-Request"), name="dispatch")
 class MemoryListView(LoginRequiredMixin, TemplateView):
     template_name = "memory/list.html"
 

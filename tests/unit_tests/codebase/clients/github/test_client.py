@@ -511,10 +511,12 @@ class TestGitHubClient:
         assert "Multiple open PRs" in caplog.text
 
     @staticmethod
-    def _mock_pr(*, assignees=(), merged=False, draft=False):
+    def _mock_pr(*, assignees=(), merged=False, draft=False, state="open"):
         """A mock PR wired with the concrete attributes ``_serialize_pull_request`` reads, plus
         ``add_to_labels``/``add_to_assignees`` spies and the given ``assignees`` list."""
-        mock_pr = Mock(number=7, title="feat: add x", body="details", labels=[], merged=merged, draft=draft)
+        mock_pr = Mock(
+            number=7, title="feat: add x", body="details", labels=[], merged=merged, draft=draft, state=state
+        )
         mock_pr.head = Mock(ref="feat-x", sha="abc123")
         mock_pr.base = Mock(ref="main")
         mock_pr.html_url = "https://github.com/o/r/pull/7"
@@ -530,6 +532,14 @@ class TestGitHubClient:
         github_client.client.get_repo.return_value.get_pull.return_value = self._mock_pr(merged=merged)
 
         assert github_client.get_merge_request("owner/repo", 7).merged is merged
+
+    @pytest.mark.parametrize(
+        ("state", "merged", "closed"), [("open", False, False), ("closed", True, False), ("closed", False, True)]
+    )
+    def test_get_merge_request_says_whether_it_was_closed_without_merging(self, github_client, state, merged, closed):
+        github_client.client.get_repo.return_value.get_pull.return_value = self._mock_pr(merged=merged, state=state)
+
+        assert github_client.get_merge_request("owner/repo", 7).closed is closed
 
     @pytest.mark.parametrize("draft", [True, False])
     def test_get_merge_request_maps_draft_state(self, github_client, draft):

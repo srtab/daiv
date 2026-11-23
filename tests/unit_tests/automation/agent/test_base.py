@@ -3,11 +3,13 @@ from unittest.mock import patch
 
 import openai
 import pytest
+from langchain_core.callbacks import UsageMetadataCallbackHandler
 
 from automation.agent.base import CLAUDE_THINKING_MODELS, OPENAI_THINKING_MODELS, get_model, get_model_kwargs
 from automation.agent.chat_models import ChatOpenRouter
 from automation.agent.model_spec import parse_model_spec
 from automation.agent.provider_clients import OPENROUTER_BASE_URL
+from automation.agent.provider_health import ProviderHealthCallback
 from core.constants import ModelName
 from core.models import Provider, ProviderType, ThinkingLevelChoices
 
@@ -208,10 +210,32 @@ class TestGetModelKwargs:
         assert isinstance(model, ChatOpenRouter)
         assert model.openai_api_base == OPENROUTER_BASE_URL
 
+    @pytest.mark.parametrize(("slug", "model_name"), [("openrouter", "z-ai/glm-5"), ("anthropic", "claude-sonnet-4-6")])
+    def test_get_model_attaches_the_health_callback(self, slug, model_name):
+        self._enable_seed(slug, "sk")
+        caller_callback = UsageMetadataCallbackHandler()
+
+        model = get_model(model=f"{slug}:{model_name}", callbacks=[caller_callback])
+
+        assert model.callbacks[0] is caller_callback
+        [health] = [cb for cb in model.callbacks if isinstance(cb, ProviderHealthCallback)]
+        assert (health.provider_slug, health.model_name) == (slug, model_name)
+
     def test_get_model_non_openrouter_is_not_chat_openrouter(self):
         self._enable_seed("anthropic", "sk-a")
         model = get_model(model="anthropic:claude-sonnet-4-6")
         assert not isinstance(model, ChatOpenRouter)
+
+    @pytest.mark.parametrize(
+        ("slug", "spec"), [("anthropic", "anthropic:claude-sonnet-4-6"), ("openrouter", "openrouter:z-ai/glm-5")]
+    )
+    def test_get_model_tags_metadata_with_its_provider(self, slug, spec):
+        self._enable_seed(slug)
+        row = Provider.objects.get(slug=slug)
+        model = get_model(model=spec, metadata={"caller": "kept"})
+        assert model.metadata["caller"] == "kept"
+        assert model.metadata["daiv_provider_slug"] == slug
+        assert model.metadata["daiv_provider_name"] == row.display_name
 
     @pytest.mark.parametrize("thinking_level", [None, ThinkingLevelChoices.HIGH])
     @pytest.mark.parametrize("model", ["openrouter:z-ai/glm-5", "openrouter:anthropic/claude-sonnet-4.6"])

@@ -5,7 +5,7 @@ from django.utils import timezone
 
 import pytest
 from asgiref.sync import sync_to_async
-from sessions.executor.lock import stale_cutoff
+from sessions.executor.lock import DEAD_RUN_MESSAGE, stale_cutoff
 from sessions.inbox.complete import ANSWERED_IN_ANOTHER_THREAD, MAX_EVENT_ATTEMPTS, MergeRequestReplies, RunEnd
 from sessions.inbox.drain import Drain
 from sessions.models import (
@@ -36,12 +36,6 @@ from tests.unit_tests.sessions.inbox.conftest import (
 pytestmark = pytest.mark.django_db(transaction=True)
 
 CI_SUMMARY = "The failure is a GitHub auth error, not the change; I pushed nothing."
-
-
-@pytest.fixture
-def drain():
-    with patch.object(Drain, "start_logged", autospec=True) as drain:
-        yield drain
 
 
 async def _run_with_event(status: str, *, attempts: int = 0, **run_fields) -> tuple[Run, InboxEvent]:
@@ -682,13 +676,89 @@ class TestLegFollowUp:
         stored = await _state(remembered)
         assert (stored.state, stored.attempts) == (EventState.PENDING, 1)
 
-    async def test_the_stale_slot_sweep_fails_it_on_its_first_attempt(self, admin_user):
+    async def test_the_stale_slot_sweep_leaves_it_to_its_runs_end(self, drain, admin_user):
         run, event = await self._taken(admin_user, RunStatus.RUNNING)
         await Session.objects.filter(pk=run.session_id).aupdate(
             active_run_id=str(run.pk), last_active_at=stale_cutoff() - timedelta(minutes=1)
         )
 
-        assert await _recover() == 1
+        assert await _recover() == 0
+        assert (await _state(event)).state == EventState.TAKEN
+        await sync_to_async(Run.objects.finish)(run, RunStatus.FAILED, error_message="Dead run")
 
         stored = await _state(event)
-        assert (stored.state, stored.failure, stored.attempts) == (EventState.FAILED, EventFailure.RUN_FAILED, 1)
+        assert (stored.state, stored.failure, stored.attempts) == (EventState.FAILED, EventFailure.RUN_FAILED, 0)
+
+
+class TestMergeRequestJob:
+    @pytest.fixture
+    def client(self):
+        client = MagicMock()
+        client.current_user.username = "daiv"
+        client.git_platform = GitPlatform.GITLAB
+        with patch("codebase.clients.RepoClient.create_instance", return_value=client):
+            yield client
+
+    async def _taken(self, status: str, summary: str = "", **run_fields) -> tuple[Run, InboxEvent]:
+        from tests.unit_tests.sessions.conftest import amake_owned_merge_request
+        from tests.unit_tests.sessions.inbox.conftest import post_merge_request_job
+
+        owned = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=7)
+        with patch.object(Drain, "start_logged"):
+            run = await sync_to_async(post_merge_request_job)(owned)
+        await InboxEvent.objects.filter(run=run).aupdate(state=EventState.TAKEN)
+        await Run.objects.filter(pk=run.pk).aupdate(status=status, result_summary=summary, **run_fields)
+        return await Run.objects.aget(pk=run.pk), await InboxEvent.objects.aget(run=run)
+
+    async def test_its_answer_is_a_new_comment_on_its_merge_request(self, drain, client):
+        run, event = await self._taken(RunStatus.SUCCESSFUL, "Code Review #1")
+
+        await RunEnd(run).aon_run_ended()
+
+        client.create_merge_request_comment.assert_called_once_with("group/repo", 7, "Code Review #1")
+        assert (await _state(event)).state == EventState.HANDLED
+
+    async def test_its_question_tells_its_requester_how_to_answer(self, drain, client):
+        run, _ = await self._taken(RunStatus.WAITING_INPUT, "Which branch should I compare with?")
+
+        await RunEnd(run).aon_run_ended()
+
+        body = client.create_merge_request_comment.call_args.args[2]
+        assert body.startswith("Which branch should I compare with?\n\n")
+        assert "@pusher" in body
+
+    async def test_a_failed_run_fails_it_for_good_and_says_so_on_the_merge_request(self, drain, client):
+        run, event = await self._taken(RunStatus.FAILED)
+
+        await RunEnd(run).aon_run_ended()
+
+        stored = await _state(event)
+        assert (stored.state, stored.failure, stored.attempts) == (EventState.FAILED, EventFailure.RUN_FAILED, 0)
+        [note] = client.create_merge_request_comment.call_args_list
+        assert note.args[:2] == ("group/repo", 7)
+        assert "reply_to" not in note.kwargs
+
+    async def test_a_cancelled_run_dismisses_it_and_posts_nothing(self, drain, client):
+        run, event = await self._taken(RunStatus.FAILED, cancel_requested_at=timezone.now())
+
+        await RunEnd(run).aon_run_ended()
+
+        assert (await _state(event)).state == EventState.DISMISSED
+        client.create_merge_request_comment.assert_not_called()
+
+    async def test_a_run_that_died_with_its_slot_says_so_once_when_it_is_reaped(self, drain, client, caplog):
+        run, event = await self._taken(RunStatus.RUNNING)
+        await Session.objects.filter(pk=run.session_id).aupdate(
+            active_run_id=str(run.pk), last_active_at=stale_cutoff() - timedelta(minutes=1)
+        )
+
+        assert await _recover() == 0
+        assert (await _state(event)).state == EventState.TAKEN
+        await sync_to_async(Run.objects.finish)(run, RunStatus.FAILED, error_message=DEAD_RUN_MESSAGE)
+        await _recover()
+
+        stored = await _state(event)
+        assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.RUN_FAILED)
+        client.create_merge_request_comment.assert_called_once()
+        errors = [record for record in caplog.records if record.name == "daiv.sessions" and record.levelname == "ERROR"]
+        assert [str(run.pk) in record.getMessage() for record in errors] == [True]

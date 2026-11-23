@@ -8,14 +8,15 @@
     <title>{% block title %}DAIV{% endblock %}</title>
     {% block meta_description %}<meta name="description" content="DAIV: open-source, self-hosted SWE agents for GitLab &amp; GitHub. Turn issues into merge requests, answer review comments, and fix failing CI on your infrastructure.">{% endblock %}
     {% block meta_robots %}{% endblock %}
-    {% block canonical %}{% endblock %}
+    {% if canonical_url %}<link rel="canonical" href="{{ canonical_url }}">{% endif %}
     {% block open_graph %}
     <meta property="og:type" content="website">
+    {% if canonical_url %}<meta property="og:url" content="{{ canonical_url }}">{% endif %}
     <meta property="og:title" content="{% block og_title %}DAIV — Open-source, self-hosted SWE agents for GitLab &amp; GitHub{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Issues in. Merge requests out. On your infrastructure. DAIV turns issues into merge requests, answers review comments, and fixes failing CI, in a sandbox you control with the LLM provider you choose.{% endblock %}">
     <meta property="og:site_name" content="DAIV">
     {% endblock open_graph %}
-    <meta name="twitter:card" content="summary">
+    {% block twitter_card %}<meta name="twitter:card" content="summary">{% endblock %}
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="shortcut icon" href="/favicon.ico" />
@@ -28,6 +29,7 @@
     {% comment %}Ahead of the block: Alpine starts on the microtask after its own tag, so a
     component's `init()` runs before anything loaded further down.{% endcomment %}
     <script defer src="{% static 'core/js/surface-group.js' %}"></script>
+    <script defer src="{% static 'core/js/row-hints.js' %}"></script>
     <script defer src="{% static 'core/js/picker-error.js' %}"></script>
     {% comment %}Stores, not plugins: every page overriding `alpine_plugins` drops what the
     block held, so anything the shell needs on every page needs a block of its own.{% endcomment %}

@@ -7,6 +7,8 @@ GIT_SHA_SHORT = GIT_SHA[:7]
 BUILD_DATE = os.environ.get("DAIV_BUILD_DATE", "")
 REPO_URL = os.environ.get("DAIV_REPO_URL") or "https://github.com/srtab/daiv"
 DOCS_URL = "https://docs.daivagent.com/latest/"
+# Every install serves the public pages, so their canonicals and the sitemap all name DAIV's own site.
+CANONICAL_ORIGIN = "https://daivagent.com"
 RELEASE = f"{__version__}+{GIT_SHA_SHORT}" if GIT_SHA else __version__
 
 USER_AGENT = f"python-daiv-agent/{__version__}"

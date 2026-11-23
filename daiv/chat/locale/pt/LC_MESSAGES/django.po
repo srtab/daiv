@@ -124,7 +124,7 @@ msgid "Context"
 msgstr "Contexto"
 
 msgid "Spend"
-msgstr "Gasto"
+msgstr "Gastos"
 
 #, fuzzy
 #~| msgid "Session context"

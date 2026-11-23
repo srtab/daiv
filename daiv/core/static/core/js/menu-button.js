@@ -12,10 +12,13 @@
  *
  * Escape stops propagating only while the menu is open, so a menu inside the mobile nav
  * sheet closes itself first and the sheet's own window-level Escape closes it next time.
+ * Inside a `[data-menu-bounds]` box, `up` says the menu would run past the box's bottom edge
+ * but fits above its component, so it can open upward; overflow below can still be scrolled to.
  */
 document.addEventListener("alpine:init", () => {
   Alpine.data("menuButton", () => ({
     open: false,
+    up: false,
 
     items() {
       return [...this.$refs.menu.querySelectorAll('[role^="menuitem"]')];
@@ -27,13 +30,26 @@ document.addEventListener("alpine:init", () => {
     },
 
     show(index) {
+      this.up = false;
       this.open = true;
+      // x-show reveals the menu in a frame it requests while Alpine flushes `open`; requesting ours after that
+      // flush measures the menu shown and flips it before the frame paints.
+      queueMicrotask(() => requestAnimationFrame(() => (this.up = this.opensUp())));
       this.$nextTick(() => this.focusAt(index));
     },
 
     toggle() {
       if (this.open) this.close();
       else this.show(0);
+    },
+
+    opensUp() {
+      const bounds = this.$root.closest("[data-menu-bounds]")?.getBoundingClientRect();
+      if (!bounds) return false;
+      const top = this.$root.getBoundingClientRect().top;
+      const { offsetTop, offsetHeight } = this.$refs.menu;
+      const reach = offsetTop - this.$root.offsetHeight + offsetHeight;
+      return top + offsetTop + offsetHeight > bounds.bottom && top - reach >= bounds.top;
     },
 
     close(refocus = false) {

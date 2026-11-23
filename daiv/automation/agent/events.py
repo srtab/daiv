@@ -66,11 +66,27 @@ CONTEXT_USAGE_EVENT = "daiv_context_usage"
 _SERVICE_TIERS = ("priority", "flex")
 
 
+def _tiered(key: str) -> tuple[str, ...]:
+    return (key, *(f"{tier}_{key}" for tier in _SERVICE_TIERS))
+
+
 def input_detail_tokens(usage_metadata: Mapping[str, Any], key: str) -> int:
     """``input_token_details[key]``, plus the ``priority_``/``flex_`` variants langchain-openai writes instead
     when the response reports that ``service_tier`` (OpenRouter does for its "fast" endpoints)."""
     details = usage_metadata.get("input_token_details") or {}
-    return sum(details.get(name) or 0 for name in (key, *(f"{tier}_{key}" for tier in _SERVICE_TIERS)))
+    return sum(details.get(name) or 0 for name in _tiered(key))
+
+
+def output_detail_tokens(usage_metadata: Mapping[str, Any], key: str) -> int:
+    """``output_token_details[key]`` with its service-tier variants, as :func:`input_detail_tokens` reads input."""
+    details = usage_metadata.get("output_token_details") or {}
+    return sum(details.get(name) or 0 for name in _tiered(key))
+
+
+def reports_input_detail(usage_metadata: Mapping[str, Any], key: str) -> bool:
+    """Whether the response reported ``input_token_details[key]`` in any service tier, zero included."""
+    details = usage_metadata.get("input_token_details") or {}
+    return any(name in details for name in _tiered(key))
 
 
 def context_usage_payload(*, model: str, usage: Mapping[str, Any], window: ResolvedWindow | None) -> dict[str, Any]:

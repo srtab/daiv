@@ -26,8 +26,8 @@ through logs and Sentry. Each gets what it can act on.
    generic `RUN_ERROR` to its session page. The evidence goes to the log. _Prevents_: secrets and internals leaking
    through error paths.
 6. **Bind the run.** Every agent run carries its `Run` id (`RunSpec.run_id` /
-   `bind_active_run`). A new entry point binds it; webhook tasks use `takes_context=True` and
-   resolve it with `aget_task_run_id`, because the Run links to the task result and
-   `webhooks.dispatch` commits both in one transaction. Code with no bound run gets no run,
-   never a guessed one.
+   `bind_active_run`). A new entry point binds it; addressor tasks use `takes_context=True` and
+   resolve it with `aget_task_run`, because the Run links to the task result and
+   `sessions.merge_request_runs.starter.RunStarter` commits both in one transaction. Code with
+   no bound run gets no run, never a guessed one.
    _Prevents_: artifacts, transcripts and diagnostics attached to the wrong run.

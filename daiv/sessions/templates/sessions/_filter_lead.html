@@ -1,0 +1,2 @@
+{% load icon_tags session_tags %}
+{% if lead == "status" %}<span class="status-dot status-dot-{{ value|status_variant }}"></span>{% elif lead == "origin" %}{% icon value|origin_icon "h-4 w-4" %}{% elif lead == "kind" %}{% icon value|artifact_icon "h-4 w-4" %}{% elif lead == "repo" %}{% icon "repo" "h-4 w-4" %}{% endif %}

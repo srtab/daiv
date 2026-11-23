@@ -1,4 +1,4 @@
-{% load humanize i18n icon_tags %}
+{% load humanize i18n icon_tags l10n %}
 {% comment %}
 A column beside the transcript from 1100px, a bottom sheet below it. Must sit inside ``sessionPage`` inside
 ``chat({…})``: the repositories, usage, spend, outputs and references read the chat component's live state.
@@ -119,7 +119,7 @@ A column beside the transcript from 1100px, a bottom sheet below it. Must sit in
           {% if header.parent %}
             {% translate "Delegated by" %} <a href="{{ header.parent.url }}">{{ header.parent.title }}</a>
           {% elif header.issue %}
-            {% blocktranslate with iid=header.issue.iid asvar issue_label %}Issue #{{ iid }}{% endblocktranslate %}
+            {% blocktranslate with iid=header.issue.iid|unlocalize asvar issue_label %}Issue #{{ iid }}{% endblocktranslate %}
             {% if header.issue.url %}<a href="{{ header.issue.url }}" target="_blank" rel="noopener noreferrer">{{ issue_label }}</a>{% else %}{{ issue_label }}{% endif %}
           {% elif session.scheduled_job %}
             {% blocktranslate with name=session.scheduled_job.name %}Schedule · {{ name }}{% endblocktranslate %}

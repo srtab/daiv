@@ -30,6 +30,7 @@ from automation.agent.delegation import (
     DelegationError,
 )
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
+from codebase.base import RepoId  # noqa: TC001 - runtime type for the tool schema
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -44,8 +45,8 @@ NO_CHANGE_CONVENTION = "If there is nothing to change, reply saying so and make 
 
 
 class DelegateTarget(BaseModel):
-    repo_id: str = Field(
-        min_length=1, description="The repository the leg works on; this repository's own for a sub-session here."
+    repo_id: RepoId = Field(
+        description="The repository the leg works on; this repository's own for a sub-session here."
     )
     ref: str | None = Field(
         default=None,
@@ -237,7 +238,7 @@ class DelegateJobsMiddleware(AgentMiddleware):
             goal=goal.strip(),
             targets=[
                 DelegatedTarget(
-                    repo_id=t.repo_id.strip(),
+                    repo_id=t.repo_id,
                     ref=(t.ref or "").strip(),
                     prompt=t.prompt.strip(),
                     references=tuple(t.references),

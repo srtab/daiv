@@ -24,9 +24,9 @@ from sessions.templatetags.session_tags import (
     format_tokens,
     linked_merge_request,
     origin_icon,
-    session_cost,
     session_merge_request,
     session_title,
+    short_age,
     short_timestamp,
     status_variant,
 )
@@ -136,6 +136,28 @@ def test_short_timestamp_is_relative_today_and_a_date_before():
     assert short_timestamp(timezone.make_aware(datetime(2024, 3, 9, 12, 0))) == "Mar 9"
 
 
+@pytest.mark.parametrize(
+    ("ago", "expected"),
+    [
+        (timedelta(seconds=30), "now"),
+        (timedelta(minutes=5), "5m"),
+        (timedelta(hours=3), "3h"),
+        (timedelta(days=2), "2d"),
+        (timedelta(days=13), "13d"),
+        (timedelta(days=21), "3w"),
+        (timedelta(days=125), "4mo"),
+        (timedelta(days=400), "1y"),
+    ],
+)
+def test_short_age(ago, expected):
+    assert short_age(timezone.now() - ago) == expected
+
+
+def test_short_age_of_none_or_the_future():
+    assert short_age(None) == ""
+    assert short_age(timezone.now() + timedelta(minutes=2)) == "now"
+
+
 @pytest.mark.parametrize("kind", [*ArtifactKind.values, "unknown-kind"])
 def test_artifact_icon_resolves_to_a_shipped_icon(kind):
     assert finders.find(f"core/img/icons/{artifact_icon(kind)}.svg")
@@ -169,17 +191,6 @@ def test_date_bucket_exact_window_edges(monkeypatch):
 )
 def test_origin_icon(origin, expected):
     assert origin_icon(origin) == expected
-
-
-def test_session_cost_sums_runs():
-    runs = [types.SimpleNamespace(cost_usd=Decimal("0.30")), types.SimpleNamespace(cost_usd=Decimal("0.08"))]
-    session = types.SimpleNamespace(runs=_Runs(runs))
-    assert session_cost(session) == "$0.38"
-
-
-def test_session_cost_empty_when_zero():
-    session = types.SimpleNamespace(runs=_Runs([types.SimpleNamespace(cost_usd=None)]))
-    assert session_cost(session) == ""
 
 
 def _mr_run(iid=None, url=""):
@@ -217,8 +228,86 @@ def test_session_merge_request_none_when_nothing_published():
     assert session_merge_request(session) is None
 
 
-def test_session_cost_skips_null_costs():
-    # A run with cost_usd=None must be skipped (the `is not None` guard), not coerce a TypeError.
-    runs = [types.SimpleNamespace(cost_usd=None), types.SimpleNamespace(cost_usd=Decimal("0.30"))]
-    session = types.SimpleNamespace(runs=_Runs(runs))
-    assert session_cost(session) == "$0.30"
+def _dropdown(
+    rf,
+    current: str,
+    *,
+    lead: str = "",
+    options: list[tuple[str, str]] | None = None,
+    params: dict | None = None,
+    **context,
+):
+    from django.template.loader import render_to_string
+
+    from bs4 import BeautifulSoup
+
+    model = "openrouter:z-ai/glm-5.2"
+    html = render_to_string(
+        "sessions/_filter_dropdown.html",
+        {
+            "key": "spend_model",
+            "label": "Model",
+            "icon": "cpu-chip",
+            "all_label": "Any model",
+            "options": [(model, model)] if options is None else options,
+            "current": current,
+            "lead": lead,
+            "align": "",
+            **context,
+        },
+        request=rf.get("/s/", params or {}),
+    )
+    return BeautifulSoup(html, "html.parser")
+
+
+def _query(href: str) -> dict:
+    from django.http import QueryDict
+
+    assert href.startswith("?")
+    return QueryDict(href[1:]).dict()
+
+
+def test_an_option_link_sets_its_value_and_drops_the_page(rf):
+    soup = _dropdown(rf, "", params={"scope": "all", "page": "3", "status": "FAILED"}, current_scope="all")
+
+    href = soup.select_one("[data-filter-key=spend_model][data-value='openrouter:z-ai/glm-5.2']")["href"]
+    assert _query(href) == {"scope": "all", "status": "FAILED", "spend_model": "openrouter:z-ai/glm-5.2"}
+
+
+def test_the_clear_link_keeps_a_resolved_scope_explicit(rf):
+    soup = _dropdown(rf, "m1", params={"spend_model": "m1"}, current_scope="all")
+
+    assert _query(soup.select_one(".filter-control__clear")["href"]) == {"scope": "all"}
+
+
+def test_a_dropdown_with_no_options_and_no_value_renders_nothing(rf):
+    assert _dropdown(rf, "", options=[]).get_text(strip=True) == ""
+    assert _dropdown(rf, "gone", options=[]).select_one(".filter-control__value").get_text(strip=True) == "gone"
+
+
+def test_a_set_dropdown_shows_its_value_and_a_clear_link(rf):
+    soup = _dropdown(rf, "openrouter:z-ai/glm-5.2")
+
+    value = soup.select_one(".filter-control--active .filter-control__value")
+    assert value.get_text(strip=True) == "openrouter:z-ai/glm-5.2"
+    assert soup.select_one(".filter-control__clear")["href"] == "?"
+    menu = soup.select_one("[data-surface].filter-menu")
+    assert [a["data-value"] for a in menu.select("[data-filter-key=spend_model]")] == ["", "openrouter:z-ai/glm-5.2"]
+
+
+def test_an_unset_dropdown_shows_its_name_and_hides_its_clear(rf):
+    soup = _dropdown(rf, "")
+
+    assert soup.select(".filter-control--active") == []
+    assert soup.select_one(".filter-control__toggle").get_text(" ", strip=True) == "Model"
+    assert soup.select_one(".filter-control__clear")["style"] == "display:none"
+
+
+def test_a_dropdown_toggle_carries_one_lead_whatever_the_option_count(rf):
+    options = [(f"group/repo-{n}", f"group/repo-{n}") for n in range(20)]
+
+    soup = _dropdown(rf, "group/repo-3", lead="repo", options=options)
+
+    toggle = soup.select_one(".filter-control__toggle")
+    assert len(toggle.select(".filter-control__lead")) == 3
+    assert toggle.select_one("[x-html]").find("span") is not None

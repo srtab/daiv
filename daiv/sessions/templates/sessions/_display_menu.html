@@ -1,0 +1,48 @@
+{% load i18n icon_tags %}
+{% comment %}
+The Display menu: how the list is grouped and sorted, and whether it lists archived sessions instead. These shape the
+list rather than narrow it, so its button never looks active. Inside the filter bar's Alpine component.
+{% endcomment %}
+<div class="relative" data-display @click.outside="close('display')" @keydown.escape="close('display', $el)">
+    <div class="filter-control">
+        <button type="button" class="filter-control__toggle" @click="toggleDisplay($el.closest('[data-display]'))" data-testid="display-open"
+                aria-expanded="false" :aria-expanded="(open === 'display').toString()">
+            <span class="filter-control__lead">{% icon "adjustments-horizontal" "h-4 w-4" %}</span>
+            <span>{% translate "Display" %}</span>
+        </button>
+    </div>
+    <div data-surface class="filter-menu filter-menu--end display-menu scrollbar-thin" x-show="open === 'display'" x-cloak
+         :style="displayLeft !== null && `left: ${displayLeft}px; right: auto`">
+        <div class="display-row">
+            <span>{% translate "Group by" %}</span>
+            <span class="display-seg" role="group" aria-label="{% translate 'Group by' %}">
+                {% for value, label in group_options %}
+                <button type="button" class="display-seg__item" data-group="{{ value }}" @click="setGroup('{{ value }}')"
+                        aria-pressed="{% if current_group == value %}true{% else %}false{% endif %}"
+                        :aria-pressed="(group === '{{ value }}').toString()"
+                        {% if not value %}{% if current_sort == "cost" %}disabled{% endif %} :disabled="sort === 'cost'"{% endif %}>{{ label }}</button>
+                {% endfor %}
+            </span>
+        </div>
+        <div class="display-row">
+            <span>{% translate "Sort by" %}</span>
+            <span class="display-seg" role="group" aria-label="{% translate 'Sort by' %}">
+                {% for value, label in sorts %}
+                <button type="button" class="display-seg__item" data-sort="{{ value }}" @click="pick('sort', '{{ value }}')"
+                        aria-pressed="{% if current_sort == value %}true{% else %}false{% endif %}"
+                        :aria-pressed="(sort === '{{ value }}').toString()">{{ label }}</button>
+                {% endfor %}
+            </span>
+        </div>
+        <div class="filter-menu__section">
+            <button type="button" class="filter-menu-item w-full" data-testid="display-archived" @click="toggleArchived()"
+                    aria-pressed="{{ current_archived|yesno:'true,false' }}" :aria-pressed="(archived === 'true').toString()">
+                <span class="filter-menu-item__lead">{% icon "archive-box" "h-4 w-4" %}</span>
+                {% translate "Show archived" %}
+                <span class="filter-menu-item__end" x-show="archived === 'true'" {% if not current_archived %}style="display:none"{% endif %}>
+                    {% icon "check" "h-3.5 w-3.5" %}
+                </span>
+            </button>
+        </div>
+    </div>
+</div>

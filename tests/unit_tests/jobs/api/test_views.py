@@ -1,4 +1,5 @@
 import uuid
+from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -15,6 +16,7 @@ from sessions.services import BatchSubmitResult
 
 from accounts.models import APIKey, User
 from core.models import Provider, ProviderType
+from core.provider_failures import failure_message
 from core.site_settings import site_settings
 from daiv.api import api
 from tests.unit_tests.conftest import SAMPLE_QUESTION_PAYLOAD
@@ -115,10 +117,9 @@ async def test_submit_job_oversized_repos(authenticated_client: TestAsyncClient)
 
 
 @pytest.mark.django_db(transaction=True)
-async def test_submit_job_empty_repo_id(authenticated_client: TestAsyncClient):
-    response = await authenticated_client.post(
-        "/jobs", json={"repos": [{"repo_id": "", "ref": None}], "prompt": "hello"}
-    )
+@pytest.mark.parametrize("repo_id", ["", " / "])
+async def test_submit_job_empty_repo_id(authenticated_client: TestAsyncClient, repo_id):
+    response = await authenticated_client.post("/jobs", json=_single_repo_body(repos=[{"repo_id": repo_id}]))
     assert response.status_code == 422
 
 
@@ -261,8 +262,6 @@ async def test_submit_job_accepts_muted_and_forwards_it(authenticated_client: Te
 
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_gives_a_repository_its_own_prompt(authenticated_client: TestAsyncClient):
-    from sessions.services import RepoTarget
-
     captured: dict = {}
     body = _single_repo_body(repos=[{"repo_id": "group/project", "prompt": "only here"}], prompt="batch")
     with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
@@ -270,7 +269,18 @@ async def test_submit_job_gives_a_repository_its_own_prompt(authenticated_client
 
     assert response.status_code == 202
     assert captured["prompt"] == "batch"
-    assert captured["repos"] == [RepoTarget(repo_id="group/project", prompt="only here")]
+    assert [(target.repo_id, target.prompt) for target in captured["repos"]] == [("group/project", "only here")]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_submit_job_strips_slashes_around_the_repo_id(authenticated_client: TestAsyncClient):
+    captured: dict = {}
+    body = _single_repo_body(repos=[{"repo_id": "/group/project/"}])
+    with patch("sessions.multi_repo.asubmit_batch_runs", side_effect=_fake_submit_factory(captured)):
+        response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 202
+    assert [target.repo_id for target in captured["repos"]] == ["group/project"]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -976,3 +986,467 @@ async def test_get_job_status_still_answers_when_artifacts_cannot_be_listed(auth
     assert data["result"] == "done"
     assert data["artifacts"] == []
     assert "could not be listed" in data["artifacts_error"]
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_failed_by_a_provider_says_why(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="FAILED", error_message="Traceback: raw")
+    await Run.objects.filter(pk=run.pk).aupdate(failure_kind="out_of_credits", failure_provider="openrouter")
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.json()["error"] == failure_message("out_of_credits", "openrouter")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_status_failed_otherwise_keeps_the_generic_error(authenticated_client: TestAsyncClient):
+    user = await User.objects.aget(username="testuser")
+    run = await _create_run_row(user, status="FAILED", error_message="Traceback: raw")
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.json()["error"] == "Job execution failed"
+
+
+# --- Merge request target ---
+
+
+def _merge_request_body(**overrides):
+    return {"repos": [{"repo_id": "group/project", "merge_request": 7}], "prompt": "/code-review"} | overrides
+
+
+def _open_merge_request(**fields):
+    from codebase.base import MergeRequest
+    from codebase.base import User as PlatformUser
+
+    return MergeRequest(
+        **{
+            "repo_id": "group/project",
+            "merge_request_id": 7,
+            "source_branch": "feat",
+            "target_branch": "main",
+            "title": "Feature",
+            "description": "",
+            "web_url": "https://git.test/group/project/-/merge_requests/7",
+            "author": PlatformUser(id=1, username="author"),
+        }
+        | fields
+    )
+
+
+@pytest.fixture
+def merge_request_platform(mock_repo_client):
+    from django.core.cache import cache
+
+    async_to_sync(cache.aclear)()
+    mock_repo_client.get_merge_request.return_value = _open_merge_request()
+    with patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)):
+        yield mock_repo_client
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"repo_id": "group/project", "merge_request": 7, "ref": "main"},
+        {"repo_id": "group/project", "merge_request": 7, "prompt": "only here"},
+        {"repo_id": "group/project", "merge_request": 0},
+    ],
+    ids=["with-ref", "with-prompt", "not-positive"],
+)
+async def test_a_merge_request_target_with_a_ref_or_its_own_prompt_is_refused(authenticated_client, entry):
+    response = await authenticated_client.post("/jobs", json={"repos": [entry], "prompt": "p"})
+
+    assert response.status_code == 422
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "extra", [{"shared_session": True}, {"thread_id": str(uuid.uuid4())}], ids=["shared", "thread"]
+)
+async def test_a_merge_request_target_in_a_shared_or_continued_session_is_refused(authenticated_client, extra):
+    response = await authenticated_client.post("/jobs", json=_merge_request_body(**extra))
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "A merge request target can't be combined with shared_session or thread_id."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_merge_request_target_beside_another_repository_is_refused(authenticated_client):
+    body = _merge_request_body(repos=[{"repo_id": "group/project", "merge_request": 7}, {"repo_id": "group/other"}])
+
+    response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_merge_request_target_without_write_access_answers_404_unconfirmed(
+    authenticated_client, merge_request_platform
+):
+    from codebase.authorization import RepositoryAccessDenied
+
+    with patch("sessions.admission.assert_can_run", side_effect=RepositoryAccessDenied(["group/project"])):
+        response = await authenticated_client.post("/jobs", json=_merge_request_body())
+
+    assert response.status_code == 404
+    merge_request_platform.get_merge_request.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("platform", "error"),
+    [({"merged": True}, "Merge request !7 is merged."), ({"closed": True}, "Merge request !7 is closed.")],
+)
+async def test_a_merge_request_that_is_not_open_is_a_failed_entry(
+    authenticated_client, merge_request_platform, platform, error
+):
+    merge_request_platform.get_merge_request.return_value = _open_merge_request(**platform)
+
+    response = await authenticated_client.post("/jobs", json=_merge_request_body())
+
+    assert response.status_code == 202
+    assert response.json()["jobs"] == []
+    assert response.json()["failed"] == [{"repo_id": "group/project", "ref": "", "error": error}]
+    assert not await Run.objects.aexists()
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_missing_merge_request_is_a_failed_entry(authenticated_client, merge_request_platform):
+    from gitlab.exceptions import GitlabGetError
+
+    merge_request_platform.get_merge_request.side_effect = GitlabGetError("404 Not Found", response_code=404)
+
+    response = await authenticated_client.post("/jobs", json=_merge_request_body())
+
+    assert response.json()["failed"][0]["error"] == "Merge request !7 was not found in group/project."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_merge_request_whose_session_is_archived_is_a_failed_entry(
+    authenticated_client, merge_request_platform
+):
+    from sessions.ids import compute_thread_id
+
+    from codebase.base import Scope
+
+    thread_id = compute_thread_id(repo_slug="group/project", scope=Scope.MERGE_REQUEST, entity_iid=7)
+    await Session.objects.acreate(
+        thread_id=thread_id, origin=SessionOrigin.MR_WEBHOOK, repo_id="group/project", archived_at=timezone.now()
+    )
+
+    response = await authenticated_client.post("/jobs", json=_merge_request_body())
+
+    error = response.json()["failed"][0]["error"]
+    assert error.startswith("The DAIV session of merge request !7 is archived. Unarchive it to run jobs on it: ")
+    assert thread_id in error
+    merge_request_platform.create_merge_request_comment.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.usefixtures("database_task_backend")
+async def test_a_job_on_a_merge_request_no_session_owns_runs_in_its_session(
+    authenticated_client, merge_request_platform
+):
+    from sessions.ids import compute_thread_id
+
+    from codebase.base import Scope
+
+    response = await authenticated_client.post("/jobs", json=_merge_request_body())
+
+    assert response.status_code == 202
+    [job] = response.json()["jobs"]
+    run = await Run.objects.select_related("task_result").aget()
+    assert (job["job_id"], job["status"]) == (str(run.pk), "READY")
+    assert job["thread_id"] == compute_thread_id(repo_slug="group/project", scope=Scope.MERGE_REQUEST, entity_iid=7)
+    assert (run.trigger_type, run.merge_request_iid, run.ref) == (SessionOrigin.API_JOB, 7, "feat")
+    assert run.task_result.task_path == "sessions.merge_request_runs.tasks.address_merge_request_task"
+    assert run.task_result.args_kwargs["kwargs"]["request_key"].startswith("job:")
+
+    status = await authenticated_client.get(f"/jobs/{run.pk}")
+    assert status.json()["merge_request_url"] == "https://git.test/group/project/-/merge_requests/7"
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.usefixtures("database_task_backend")
+async def test_a_job_on_a_merge_request_runs_with_its_references_and_mcp_overrides(
+    authenticated_client, merge_request_platform
+):
+    await sync_to_async(only_servers)(("grafana", MCPServer.Status.ON_DEMAND))
+    body = _merge_request_body(mcp_overrides={"grafana": True}, references=[{"key": "PROJ-1"}])
+
+    response = await authenticated_client.post("/jobs", json=body)
+
+    assert response.status_code == 202
+    run = await Run.objects.select_related("task_result").aget()
+    kwargs = run.task_result.args_kwargs["kwargs"]
+    assert kwargs["mcp_overrides"] == {"grafana": "on"}
+    assert [ref["key"] for ref in kwargs["references"]] == ["PROJ-1"]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.usefixtures("database_task_backend")
+@pytest.mark.parametrize(
+    ("extra_data", "expected"), [({"username": "jdoe"}, "jdoe"), (None, "")], ids=["linked", "unlinked"]
+)
+async def test_a_job_on_a_merge_request_names_its_caller_by_their_linked_account_only(
+    authenticated_client, merge_request_platform, extra_data, expected
+):
+    from allauth.socialaccount.models import SocialAccount
+
+    from codebase.base import GitPlatform
+    from codebase.conf import settings as codebase_settings
+
+    if extra_data is not None:
+        user = await User.objects.aget(username="testuser")
+        await SocialAccount.objects.acreate(user=user, provider="gitlab", uid="5", extra_data=extra_data)
+
+    with patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB):
+        response = await authenticated_client.post("/jobs", json=_merge_request_body())
+
+    assert response.status_code == 202
+    run = await Run.objects.select_related("task_result").aget()
+    assert run.task_result.args_kwargs["kwargs"]["requester_username"] == expected
+    assert run.external_username == expected
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_jobs_on_a_merge_request_a_busy_session_owns_wait_as_turns_of_their_own(
+    authenticated_client, merge_request_platform
+):
+    from tests.unit_tests.sessions.conftest import amake_owned_merge_request
+
+    owned = await amake_owned_merge_request(repo_id="group/project", merge_request_iid=7)
+    await Session.objects.filter(pk=owned.session_id).aupdate(active_run_id="other", last_active_at=timezone.now())
+
+    first = await authenticated_client.post("/jobs", json=_merge_request_body())
+    second = await authenticated_client.post("/jobs", json=_merge_request_body())
+
+    [job_one], [job_two] = first.json()["jobs"], second.json()["jobs"]
+    assert (job_one["status"], job_two["status"]) == ("QUEUED", "QUEUED")
+    assert job_one["job_id"] != job_two["job_id"]
+    assert job_one["thread_id"] == job_two["thread_id"] == owned.session_id
+    events = InboxEvent.objects.filter(session_id=owned.session_id, kind=EventKind.MERGE_REQUEST_JOB)
+    assert await events.acount() == 2
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_job_that_did_not_start_says_why(authenticated_client):
+    user = await User.objects.aget(username="testuser")
+    note = "This merge request was closed before the job could start, so I didn't run it."
+    run = await _create_run_row(user, status="FAILED", error_message=note)
+
+    response = await authenticated_client.get(f"/jobs/{run.id}")
+
+    assert response.json()["error"] == note
+
+
+# --- CI identity tokens ---
+
+
+@pytest.fixture
+def ci_token(mock_repo_client):
+    """Mint GitLab CI identity tokens for ``group/project`` (platform id 1), verified against in-memory signing keys."""
+    from django.core.cache import cache
+
+    import jwt
+
+    from accounts.api.ci_identity import CIIdentityVerifier
+    from codebase.base import GitPlatform
+    from codebase.conf import settings as codebase_settings
+    from core.conf import settings as core_settings
+    from tests.unit_tests.accounts.api.test_ci_identity import SIGNING_KEY, gitlab_claims, token
+
+    async_to_sync(cache.aclear)()
+    CIIdentityVerifier._key_clients.clear()
+    jwk = jwt.algorithms.RSAAlgorithm.to_jwk(SIGNING_KEY.public_key(), as_dict=True) | {"kid": "k1", "alg": "RS256"}
+    mock_repo_client.get_repository.return_value = mock_repo_client.get_repository.return_value.model_copy(
+        update={"pk": 1, "slug": "group/project"}
+    )
+
+    def mint(**claims):
+        return token(gitlab_claims(project_id="1", **claims))
+
+    with (
+        patch.object(codebase_settings, "CLIENT", GitPlatform.GITLAB),
+        patch.object(codebase_settings, "GITLAB_URL", "https://gitlab.example.com"),
+        patch.object(core_settings, "EXTERNAL_URL", "https://daiv.example.com/"),
+        patch.object(jwt.PyJWKClient, "fetch_data", return_value={"keys": [jwk]}),
+        patch("jobs.api.ci.RepositoryConfig.get_config", return_value=_repo_config()),
+    ):
+        yield mint
+    CIIdentityVerifier._key_clients.clear()
+
+
+def _repo_config(**fields):
+    from codebase.repo_config import RepositoryConfig
+
+    return RepositoryConfig(**fields)
+
+
+def _ci_client(raw_token):
+    return TestAsyncClient(api, headers={"Authorization": f"Bearer {raw_token}"})
+
+
+@contextmanager
+def _enqueued_run_job():
+    with patch("sessions.queue.run_job_task") as task:
+        task.aenqueue.side_effect = lambda **kwargs: _make_task_row()
+        task.module_path = run_job_task.module_path
+        yield task
+
+
+def _ci_body(**overrides):
+    return {"repos": [{"repo_id": "group/project"}], "prompt": "/code-review"} | overrides
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCIIdentitySubmissions:
+    @pytest.mark.parametrize(
+        "body",
+        [
+            _ci_body(repos=[{"repo_id": "group/project"}, {"repo_id": "group/other"}]),
+            _ci_body(thread_id=str(uuid.uuid4())),
+            _ci_body(shared_session=True),
+            _ci_body(references=[{"key": "X-1", "provider": "jira", "url": "https://j/X-1"}]),
+        ],
+        ids=["two-repos", "thread", "shared", "references"],
+    )
+    async def test_anything_but_one_job_on_its_repository_is_refused(self, ci_token, body):
+        response = await _ci_client(ci_token()).post("/jobs", json=body)
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "A CI identity token submits one job on its own repository."
+
+    async def test_another_repository_is_unauthorized(self, ci_token, mock_repo_client, caplog):
+        mock_repo_client.get_repository.return_value = mock_repo_client.get_repository.return_value.model_copy(
+            update={"pk": 99}
+        )
+
+        response = await _ci_client(ci_token()).post("/jobs", json=_ci_body())
+
+        assert response.status_code == 401
+        assert "(repository)" in caplog.text
+
+    async def test_the_allowlist_is_read_with_the_repository_already_verified(self, ci_token, mock_repo_client):
+        with patch(
+            "jobs.api.ci.RepositoryConfig.get_config", return_value=_repo_config(allowed_usernames=["alice"])
+        ) as get_config:
+            await _ci_client(ci_token()).post("/jobs", json=_ci_body())
+
+        assert get_config.call_args.kwargs["repository"] is mock_repo_client.get_repository.return_value
+        mock_repo_client.get_repository.assert_called_once()
+
+    async def test_an_actor_outside_the_allowlist_is_unauthorized(self, ci_token, caplog):
+        with patch("jobs.api.ci.RepositoryConfig.get_config", return_value=_repo_config(allowed_usernames=["alice"])):
+            response = await _ci_client(ci_token()).post("/jobs", json=_ci_body())
+
+        assert response.status_code == 401
+        assert "(allowed usernames)" in caplog.text
+
+    async def test_a_personal_mcp_server_is_refused(self, ci_token):
+        from tests.unit_tests.mcp_connectors.helpers import make_server
+
+        owner = await User.objects.acreate(username="owner", email="o@test.com")
+        await sync_to_async(only_servers)(("rt", MCPServer.Status.ACTIVE))
+        await sync_to_async(make_server)("mine", scope=MCPServer.Visibility.USER, user=owner)
+
+        response = await _ci_client(ci_token()).post("/jobs", json=_ci_body(mcp_overrides={"mine": True}))
+
+        assert response.status_code == 400
+
+    async def test_an_unlinked_actor_gets_an_external_run_that_acts_as_no_one_and_is_muted(self, ci_token):
+        with _enqueued_run_job() as task:
+            response = await _ci_client(ci_token()).post("/jobs", json=_ci_body())
+
+        assert response.status_code == 202
+        run = await Run.objects.aget(pk=response.json()["jobs"][0]["job_id"])
+        assert (run.user_id, run.external_provider, run.external_uid, run.external_username) == (
+            None, "gitlab", "9", "pusher",
+        )  # fmt: skip
+        assert (run.acts_as_user, run.muted) == (False, True)
+        assert task.aenqueue.call_args.kwargs["user_id"] is None
+
+    @pytest.mark.parametrize("active", [True, False], ids=["active", "inactive"])
+    async def test_a_linked_actor_owns_the_run_only_while_active(self, ci_token, active):
+        from allauth.socialaccount.models import SocialAccount
+
+        user = await User.objects.acreate(username="linked", email="l@test.com", is_active=active)
+        await SocialAccount.objects.acreate(user=user, provider="gitlab", uid="9")
+
+        with _enqueued_run_job() as task:
+            response = await _ci_client(ci_token()).post("/jobs", json=_ci_body(muted=False))
+
+        run = await Run.objects.aget(pk=response.json()["jobs"][0]["job_id"])
+        assert run.user_id == (user.pk if active else None)
+        assert (run.acts_as_user, run.muted, run.external_uid) == (False, False, "9")
+        assert task.aenqueue.call_args.kwargs["user_id"] is None
+
+    async def test_a_token_submits_one_accepted_job(self, ci_token, caplog):
+        raw = ci_token()
+        with _enqueued_run_job():
+            first = await _ci_client(raw).post("/jobs", json=_ci_body())
+            second = await _ci_client(raw).post("/jobs", json=_ci_body())
+
+        assert (first.status_code, second.status_code) == (202, 401)
+        assert "(reused)" in caplog.text
+        polled = await _ci_client(raw).get(f"/jobs/{first.json()['jobs'][0]['job_id']}")
+        assert polled.status_code == 200
+
+    async def test_a_refused_submission_does_not_use_the_token_up(self, ci_token):
+        raw = ci_token()
+
+        refused = await _ci_client(raw).post("/jobs", json=_ci_body(shared_session=True))
+        with _enqueued_run_job():
+            accepted = await _ci_client(raw).post("/jobs", json=_ci_body())
+
+        assert (refused.status_code, accepted.status_code) == (400, 202)
+
+    async def test_a_submission_that_accepted_no_job_does_not_use_the_token_up(self, ci_token, mock_repo_client):
+        raw = ci_token()
+        mock_repo_client.get_merge_request.return_value = mock_repo_client.get_merge_request.return_value.model_copy(
+            update={"merged": True}
+        )
+        body = {"repos": [{"repo_id": "group/project", "merge_request": 1}], "prompt": "/code-review"}
+
+        failed = await _ci_client(raw).post("/jobs", json=body)
+        with _enqueued_run_job():
+            accepted = await _ci_client(raw).post("/jobs", json=_ci_body())
+
+        assert (failed.status_code, failed.json()["jobs"], accepted.status_code) == (202, [], 202)
+
+    async def test_a_merge_request_job_is_attributed_to_the_actor_and_acts_as_no_one(self, ci_token, mock_repo_client):
+        with (
+            patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)),
+            patch("sessions.merge_request_runs.service.address_merge_request_task") as task,
+        ):
+            task.get_or_enqueue.return_value = (await _make_task_row(), True)
+            response = await _ci_client(ci_token()).post(
+                "/jobs", json={"repos": [{"repo_id": "group/project", "merge_request": 1}], "prompt": "/code-review"}
+            )
+
+        run = await Run.objects.aget(pk=response.json()["jobs"][0]["job_id"])
+        assert (run.merge_request_iid, run.user_id, run.external_uid, run.acts_as_user, run.muted) == (
+            1, None, "9", False, True,
+        )  # fmt: skip
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCIIdentityPolling:
+    async def _run(self, **fields):
+        session = await Session.objects.acreate(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id=fields.get("repo_id", "group/project")
+        )
+        return await Run.objects.acreate(
+            session=session, trigger_type=SessionOrigin.API_JOB, status=RunStatus.SUCCESSFUL,
+            **({"repo_id": "group/project"} | fields),
+        )  # fmt: skip
+
+    async def test_a_run_of_its_repository_attributed_to_its_actor_is_visible(self, ci_token):
+        run = await self._run(external_provider="gitlab", external_uid="9")
+
+        assert (await _ci_client(ci_token()).get(f"/jobs/{run.pk}")).status_code == 200
+
+    async def test_any_other_run_is_not_found(self, ci_token):
+        run = await self._run(external_provider="gitlab", external_uid="10")
+
+        assert (await _ci_client(ci_token()).get(f"/jobs/{run.pk}")).status_code == 404

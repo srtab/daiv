@@ -10,6 +10,7 @@ from allauth.socialaccount.models import SocialAccount
 from codebase.authorization import (
     RepositoryAccessDenied,
     assert_can_run,
+    assert_catalogued,
     can_run,
     can_view,
     get_access_level,
@@ -167,6 +168,12 @@ class TestAssertCanRun:
     def test_admin_passes_without_rows(self, admin_user, db):
         assert_can_run(admin_user, ["any/repo"])
 
+    def test_admin_denied_a_repo_missing_from_the_catalog(self, admin_user):
+        _catalog("a/b")
+        with pytest.raises(RepositoryAccessDenied) as exc:
+            assert_can_run(admin_user, ["a/b", "/a/b", "x/y"])
+        assert exc.value.repo_ids == ["/a/b", "x/y"]
+
     def test_no_rows_denies(self, linked_member, db, _no_backstop_enqueue):
         with pytest.raises(RepositoryAccessDenied) as exc:
             assert_can_run(linked_member, ["a/b"])
@@ -222,8 +229,21 @@ class TestRunnableRepoIds:
         _grant("101", "s/tale", RepoAccessLevel.WRITE, synced_at=timezone.now() - timedelta(hours=30))
         assert runnable_repo_ids(linked_member, ["w/rite", "r/ead", "s/tale", "x/y"]) == {"w/rite"}
 
-    def test_admin_runs_on_every_repo(self, admin_user):
+    def test_admin_runs_on_every_repo_before_the_first_catalog_sync(self, admin_user):
+        RepositoryCatalog.objects.create(provider="github", slug="o/r", synced_at=timezone.now())
         assert runnable_repo_ids(admin_user, ["a/b", "c/d"]) == {"a/b", "c/d"}
+
+    def test_admin_runs_only_on_catalogued_repos(self, admin_user):
+        _catalog("a/b")
+        assert runnable_repo_ids(admin_user, ["a/b", "x/y"]) == {"a/b"}
+
+    def test_admin_keeps_running_on_repos_a_dead_sync_left_stale(self, admin_user):
+        _catalog("a/b", synced_at=timezone.now() - timedelta(hours=30))
+        assert runnable_repo_ids(admin_user, ["a/b"]) == {"a/b"}
+
+    def test_can_run_agrees_with_the_catalog_for_admins(self, admin_user):
+        _catalog("a/b")
+        assert (can_run(admin_user, "a/b"), can_run(admin_user, "x/y")) == (True, False)
 
     def test_no_social_account_returns_empty(self, member_user, fresh_sync):
         _grant("101", "a/b", RepoAccessLevel.WRITE)
@@ -394,3 +414,22 @@ class TestCanRun:
     def test_admin_can_run(self, admin_user, db):
 
         assert can_run(admin_user, "any/repo") is True
+
+
+@pytest.mark.django_db
+class TestAssertCatalogued:
+    def test_catalogued_repos_pass_with_no_access_rows(self):
+        _catalog("a/b")
+
+        assert_catalogued(["a/b"])
+
+    def test_a_repo_missing_from_the_catalog_is_denied(self):
+        _catalog("a/b")
+
+        with pytest.raises(RepositoryAccessDenied) as denied:
+            assert_catalogued(["a/b", "x/y"])
+
+        assert denied.value.repo_ids == ["x/y"]
+
+    def test_any_repo_passes_before_the_first_catalog_sync(self):
+        assert_catalogued(["x/y"])

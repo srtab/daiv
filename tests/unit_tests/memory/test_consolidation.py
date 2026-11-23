@@ -1,6 +1,6 @@
 import logging
 from datetime import timedelta
-from unittest.mock import MagicMock, PropertyMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 from django.utils import timezone
 
@@ -14,8 +14,10 @@ from memory.models import (
     ObservationStatus,
     RepositoryMemory,
 )
-from memory.schemas import CONTENT_HARD_LIMIT, MAX_OPERATIONS, MemoryOperation
+from memory.schemas import CONTENT_HARD_LIMIT, MAX_OPERATIONS, MemoryOperation, MemoryOperations
+from sessions.models import SpendRecord, SpendTask
 
+from tests.unit_tests.conftest import aspending
 from tests.unit_tests.memory.consolidation_helpers import (
     _enabled_config,
     _entry,
@@ -611,3 +613,21 @@ async def test_a_truncated_operation_naming_an_unknown_observation_is_not_counte
     outcome = await _run_round(_structured_llm_returning(*_adds_for(observations), hallucinated))
 
     assert (outcome.applied, outcome.still_pending, outcome.truncated) == (MAX_OPERATIONS, 0, 0)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_round_records_its_spend_for_the_repository_and_no_person():
+    await _observation()
+    llm = _structured_llm_returning()
+    llm.with_config.return_value.ainvoke = AsyncMock(side_effect=aspending(MemoryOperations(operations=[])))
+
+    await _run_round(llm)
+
+    record = await SpendRecord.objects.aget()
+    assert (record.task, record.repo_id, record.user_id, record.session_id, record.run_id) == (
+        SpendTask.MEMORY_CONSOLIDATION,
+        "group/project",
+        None,
+        None,
+        None,
+    )

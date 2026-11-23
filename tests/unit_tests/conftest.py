@@ -22,6 +22,7 @@ import httpx
 import pytest
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.protocol import BackendProtocol
+from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import SecretStr
 from sandbox_envs.spec import SandboxSpec
@@ -29,6 +30,7 @@ from webhooks.conf import settings as webhooks_settings
 
 from accounts.models import Role
 from accounts.models import User as AccountUser
+from automation.agent import provider_health
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.artifacts import ArtifactError, ArtifactFile
 from automation.agent.constants import REPO_PATH
@@ -61,6 +63,40 @@ from core.site_settings import SiteSnapshot, site_settings
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+SPENT_MODEL = "claude-haiku-4-5"
+
+
+def _spending_model() -> GenericFakeChatModel:
+    message = AIMessage(
+        content="",
+        usage_metadata={"input_tokens": 50, "output_tokens": 5, "total_tokens": 55},
+        response_metadata={"model_name": SPENT_MODEL},
+    )
+    return GenericFakeChatModel(
+        messages=iter([message]), metadata={"daiv_provider_slug": "anthropic", "daiv_provider_name": "Anthropic"}
+    )
+
+
+def spending(result: Any):
+    """A sync stand-in for a model-backed call: one stubbed model call that reports usage, then ``result``."""
+
+    def _call(*_args, **_kwargs):
+        _spending_model().invoke("x")
+        return result
+
+    return _call
+
+
+def aspending(result: Any):
+    """:func:`spending` for an ``ainvoke``."""
+
+    async def _call(*_args, **_kwargs):
+        await _spending_model().ainvoke("x")
+        return result
+
+    return _call
 
 
 def site_snapshot(**overrides: Any) -> SiteSnapshot:
@@ -478,6 +514,12 @@ def _clear_model_caches():
 
 
 @pytest.fixture(autouse=True)
+def _drain_provider_health_jobs():
+    yield
+    provider_health._executor.submit(lambda: None).result()
+
+
+@pytest.fixture(autouse=True)
 def _clear_docker_secret_cache():
     from core.site_settings import _docker_secret_cache
 
@@ -737,6 +779,7 @@ def mock_repo_authorization():
     with (
         patch("sessions.admission.assert_can_run", new=Mock(return_value=None)),
         patch("sessions.page_state.runnable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),
+        patch("dashboard.sidebar.runnable_repo_ids", new=Mock(side_effect=lambda user, ids: set(ids))),
         patch("sessions.api.views.can_run", new=Mock(return_value=True)),
         patch("codebase.views.can_view", new=Mock(return_value=True)),
         patch("chat.api.views.can_view", new=Mock(return_value=True)),
