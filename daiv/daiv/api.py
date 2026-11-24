@@ -3,7 +3,7 @@ from jobs.api.views import jobs_router
 from mcp_api.api.views import oauth_router
 from ninja import NinjaAPI
 from notifications.api.views import router as notifications_router
-from sessions.api.views import sessions_router
+from sessions.api.views import sessions_router, spend_router
 from webhooks.api.router import router as webhooks_router
 
 from automation.api.views import router as automation_router
@@ -20,3 +20,4 @@ api.add_router("/nav", nav_router)
 api.add_router("/notifications", notifications_router)
 api.add_router("/oauth", oauth_router)
 api.add_router("/sessions", sessions_router)
+api.add_router("/spend", spend_router)

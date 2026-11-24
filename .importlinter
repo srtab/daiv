@@ -2,6 +2,7 @@
 root_packages =
     accounts
     automation
+    blog
     chat
     codebase
     configuration
@@ -28,6 +29,7 @@ source_modules = core
 forbidden_modules =
     accounts
     automation
+    blog
     chat
     codebase
     configuration
@@ -52,6 +54,7 @@ source_modules = sandbox_envs
 forbidden_modules =
     accounts
     automation
+    blog
     chat
     codebase
     configuration
@@ -75,6 +78,7 @@ source_modules = codebase
 forbidden_modules =
     accounts
     automation
+    blog
     chat
     configuration
     dashboard
@@ -97,6 +101,7 @@ type = forbidden
 source_modules = accounts
 forbidden_modules =
     automation
+    blog
     chat
     configuration
     dashboard
@@ -118,6 +123,7 @@ type = forbidden
 source_modules = skills
 forbidden_modules =
     automation
+    blog
     chat
     configuration
     dashboard
@@ -138,6 +144,7 @@ type = forbidden
 source_modules = slash_commands
 forbidden_modules =
     automation
+    blog
     chat
     configuration
     dashboard
@@ -156,6 +163,7 @@ name = the agent sits below connectors, runs and triggers
 type = forbidden
 source_modules = automation
 forbidden_modules =
+    blog
     chat
     configuration
     dashboard
@@ -177,6 +185,7 @@ name = mcp_connectors sits below runs and triggers
 type = forbidden
 source_modules = mcp_connectors
 forbidden_modules =
+    blog
     chat
     configuration
     dashboard
@@ -194,6 +203,7 @@ name = sessions sits below memory, schedules, notifications and triggers
 type = forbidden
 source_modules = sessions
 forbidden_modules =
+    blog
     chat
     configuration
     dashboard
@@ -213,6 +223,7 @@ name = memory does not import schedules, notifications or triggers
 type = forbidden
 source_modules = memory
 forbidden_modules =
+    blog
     chat
     configuration
     dashboard
@@ -228,6 +239,7 @@ name = schedules does not import memory, notifications or triggers
 type = forbidden
 source_modules = schedules
 forbidden_modules =
+    blog
     chat
     configuration
     dashboard
@@ -243,6 +255,7 @@ name = notifications sits below the triggers, configuration and dashboard
 type = forbidden
 source_modules = notifications
 forbidden_modules =
+    blog
     chat
     configuration
     dashboard

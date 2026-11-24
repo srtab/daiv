@@ -10,9 +10,9 @@
 
     <div class="flex min-w-0 flex-1 flex-col gap-1 overflow-hidden">
         <div class="flex min-w-0 items-baseline gap-2">
-            <span class="truncate text-[14px] font-medium text-white">{{ artifact.title }}</span>
+            <span class="truncate text-[14px] font-medium text-text-strong">{{ artifact.title }}</span>
             {% if artifact.filename != artifact.title %}
-            <span class="hidden min-w-0 truncate font-mono text-[11.5px] text-gray-500 sm:inline">{{ artifact.filename }}</span>
+            <span class="hidden min-w-0 truncate font-mono text-[11.5px] text-text-faint sm:inline">{{ artifact.filename }}</span>
             {% endif %}
         </div>
         <div class="flex min-w-0 items-center gap-x-2.5 overflow-hidden">
@@ -22,7 +22,7 @@
             </span>
             {% endif %}
             <a href="{% url 'session_detail' thread_id=artifact.run.session_id %}#run-{{ artifact.run_id }}"
-               class="relative z-10 min-w-0 truncate text-[12.5px] text-gray-400 transition-colors hover:text-white">{% if session.title %}{{ session.title }}{% else %}<em class="text-gray-500">{% translate "generating title…" %}</em>{% endif %}</a>
+               class="relative z-10 min-w-0 truncate text-[12.5px] text-text-muted transition-colors hover:text-text-strong">{% if session.title %}{{ session.title }}{% else %}<em class="text-text-faint">{% translate "generating title…" %}</em>{% endif %}</a>
         </div>
     </div>
 
@@ -30,12 +30,12 @@
         <span class="meta-pill hidden md:inline-flex">{{ artifact.kind.label }}</span>
         <span class="session-num hidden sm:inline">{{ artifact.size|filesizeformat }}</span>
         <time datetime="{{ artifact.created_at|date:'c' }}" title="{{ artifact.created_at|date:'DATETIME_FORMAT' }}"
-              class="min-w-[76px] whitespace-nowrap text-right text-[12.5px] tabular-nums text-gray-500">{{ artifact.created_at|short_timestamp }}</time>
+              class="min-w-[76px] whitespace-nowrap text-right text-[12.5px] tabular-nums text-text-faint">{{ artifact.created_at|short_timestamp }}</time>
         <a href="{{ artifact.get_download_url }}" class="artifact-download relative z-10" title="{% translate 'Download' %}">
             {% icon "arrow-down-tray" "h-4 w-4" %}
             <span class="sr-only">{% translate "Download" %}</span>
         </a>
-        {% icon "chevron-right" "h-3.5 w-3.5 text-gray-700 transition-colors group-hover:text-gray-400" %}
+        {% icon "chevron-right" "h-3.5 w-3.5 text-text-faint transition-colors group-hover:text-text-muted" %}
     </div>
 </div>
 {% endwith %}

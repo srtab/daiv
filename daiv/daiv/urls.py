@@ -1,9 +1,9 @@
-from django.contrib.sitemaps import Sitemap
 from django.contrib.sitemaps.views import sitemap
-from django.urls import include, path, reverse
+from django.urls import include, path
 
+from blog.sitemaps import BlogIndexSitemap, BlogPostSitemap
 from configuration.views import SkillModelsView
-from dashboard.comparisons import COMPARISONS
+from dashboard.sitemaps import ComparisonSitemap, StaticSitemap
 from dashboard.views import ComparisonView, HomepageView, SkillUsageView
 from mcp_api.oauth import oauth_metadata
 from notifications.views import UserChannelsView
@@ -11,27 +11,6 @@ from skills import urls as skills_urls
 
 from core.views import HealthCheckView, VersionView
 from daiv.api import api
-
-
-class StaticSitemap(Sitemap):
-    changefreq = "weekly"
-
-    def items(self):
-        return ["homepage"]
-
-    def location(self, item):
-        return reverse(item)
-
-
-class ComparisonSitemap(Sitemap):
-    changefreq = "monthly"
-
-    def items(self):
-        return COMPARISONS
-
-    def location(self, item):
-        return reverse("comparison", args=[item.slug])
-
 
 # The skill page's Models and Usage tabs join the skills namespace here: their views live in apps above skills.
 skills_patterns = [
@@ -43,6 +22,7 @@ skills_patterns = [
 urlpatterns = [
     path("", HomepageView.as_view(), name="homepage"),
     path("compare/<slug:slug>/", ComparisonView.as_view(), name="comparison"),
+    path("blog/", include("blog.urls")),
     path("accounts/", include("accounts.urls.allauth")),
     path("accounts/api-keys/", include("accounts.urls.api_keys")),
     path("accounts/channels/", UserChannelsView.as_view(), name="user_channels"),
@@ -67,7 +47,14 @@ urlpatterns = [
     path(
         "sitemap.xml",
         sitemap,
-        {"sitemaps": {"static": StaticSitemap, "comparisons": ComparisonSitemap}},
+        {
+            "sitemaps": {
+                "static": StaticSitemap,
+                "comparisons": ComparisonSitemap,
+                "blog": BlogIndexSitemap,
+                "blog-posts": BlogPostSitemap,
+            }
+        },
         name="sitemap",
     ),
 ]

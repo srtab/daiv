@@ -1,0 +1,13 @@
+{% load i18n %}
+{% comment %}
+A tile's change since the previous period, as a pill coloured by whether the move is good.
+
+Context:
+- change: a dict from ``dashboard.insights._change`` (direction, amount, was, tone), or None to render nothing.
+{% endcomment %}
+{% if change %}
+<p class="mt-2 flex flex-wrap items-center gap-2 text-[13px] tabular-nums" data-testid="change-badge" data-tone="{{ change.tone }}">
+    {% include "dashboard/_change_pill.html" %}
+    <span class="text-text-muted">{% blocktranslate with was=change.was %}was {{ was }}{% endblocktranslate %}</span>
+</p>
+{% endif %}

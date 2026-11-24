@@ -84,9 +84,11 @@ class TestEveryStatusIsTriaged:
 
 @pytest.mark.django_db
 class TestNotifies:
-    def _run(self, trigger_type, *, ci_failure=None):
+    def _run(self, trigger_type, *, ci_failure=None, **fields):
         session = Session.objects.create(thread_id=str(uuid.uuid4()), origin=trigger_type, repo_id="x/y")
-        run = Run.objects.create(session=session, trigger_type=trigger_type, repo_id="x/y", status=RunStatus.SUCCESSFUL)
+        run = Run.objects.create(
+            session=session, trigger_type=trigger_type, repo_id="x/y", status=RunStatus.SUCCESSFUL, **fields
+        )
         if ci_failure is not None:
             make_event(session, EventKind.CI_FAILED, run=run, state=EventState.HANDLED, wake=ci_failure == "waking")
         return run
@@ -97,7 +99,18 @@ class TestNotifies:
 
     def test_a_prompt_driven_question_notifies(self):
         for origin in SessionOrigin.prompt_driven():
-            assert notifies(SimpleNamespace(trigger_type=origin), EnvelopeStatus.NEEDS_INPUT) is True
+            run = SimpleNamespace(trigger_type=origin, runs_alone=False, external_username="")
+            assert notifies(run, EnvelopeStatus.NEEDS_INPUT) is True
+
+    @pytest.mark.parametrize("origin", [SessionOrigin.API_JOB, SessionOrigin.MCP_JOB])
+    def test_a_merge_request_jobs_question_is_left_to_its_mention_on_the_merge_request(self, origin):
+        run = self._run(origin, runs_alone=True, external_username="pusher")
+
+        assert notifies(run, EnvelopeStatus.NEEDS_INPUT) is False
+        assert notifies(run, EnvelopeStatus.FAILED) is True
+
+    def test_a_merge_request_jobs_question_that_mentions_no_one_notifies(self):
+        assert notifies(self._run(SessionOrigin.API_JOB, runs_alone=True), EnvelopeStatus.NEEDS_INPUT) is True
 
     def test_other_webhook_outcomes_follow_notify_worthy(self):
         run = self._run(SessionOrigin.ISSUE_WEBHOOK)

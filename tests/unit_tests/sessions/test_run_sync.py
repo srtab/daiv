@@ -1,7 +1,7 @@
 """Tests for Run.sync_from_task_result / sync_and_save usage-parsing branches.
 
 These paths survive verbatim from Activity but were no longer exercised: the
-input_tokens re-sync guard, the invalid-cost fallback, the no-usage case, and the
+usage re-sync guard, the invalid-cost fallback, the no-usage case, and the
 sync_and_save no-op short-circuit.
 """
 
@@ -71,11 +71,18 @@ def test_invalid_cost_usd_dropped_but_tokens_synced(create_db_task_result):
     m_log.warning.assert_called_once()
 
 
-def test_usage_not_resynced_when_input_tokens_already_set(create_db_task_result):
+def test_usage_not_resynced_over_a_total_at_least_as_large(create_db_task_result):
     tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "x", "usage": _usage(input_tokens=999)})
-    run = _run(tr, input_tokens=7)
+    run = _run(tr, input_tokens=7, total_tokens=150)
     run.sync_from_task_result()
-    assert run.input_tokens == 7  # the `input_tokens is None` guard prevents overwrite
+    assert run.input_tokens == 7
+
+
+def test_usage_replaces_a_partial_snapshot_the_spend_recorder_wrote(create_db_task_result):
+    tr = create_db_task_result(status="SUCCESSFUL", return_value={"response": "x", "usage": _usage()})
+    run = _run(tr, input_tokens=7, total_tokens=9)
+    run.sync_from_task_result()
+    assert (run.input_tokens, run.total_tokens) == (100, 150)
 
 
 def test_code_changes_synced_from_the_task_result(create_db_task_result):

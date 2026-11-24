@@ -6,9 +6,6 @@ import webhooks.tasks as webhooks_tasks
 from sessions.services import TaskRun
 from webhooks.tasks import address_issue_task, address_mr_comments_task
 
-from codebase.base import MergeRequest, User
-from codebase.exceptions import CloneRefNotFoundError
-
 _CONTEXT = SimpleNamespace(task_result=SimpleNamespace(id="tr-1"))
 
 
@@ -29,93 +26,33 @@ async def test_setup_webhooks_cron_task_calls_command():
     mock_call_command.assert_called_once_with("setup_webhooks", disable_ssl_verification=True)
 
 
-def _mr(*, merged: bool) -> MergeRequest:
-    return MergeRequest(
-        repo_id="group/repo",
-        merge_request_id=7,
-        source_branch="chore/x",
-        target_branch="dev",
-        title="t",
-        description="d",
-        web_url="https://git/group/repo/-/merge_requests/7",
-        author=User(id=1, username="u", name="U"),
-        merged=merged,
-    )
+async def test_the_old_merge_request_task_path_forwards_to_the_moved_task():
+    forwarded = AsyncMock(return_value={"response": "done"})
 
-
-async def test_address_mr_comments_skips_when_merged(run_lookup):
-    client = MagicMock()
-    client.get_merge_request.return_value = _mr(merged=True)
-
-    with (
-        patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
-        patch("webhooks.managers.review_addressor.CommentsAddressorManager.address_comments") as address,
-    ):
-        result = await address_mr_comments_task.func(
-            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", thread_id="t-7", use_max=False
-        )
-
-    address.assert_not_called()
-    run_lookup.assert_not_awaited()
-    client.create_merge_request_comment.assert_called_once()
-    assert "already been merged" in result["response"]
-    assert result["code_changes"] is False
-
-
-async def test_address_mr_comments_skips_when_branch_gone():
-    client = MagicMock()
-    client.get_merge_request.return_value = _mr(merged=False)
-
-    with (
-        patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
-        patch(
-            "webhooks.managers.review_addressor.CommentsAddressorManager.address_comments",
-            AsyncMock(side_effect=CloneRefNotFoundError("chore/x", "group/repo")),
-        ),
-    ):
-        result = await address_mr_comments_task.func(
-            _CONTEXT, repo_id="group/repo", merge_request_id=7, mention_comment_id="d1", thread_id="t-7", use_max=False
-        )
-
-    client.create_merge_request_comment.assert_called_once()
-    assert "no longer exists" in result["response"]
-    assert result["code_changes"] is False
-
-
-async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_addressor(run_lookup):
-    client = MagicMock()
-    merge_request = _mr(merged=False)
-    client.get_merge_request.return_value = merge_request
-    address = AsyncMock(return_value={"response": "done"})
-
-    with (
-        patch("webhooks.tasks.RepoClient.create_instance", return_value=client),
-        patch("webhooks.managers.review_addressor.CommentsAddressorManager.address_comments", address),
-    ):
+    with patch("webhooks.tasks.address_merge_request_task", SimpleNamespace(func=forwarded)):
         result = await address_mr_comments_task.func(
             _CONTEXT,
             repo_id="group/repo",
             merge_request_id=7,
             mention_comment_id="d1",
-            mention_note_id=5,
             thread_id="t-7",
-            use_max=False,
+            use_max=True,
+            mention_note_id=5,
             sandbox_environment_id="e",
         )
 
     assert result == {"response": "done"}
-    assert address.await_args.kwargs == {
-        "repo_id": "group/repo",
-        "merge_request": merge_request,
-        "mention_comment_id": "d1",
-        "mention_note_id": 5,
-        "thread_id": "t-7",
-        "sandbox_env_id": "e",
-        "run_id": "run-1",
-        "use_max": False,
-        "acting_user_id": 5,
-    }
-    run_lookup.assert_awaited_once_with("tr-1")
+    forwarded.assert_awaited_once_with(
+        _CONTEXT,
+        repo_id="group/repo",
+        merge_request_id=7,
+        thread_id="t-7",
+        use_max=True,
+        request_key="note:5",
+        mention_comment_id="d1",
+        mention_note_id=5,
+        sandbox_environment_id="e",
+    )
 
 
 class TestAddressIssueTaskRef:

@@ -23,10 +23,12 @@ publish has recorded its commit by then), its merge or close (``mr_merged``, ``m
 reopen (a ``notice``; the watch resumes). A close and a reopen are each keyed on when they happened, so a merge request
 closed again after a reopen is remembered again; a redelivered close finds it closed already and posts nothing. A close
 or reopen whose event could not be posted is undone, unless another was recorded meanwhile, so a redelivery posts it.
+A merge request made a draft or ready again only updates its ``draft`` flag, which its merge request icon shows.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import timedelta
@@ -43,7 +45,7 @@ from core.utils import build_absolute_url
 from sessions.auto_archive import MergeArchive
 from sessions.inbox import kinds
 from sessions.inbox.post import Inbox
-from sessions.live.notify import asession_changed, session_changed
+from sessions.live.notify import asession_changed, asidebar_changed, session_changed
 from sessions.models import EventKind, MergeRequestOwnership, Run, Session, SessionOrigin
 from sessions.repo_state import mr_to_payload
 from sessions.templatetags.session_tags import session_title
@@ -91,7 +93,7 @@ class Ownerships:
         if not iid or not branch:
             return None
         ownership, posts = await sync_to_async(cls._claim_for_run)(
-            run_id, iid, branch, pushed_sha, payload.get("title") or "", repo_id
+            run_id, iid, branch, pushed_sha, payload.get("title") or "", repo_id, bool(payload.get("draft"))
         )
         ownerships = cls(ownership.repo_id)
         for post in posts:
@@ -100,10 +102,17 @@ class Ownerships:
 
     @classmethod
     def _claim_for_run(
-        cls, run_id: uuid.UUID | str, iid: int, branch: str, pushed_sha: str, title: str, repo_id: str | None
+        cls,
+        run_id: uuid.UUID | str,
+        iid: int,
+        branch: str,
+        pushed_sha: str,
+        title: str,
+        repo_id: str | None,
+        draft: bool,
     ) -> tuple[MergeRequestOwnership, list[dict]]:
         run = Run.objects.select_related("session__user").get(pk=run_id)
-        return cls(repo_id or run.repo_id)._claim(run, iid, branch, pushed_sha, title)
+        return cls(repo_id or run.repo_id)._claim(run, iid, branch, pushed_sha, title, draft)
 
     def _post_logged(self, post: dict[str, Any]) -> None:
         """Post ``post``, logging a failure instead of raising: the ownership change it reports has committed, and the
@@ -123,7 +132,7 @@ class Ownerships:
         return await sync_to_async(self._post_logged)(post)
 
     def _claim(
-        self, run: Run, iid: int, branch: str, pushed_sha: str, title: str
+        self, run: Run, iid: int, branch: str, pushed_sha: str, title: str, draft: bool
     ) -> tuple[MergeRequestOwnership, list[dict]]:
         session = run.session
         posts: list[dict[str, Any]] = []
@@ -143,6 +152,7 @@ class Ownerships:
                     owner=session.user,
                     source_branch=branch,
                     last_daiv_sha=pushed_sha,
+                    draft=draft,
                 )
                 session_changed(row.session_id)
                 return row, posts
@@ -361,11 +371,36 @@ class Ownerships:
             await MergeRequestOwnership.objects.filter(pk=owned.pk, closed_at=closed_at).aupdate(closed_at=None)
             raise
         await sync_to_async(MergeArchive.settle)(owned.session.thread_id)
-        await asession_changed(owned.session_id)
+        await self._announce(owned)
         return True
 
-    async def areopen(self, merge_request_iid: int, *, by_username: str) -> bool:
-        """Watch a reopened merge request again and tell the owning session; returns whether it was closed and owned."""
+    async def aset_draft(self, merge_request_iid: int, *, draft: bool) -> bool:
+        """Record whether the open merge request ``merge_request_iid`` is a draft; returns whether that changed."""
+        changed = MergeRequestOwnership.objects.filter(
+            repo_id=self.repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=True
+        ).exclude(draft=draft)
+        if (owned := await changed.only("pk", "session_id", "owner_id").afirst()) is None:
+            return False
+        if not await changed.filter(pk=owned.pk).aupdate(draft=draft):
+            return False
+        await self._announce(owned)
+        return True
+
+    @staticmethod
+    async def _announce(owned: MergeRequestOwnership) -> None:
+        """Tell the owning session's page and its owner's sidebar that the merge request changed."""
+        await asyncio.gather(asession_changed(owned.session_id), asidebar_changed(owned.owner_id))
+
+    @staticmethod
+    def _reopened(draft: bool | None) -> dict[str, Any]:
+        fields: dict[str, Any] = {"closed_at": None}
+        if draft is not None:
+            fields["draft"] = draft
+        return fields
+
+    async def areopen(self, merge_request_iid: int, *, by_username: str, draft: bool | None = None) -> bool:
+        """Watch a reopened merge request again, with its ``draft`` flag when known, and tell the owning session;
+        returns whether it was closed and owned."""
         closed = await (
             MergeRequestOwnership.objects
             .filter(repo_id=self.repo_id, merge_request_iid=merge_request_iid, closed_at__isnull=False)
@@ -374,7 +409,7 @@ class Ownerships:
         )
         if closed is None or not await MergeRequestOwnership.objects.filter(
             pk=closed.pk, closed_at=closed.closed_at
-        ).aupdate(closed_at=None):
+        ).aupdate(**self._reopened(draft)):
             return False
         try:
             if (owned := await self.afind_open(merge_request_iid)) is None:
@@ -398,5 +433,5 @@ class Ownerships:
                 closed_at=closed.closed_at
             )
             raise
-        await asession_changed(owned.session_id)
+        await self._announce(owned)
         return True

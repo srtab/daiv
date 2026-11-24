@@ -1,0 +1,16 @@
+{% load i18n icon_tags %}
+{% comment %}
+One applied filter in the chip row. Context: key (its `data-chip`), name, icon, value (its label on the first paint),
+shown (set on the first paint), show (the Alpine expression that keeps it in step), clear_url, clear (the Alpine
+expression that clears it), settable (clicking it reopens its filter) and alpine_value (the Alpine expression for its
+label, when it can change in place). A chip with no value and no alpine_value shows its name alone.
+{% endcomment %}
+<span class="filter-chip" data-chip="{{ key }}" x-show="{{ show }}"{% if testid %} data-testid="{{ testid }}"{% endif %}
+      {% if not shown %}style="display:none"{% endif %}>
+    {% if settable %}<button type="button" class="filter-chip__open" data-filter-opener @click="openFilter('{{ key }}', $el)">{% endif %}
+    <span class="filter-chip__name">{% icon icon "h-3.5 w-3.5 shrink-0" %}{{ name }}</span>
+    {% if value or alpine_value %}<span class="filter-chip__value"{% if alpine_value %} x-text="{{ alpine_value }}"{% endif %}>{{ value }}</span>{% endif %}
+    {% if settable %}</button>{% endif %}
+    <a href="{{ clear_url }}" class="filter-chip__x" @click.prevent="{{ clear }}"
+       aria-label="{% blocktranslate %}Clear {{ name }} filter{% endblocktranslate %}">{% icon "x-mark" "h-3 w-3" %}</a>
+</span>

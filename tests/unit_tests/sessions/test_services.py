@@ -190,6 +190,21 @@ async def test_submit_continuation_queues_when_thread_busy():
 # ---------------------------------------------------------------------------
 
 
+class TestValidateRepoListNormalizes:
+    def test_slashes_around_a_repo_id_are_dropped(self):
+        assert validate_repo_list([{"repo_id": " /acme/api/ ", "ref": "main"}]) == [
+            {"repo_id": "acme/api", "ref": "main"}
+        ]
+
+    def test_a_slashed_repo_id_duplicates_the_bare_one(self):
+        with pytest.raises(ValueError, match="already in the list"):
+            validate_repo_list([{"repo_id": "/acme/api", "ref": ""}, {"repo_id": "acme/api", "ref": ""}])
+
+    def test_a_repo_id_of_only_slashes_is_refused(self):
+        with pytest.raises(ValueError, match="non-empty"):
+            validate_repo_list([{"repo_id": " / ", "ref": ""}])
+
+
 class TestValidateRepoListDuplicates:
     def test_duplicate_with_ref_mentions_both_repo_and_ref(self):
         raw = [{"repo_id": "acme/api", "ref": "main"}, {"repo_id": "acme/api", "ref": "main"}]
@@ -922,6 +937,15 @@ async def test_task_run_is_the_run_linked_to_the_task_result_and_its_current_use
     await Run.objects.filter(pk=run.pk).aupdate(user=admin_user)
 
     assert await aget_task_run(task_result.id) == TaskRun(run_id=str(run.pk), user_id=admin_user.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_task_run_only_attributed_to_its_user_acts_as_no_one(admin_user):
+    task_result = await _make_db_task_result()
+    run = await acreate_run(trigger_type=SessionOrigin.API_JOB, task_result_id=task_result.id, repo_id="a/b")
+    await Run.objects.filter(pk=run.pk).aupdate(user=admin_user, acts_as_user=False)
+
+    assert await aget_task_run(task_result.id) == TaskRun(run_id=str(run.pk), user_id=None)
 
 
 @pytest.mark.django_db(transaction=True)

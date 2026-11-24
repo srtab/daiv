@@ -1,11 +1,12 @@
-"""Sessions, runs and schedules shaped the way the sidebar lists read them."""
+"""Sessions, runs, schedules and spend records shaped the way the dashboard reads them."""
 
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 
 from django.utils import timezone
 
-from sessions.models import Run, Session, SessionOrigin
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SpendRecord
 
 from schedules.models import Frequency, ScheduledJob
 
@@ -35,7 +36,7 @@ def make_session(user, *, minutes_ago=0, title="A session", scheduled_job=None, 
     )
 
 
-def make_run(session, status, *, minutes_ago=0, trigger_type=None, batch_id=None) -> Run:
+def make_run(session, status, *, minutes_ago=0, trigger_type=None, batch_id=None, **fields) -> Run:
     run = Run.objects.create(
         session=session,
         status=status,
@@ -43,6 +44,7 @@ def make_run(session, status, *, minutes_ago=0, trigger_type=None, batch_id=None
         repo_id=session.repo_id,
         user=session.user,
         batch_id=batch_id,
+        **fields,
     )
     Run.objects.filter(pk=run.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
     return run
@@ -59,3 +61,45 @@ def make_firing(schedule, *statuses, minutes_ago=0):
         make_run(session, status, minutes_ago=minutes_ago, batch_id=batch_id)
         sessions.append(session)
     return batch_id, sessions
+
+
+def spend_session(user=None, repo_id="acme/api", origin=SessionOrigin.CHAT, title="A session") -> Session:
+    return Session.objects.create(thread_id=str(uuid.uuid4()), origin=origin, repo_id=repo_id, user=user, title=title)
+
+
+def spend_run(session, *, status=RunStatus.SUCCESSFUL, days_ago=0, code_changes=False, trigger=None) -> Run:
+    run = Run.objects.create(
+        session=session,
+        trigger_type=trigger or session.origin,
+        repo_id=session.repo_id,
+        user=session.user,
+        status=status,
+        code_changes=code_changes,
+    )
+    Run.objects.filter(pk=run.pk).update(created_at=timezone.now() - timedelta(days=days_ago))
+    return run
+
+
+def spend_record(run=None, *, days_ago=0, cost="1", model="claude-sonnet-4-6", provider="anthropic", **fields):
+    if run is not None:
+        fields = {
+            "run": run,
+            "session": run.session,
+            "repo_id": run.repo_id,
+            "trigger_type": run.trigger_type,
+            "user": run.user,
+            **fields,
+        }
+        if not fields.get("task"):
+            fields.setdefault("counts_run", not SpendRecord.objects.filter(run=run, task="").exists())
+    fields.setdefault("input_tokens", 100)
+    fields.setdefault("output_tokens", 10)
+    fields.setdefault("total_tokens", fields["input_tokens"] + fields["output_tokens"])
+    return SpendRecord.objects.create(
+        occurred_at=timezone.now() - timedelta(days=days_ago),
+        model=model,
+        provider_slug=provider,
+        provider_name=provider.title(),
+        cost_usd=Decimal(cost),
+        **fields,
+    )

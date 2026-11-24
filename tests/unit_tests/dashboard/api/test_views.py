@@ -248,6 +248,12 @@ class TestNavFrames:
         assert len(snapshots(frames)) == 1
         assert frames[3].startswith("event: session\n")
 
+    async def test_a_sidebar_poke_sends_a_sidebar_frame_without_a_recount(self, member_user):
+        frames = await read_frames(member_user, FakeStream([{UIEventKind.SIDEBAR}]), count=3)
+
+        assert frames[2].startswith("event: sidebar\n")
+        assert len(snapshots(frames)) == 1
+
     async def test_a_mixed_burst_sends_both(self, member_user):
         session = await start_run(member_user, status=RunStatus.SUCCESSFUL)
         stream = FakeStream()

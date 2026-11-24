@@ -6,6 +6,7 @@
 <script defer src="{% static 'core/js/menu-button.js' %}"></script>
 <script defer src="{% static 'core/js/sidebar.js' %}"></script>
 <script defer src="{% static 'core/js/sidebar-lists.js' %}"></script>
+<script defer src="{% static 'core/js/session-actions.js' %}"></script>
 {% endblock alpine_stores %}
 
 {% block content %}
@@ -15,6 +16,7 @@
      @keydown.window="$store.sidebar.onKey($event)"
      class="flex h-dvh bg-ground">
   {% include "dashboard/_sidebar.html" %}
+  {% include "dashboard/_session_archive_dialog.html" %}
 
   {% comment %}
   Mobile navigation sheet (< 768px) — reuses the sidebar partial WITHOUT the
@@ -59,6 +61,8 @@
         {% icon "plus" "h-5 w-5" %}
       </a>
     </header>
+
+    {% include "core/_provider_failure_banner.html" %}
 
     {# A page that needs a bar or a side column beside its scrolling <main> replaces the whole body. #}
     {% block app_body %}

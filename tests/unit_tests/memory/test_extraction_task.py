@@ -2,9 +2,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from memory.models import MemoryObservation, ObservationStatus
-from memory.schemas import ExtractedObservation
+from memory.schemas import ExtractedObservation, ExtractedObservations
 from memory.tasks import extract_observations_task
+from sessions.models import SpendRecord, SpendTask
 
+from tests.unit_tests.conftest import aspending
 from tests.unit_tests.memory.extraction_helpers import (
     TRANSCRIPT,
     _checkpointer_with,
@@ -91,7 +93,7 @@ async def test_extraction_skips_run_without_session_id():
     with patch("sessions.models.Run") as mock_run:
         mock_qs = MagicMock()
         mock_qs.afirst = AsyncMock(return_value=run)
-        mock_run.objects.filter.return_value = mock_qs
+        mock_run.objects.select_related.return_value.filter.return_value = mock_qs
 
         with patch("memory.tasks.RepositoryConfig") as cfg, patch("memory.extraction.build_structured_llm") as build:
             await extract_observations_task.func(str(run.pk))  # must not raise
@@ -158,3 +160,27 @@ async def test_extraction_propagates_llm_failure_without_partial_writes():
         await extract_observations_task.func(str(run.pk))
 
     assert await MemoryObservation.objects.acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_extraction_records_its_spend_for_the_run():
+    run = await _create_run()
+    llm = _structured_llm_returning([])
+    llm.with_config.return_value.ainvoke = AsyncMock(side_effect=aspending(ExtractedObservations(observations=[])))
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("core.checkpointer.open_checkpointer", _checkpointer_with(TRANSCRIPT)),
+        patch("memory.extraction.build_structured_llm", return_value=llm),
+        patch("memory.extraction.site_settings", _site_settings()),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(run.pk))
+
+    record = await SpendRecord.objects.aget()
+    assert (record.task, record.run_id, record.session_id, record.repo_id) == (
+        SpendTask.MEMORY_EXTRACTION,
+        run.pk,
+        run.session_id,
+        "group/project",
+    )

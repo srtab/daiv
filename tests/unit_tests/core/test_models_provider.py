@@ -1,12 +1,14 @@
+from datetime import timedelta
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import transaction
+from django.utils import timezone
 
 import pytest
 from pydantic import SecretStr
 
-from core.models import PROVIDERS_CACHE_KEY, Provider, ProviderType
+from core.models import PROVIDERS_CACHE_KEY, Provider, ProviderFailureKind, ProviderType
 
 
 @pytest.mark.django_db
@@ -195,3 +197,54 @@ def test_get_cached_rows_treats_an_undecryptable_api_key_as_unset():
 
     assert rows["good"].api_key.get_secret_value() == "sk"
     assert rows["bad"].api_key is None
+
+
+@pytest.mark.django_db
+def test_save_clears_the_failure_mark():
+    now = timezone.now()
+    Provider.objects.filter(slug="openrouter").update(
+        failure_kind=ProviderFailureKind.AUTH_FAILED, failure_model="m", failing_since=now, last_failed_at=now
+    )
+    p = Provider.objects.get(slug="openrouter")
+
+    p.save()
+
+    p.refresh_from_db()
+    assert (p.failure_kind, p.failure_model, p.failing_since, p.last_failed_at) == ("", "", None, None)
+
+
+@pytest.mark.django_db
+def test_cached_row_carries_the_failure_fields():
+    now = timezone.now()
+    Provider.objects.filter(slug="openrouter").update(
+        failure_kind=ProviderFailureKind.OUT_OF_CREDITS, failure_model="m", failing_since=now, last_failed_at=now
+    )
+    Provider.invalidate_cache()
+
+    row = Provider.get_cached_by_slug()["openrouter"]
+
+    assert (row.failure_kind, row.failure_model, row.failing_since, row.last_failed_at) == (
+        ProviderFailureKind.OUT_OF_CREDITS,
+        "m",
+        now,
+        now,
+    )
+
+
+@pytest.mark.django_db
+def test_active_failure_kind_expires_after_the_ttl():
+    now = timezone.now()
+    Provider.objects.filter(slug="openrouter").update(
+        failure_kind=ProviderFailureKind.OUT_OF_CREDITS, last_failed_at=now - timedelta(hours=25)
+    )
+    Provider.invalidate_cache()
+    row = Provider.get_cached_by_slug()["openrouter"]
+
+    assert row.active_failure_kind(now) == ""
+    assert row.active_failure_kind(now - timedelta(hours=2)) == ProviderFailureKind.OUT_OF_CREDITS
+
+
+@pytest.mark.django_db
+def test_display_name_for_falls_back_to_the_slug():
+    assert Provider.display_name_for("openrouter") == "OpenRouter"
+    assert Provider.display_name_for("gone") == "gone"

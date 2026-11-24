@@ -45,12 +45,20 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Run the explore subagent at the run's thinking level instead of without thinking ([#1835](https://github.com/srtab/daiv/pull/1835))
 - Show DAIV's mark, a white D on a violet tile, in the logo, favicon, app icons and sidebar ([#1840](https://github.com/srtab/daiv/pull/1840))
 - Link DAIV's accounts on X, Bluesky, LinkedIn, Mastodon and YouTube from the homepage footer ([#1841](https://github.com/srtab/daiv/pull/1841))
+- Refuse an admin's run, chat or schedule on a repository DAIV doesn't list from the Git platform up front, as for members, instead of starting a run that fails with "404 Project Not Found"; until the first repository sync, admins can still use any repository ([#1851](https://github.com/srtab/daiv/pull/1851))
 
 ### Added
 
+- Add `merge_request` to `repos` entries of the jobs API and the MCP `submit_job` tool: the job runs on that merge request where a mention would, and posts its result there ([#1864](https://github.com/srtab/daiv/pull/1864))
+- Accept GitLab CI ID tokens and GitHub Actions OIDC tokens on the jobs API in place of an API key, one accepted job per token and none from a GitHub re-run, attributing the run to the account that triggered the pipeline without its personal tools; set the audience with `DAIV_JOBS_CI_IDENTITY_AUDIENCE`, and the issuer with `CODEBASE_GITLAB_ID_TOKEN_ISSUER` or `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` when DAIV reaches the platform at another address than the one its tokens name ([#1864](https://github.com/srtab/daiv/pull/1864))
+- Add a menu to each session in the sidebar to open its merge request, copy its link, open it in a new tab or archive it; the rows mark running, waiting and failed sessions as the sessions list does and show a merge request icon instead of the date ([#1857](https://github.com/srtab/daiv/pull/1857))
+- Colour merge request pills and sidebar icons by state: open in green, draft in grey, merged in violet and closed in red ([#1863](https://github.com/srtab/daiv/pull/1863))
+- Add `CODEBASE_GITLAB_PAT_FALLBACK`: set it to `false` to fail GitLab runs instead of cloning and pushing with the personal access token when a short-lived project access token can't be created ([#1852](https://github.com/srtab/daiv/pull/1852))
+- Add an **Insights → Spend** page with what DAIV spent on models by person, repository, trigger, model and provider, the prompt cache hit rate, the costliest sessions and background spend, plus a cost sort and spend filters on the sessions list, a CSV export and `GET /api/spend/records` ([#1849](https://github.com/srtab/daiv/pull/1849))
+- Say which provider stopped a run — out of credits, spending limit, rejected key, rate limit or outage — on every failure surface, and warn admins with a banner while a provider needs them ([#1850](https://github.com/srtab/daiv/pull/1850))
 - Add a headless browser the agent can use beside its sandbox, turned on per sandbox environment and site-wide, whose screenshots taken for you show under the agent's reply; it needs daiv-sandbox 0.6.0 or later ([#1836](https://github.com/srtab/daiv/pull/1836))
 - Add a web dashboard, signed in with a GitLab or GitHub account, an emailed code or a passkey, with admin and member roles ([#993](https://github.com/srtab/daiv/pull/993), [#1559](https://github.com/srtab/daiv/pull/1559))
-- Add sessions: every run, whether started from chat, a webhook, the Jobs API, MCP or a schedule, is a session you can watch live, continue, retry, stop and archive in the dashboard ([#1374](https://github.com/srtab/daiv/pull/1374), [#1691](https://github.com/srtab/daiv/pull/1691))
+- Add sessions: every run, whether started from chat, a webhook, the Jobs API, MCP or a schedule, is a session you can watch live, continue, retry, stop and archive in the dashboard, in a list you can filter and group by status ([#1374](https://github.com/srtab/daiv/pull/1374), [#1691](https://github.com/srtab/daiv/pull/1691), [#1855](https://github.com/srtab/daiv/pull/1855))
 - Give a webhook's session to the DAIV user who signed in with the author's GitLab or GitHub account, who then gets its notifications ([#1744](https://github.com/srtab/daiv/pull/1744))
 - Add a dashboard chat that works on one or more repositories, with a model and thinking-level picker, a context and spend meter, and slash-command completion ([#859](https://github.com/srtab/daiv/pull/859), [#1764](https://github.com/srtab/daiv/pull/1764))
 - Add a **Home** page listing what needs you, and a **Team insights** page with run and code-velocity trends ([#1708](https://github.com/srtab/daiv/pull/1708), [#1710](https://github.com/srtab/daiv/pull/1710))
@@ -85,7 +93,7 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 - Show the images and files a tool returns in the session transcript, with image thumbnails on the closed tool row, and let the agent open base64 files an MCP server returns ([#1782](https://github.com/srtab/daiv/pull/1782), [#1736](https://github.com/srtab/daiv/pull/1736), [#1836](https://github.com/srtab/daiv/pull/1836))
 - Add SearXNG as a web-search backend ([#1779](https://github.com/srtab/daiv/pull/1779)) (Tobi)
 - Read one section of a page with `web_fetch` by passing its URL `#fragment` ([#1752](https://github.com/srtab/daiv/pull/1752))
-- Track token usage and cost per run and session ([#1077](https://github.com/srtab/daiv/pull/1077), [#1776](https://github.com/srtab/daiv/pull/1776))
+- Track token usage and cost per run and session, recorded as each model call finishes so a run that fails, is stopped or loses its worker keeps its spend ([#1077](https://github.com/srtab/daiv/pull/1077), [#1776](https://github.com/srtab/daiv/pull/1776), [#1849](https://github.com/srtab/daiv/pull/1849))
 - Link the merge requests DAIV opens to their session, with a `DAIV-Session` commit trailer; turn it off with `DAIV_SESSION_LINK_ENABLED` or `session_link` in `.daiv.yml` ([#1497](https://github.com/srtab/daiv/pull/1497))
 - Accept up to 20 external `references` on Jobs API and MCP jobs, linked from the merge request with the platform's closing syntax ([#1527](https://github.com/srtab/daiv/pull/1527))
 - Add `allowed_usernames` to `.daiv.yml` to restrict who can trigger DAIV in a repository ([#948](https://github.com/srtab/daiv/pull/948))
@@ -110,6 +118,8 @@ _If you are upgrading from 2.0.0: please see [`UPGRADING.md`](UPGRADING.md)._
 
 ### Fixed
 
+- Fix runs started with a repository such as `/group/project` failing with "404 Project Not Found": the jobs API, MCP, chat API, scheduled jobs and delegated jobs now ignore slashes around it ([#1851](https://github.com/srtab/daiv/pull/1851))
+- Fix a scheduled, background or issue run whose worker crashed showing as running for good; the 5-minute sweep now fails it with its task, whatever started it ([#1858](https://github.com/srtab/daiv/pull/1858))
 - Fix a worker restart leaving its agent run spinning for about 30 minutes: the worker now stops the run cleanly, and **Stop** ends a run whose worker is gone; give the worker `stop_grace_period: 2m` so a deploy doesn't kill it mid-run ([#1842](https://github.com/srtab/daiv/pull/1842))
 - Refuse agent file-tool writes under `.git`, and run DAIV's host-side git without hooks, fsmonitor or external diff, closing a prompt-injection path to the worker ([#1676](https://github.com/srtab/daiv/pull/1676))
 - Fix `web_fetch` following unlimited same-host redirects without checking SSRF protection again; it now follows at most 5 and checks each one ([#971](https://github.com/srtab/daiv/pull/971))

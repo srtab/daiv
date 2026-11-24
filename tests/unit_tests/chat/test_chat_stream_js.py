@@ -1260,9 +1260,12 @@ def test_a_bubble_names_the_kind_of_request():
         {"kind": "job", "trigger_type": "ui_job"},
         {"kind": "ci_failed", "trigger_type": "", "received": True},
         {"kind": "leg_follow_up", "trigger_type": ""},
+        {"kind": "merge_request_job", "trigger_type": "mcp_job"},
     ]
 
-    assert _bubbles(bubbles=bubbles)["kinds"] == ["Chat", "Mention", "API job", "MCP job", "Job", "", "Leg follow-up"]
+    assert _bubbles(bubbles=bubbles)["kinds"] == [
+        "Chat", "Mention", "API job", "MCP job", "Job", "", "Leg follow-up", "MCP job"
+    ]  # fmt: skip
 
 
 def test_a_received_bubble_names_its_source():
@@ -1303,9 +1306,13 @@ def test_a_run_opens_with_its_events_or_what_started_it():
 
 
 def test_an_event_daiv_could_not_handle_reads_not_handled():
-    events = [{"kind": "mention", "failure_label": "The runs that took it kept failing"}, {"kind": "comment"}]
+    events = [
+        {"kind": "mention", "failure_label": "The runs that took it kept failing"},
+        {"kind": "comment"},
+        {"kind": "merge_request_job", "failure_label": "Its merge request was merged"},
+    ]
 
-    assert _bubbles(events=events)["rows"] == ["Mention not handled", "Comment"]
+    assert _bubbles(events=events)["rows"] == ["Mention not handled", "Comment", "Merge request job not handled"]
 
 
 QUESTION_BODY = """

@@ -69,7 +69,7 @@ document.addEventListener("alpine:init", () => {
             list.append(filter);
 
             const scroll = document.createElement("div");
-            scroll.className = "mcp-tool-list__scroll";
+            scroll.className = "mcp-tool-list__scroll scrollbar-thin";
             for (const name of [...names, ...extras]) {
                 const tool = tools.find((t) => t.name === name);
                 const available = Boolean(tool);

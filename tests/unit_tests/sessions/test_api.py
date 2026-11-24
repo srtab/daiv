@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 from unittest.mock import AsyncMock, call, patch
 
+from django.core.cache import cache
 from django.utils import timezone
 
 import pytest
@@ -13,7 +15,7 @@ from asgiref.sync import sync_to_async
 from ninja.testing import TestAsyncClient
 from sessions.hydration import HydratedThread
 from sessions.inbox.drain import Drain
-from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
+from sessions.models import MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin, SpendRecord
 
 from accounts.models import APIKey, User
 from daiv.api import api
@@ -998,3 +1000,106 @@ async def test_up_next_endpoint_404s_for_an_invisible_session(client, authed):
 
 async def _create_run_async(session, **kwargs):
     return await Run.objects.acreate(session=session, repo_id=session.repo_id, **kwargs)
+
+
+async def _spend_record(user=None, *, repo_id="acme/api", days_ago=0, cost="1", **fields):
+    return await SpendRecord.objects.acreate(
+        occurred_at=timezone.now() - timedelta(days=days_ago),
+        trigger_type=SessionOrigin.CHAT,
+        model="claude-sonnet-4-6",
+        repo_id=repo_id,
+        user=user,
+        cost_usd=Decimal(cost),
+        **fields,
+    )
+
+
+def _spend_range(days: int = 0) -> dict:
+    today = timezone.localdate()
+    return {"from": (today - timedelta(days=days)).isoformat(), "to": today.isoformat()}
+
+
+@pytest.fixture
+def _no_spend_throttle():
+    cache.clear()
+    yield
+    cache.clear()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.usefixtures("_no_spend_throttle")
+class TestSpendRecordsApi:
+    async def test_no_credentials_is_401(self, client):
+        response = await client.get("/spend/records", query_params=_spend_range())
+
+        assert response.status_code == 401
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {},
+            {"from": "2026-11-01"},
+            {"from": "yesterday", "to": "2026-11-02"},
+            {"from": "2026-11-02", "to": "2026-11-01"},
+            {"from": "2026-01-01", "to": "2026-11-01"},
+            {"from": "2026-11-01", "to": "2026-11-02", "cursor": "not-a-cursor"},
+        ],
+    )
+    async def test_bad_params_are_400_with_a_short_detail(self, client, authed, params):
+        _, raw, _ = authed
+
+        response = await client.get("/spend/records", query_params=params, headers=_auth_headers(raw))
+
+        assert response.status_code == 400
+        assert set(response.json()) == {"detail"}
+
+    async def test_pages_follow_the_cursor_until_it_is_null_and_skip_a_row_rewritten_behind_it(self, client, authed):
+        _, raw, user = authed
+        records = [await _spend_record(user, days_ago=index) for index in range(5)]
+
+        seen, cursor = [], None
+        with patch("sessions.api.views.SPEND_PAGE_SIZE", 2):
+            while True:
+                params = {**_spend_range(10), **({"cursor": cursor} if cursor else {})}
+                response = await client.get("/spend/records", query_params=params, headers=_auth_headers(raw))
+                assert response.status_code == 200
+                body = response.json()
+                seen.extend(item["occurred_at"] for item in body["items"])
+                if len(seen) == 2:
+                    await SpendRecord.objects.filter(pk=records[-1].pk).aupdate(cost_usd=Decimal("9"))
+                cursor = body["next_cursor"]
+                if cursor is None:
+                    break
+
+        assert len(seen) == 5
+        assert seen == sorted(seen)
+
+    async def test_a_member_key_sees_only_the_records_it_may(self, client, authed):
+        _, raw, user = authed
+        other = await User.objects.acreate_user(username="spender", email="spender@example.com")
+        await sync_to_async(grant_read_access)(user, "acme/api")
+        await _spend_record(other, repo_id="acme/api")
+        await _spend_record(other, repo_id="acme/secret")
+
+        response = await client.get("/spend/records", query_params=_spend_range(), headers=_auth_headers(raw))
+
+        [item] = response.json()["items"]
+        assert (item["repo_id"], item["person"], item["kind"], item["cost_usd"]) == (
+            "acme/api",
+            "spender",
+            "run",
+            "1.000000",
+        )
+        assert item["reported_cost_usd"] is None and item["cost_source"] == "unknown"
+
+    async def test_the_mine_scope_keeps_what_the_caller_started(self, client, authed):
+        _, raw, user = authed
+        await _spend_record(user, repo_id="")
+        await sync_to_async(grant_read_access)(user, "acme/api")
+        await _spend_record(None, repo_id="acme/api")
+
+        response = await client.get(
+            "/spend/records", query_params={**_spend_range(), "scope": "mine"}, headers=_auth_headers(raw)
+        )
+
+        assert [item["person"] for item in response.json()["items"]] == ["sessuser"]

@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 import pytest
+from asgiref.sync import sync_to_async
 from sessions.auto_archive import MergeArchive
 from sessions.inbox.ownership import Ownerships
 from sessions.inbox.post import Inbox
@@ -79,6 +80,15 @@ class TestClaimRules:
         assert (ownership.session_id, ownership.owner_id) == (run.session_id, alice.pk)
         assert ownership.source_branch == "chore/install-gettext"
         assert ownership.last_daiv_sha == "e96f1f77"
+
+    async def test_the_first_claim_records_the_draft_flag_and_later_ones_leave_it_to_the_webhooks(self):
+        run = await _publishing_run(await _user("alice"))
+
+        assert (await Ownerships.aclaim(run_id=run.pk, merge_request={**MR, "draft": True}, pushed_sha="a1")).draft
+        assert (await _claim(run, sha="b2")).draft
+        await Ownerships(REPO).aset_draft(9, draft=False)
+        await Ownerships.aclaim(run_id=run.pk, merge_request={**MR, "draft": True}, pushed_sha="c3")
+        assert not (await MergeRequestOwnership.objects.aget()).draft
 
     async def test_a_publish_from_another_session_of_the_same_person_moves_it(self):
         alice = await _user("alice")
@@ -274,6 +284,42 @@ class TestMergeRequestState:
 
         await self._close(merged=False)
         assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.CLOSED
+
+    @pytest.mark.parametrize(
+        ("closed", "merged", "state"),
+        [
+            (False, False, MergeRequestState.DRAFT),
+            (True, True, MergeRequestState.MERGED),
+            (True, False, MergeRequestState.CLOSED),
+        ],
+    )
+    async def test_an_open_draft_is_draft_until_merged_or_closed(self, closed, merged, state):
+        await amake_owned_merge_request(
+            repo_id=REPO, merge_request_iid=9, draft=True, merged=merged, closed_at=timezone.now() if closed else None
+        )
+
+        assert (await MergeRequestOwnership.objects.aget()).state == state
+        assert await sync_to_async(MergeRequestOwnership.states_of)([(REPO, 9)]) == {(REPO, 9): state}
+
+    async def test_a_reopen_records_whether_it_is_a_draft(self):
+        await amake_owned_merge_request(repo_id=REPO, merge_request_iid=9, closed_at=timezone.now())
+
+        assert await Ownerships(REPO).areopen(9, by_username="sfr", draft=True)
+        assert (await MergeRequestOwnership.objects.aget()).state == MergeRequestState.DRAFT
+
+    async def test_a_draft_toggle_changes_only_an_open_owned_merge_request(self):
+        await amake_owned_merge_request(repo_id=REPO, merge_request_iid=9)
+        await amake_owned_merge_request(
+            thread_id="closed", repo_id=REPO, merge_request_iid=10, closed_at=timezone.now()
+        )
+        ownerships = Ownerships(REPO)
+
+        assert await ownerships.aset_draft(9, draft=True) is True
+        assert await ownerships.aset_draft(9, draft=True) is False
+        assert await ownerships.aset_draft(10, draft=True) is False
+        assert await ownerships.aset_draft(11, draft=True) is False
+        drafts = {row.merge_request_iid: row.draft async for row in MergeRequestOwnership.objects.all()}
+        assert drafts == {9: True, 10: False}
 
     async def test_a_close_after_a_reopen_is_remembered_again(self):
         session_id = await self._owner_session_id()

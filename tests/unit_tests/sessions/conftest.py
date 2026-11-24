@@ -151,6 +151,7 @@ class FakeRun:
         self.agent_thinking_level = kwargs.get("agent_thinking_level", "")
         self.sandbox_environment_id = kwargs.get("sandbox_environment_id")
         self.user_id = user.pk if (user := kwargs.get("user")) is not None else None
+        self.acting_user_id = self.user_id if kwargs.get("acts_as_user", True) else None
         self.status = RunStatus.READY
         self.error_message = ""
         self.started_at = self.finished_at = None

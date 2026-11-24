@@ -14,6 +14,7 @@ from sessions.inbox.render import (
 )
 from sessions.models import EventKind, EventState, InboxEvent, QuietReason, Run, SessionOrigin
 
+from accounts.models import User
 from automation.agent.synthetic import synthetic_kind
 from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload
 
@@ -247,6 +248,22 @@ class TestRequest:
         quiet = _event(EventKind.CI_FAILED, ci_payload(2), wake=False)
 
         assert RunInput([quiet, follow_up]).request() == "Make the failing test pass"
+
+    def test_a_merge_request_job_is_its_prompt_from_its_requester_answered_on_the_merge_request(self):
+        payload = {"prompt": "/code-review", "trigger_type": "api_job"}
+        job = _event(EventKind.MERGE_REQUEST_JOB, payload, author_username="pusher")
+
+        assert RunInput([job]).request() == (
+            "/code-review\n\npusher sent this as a job on !9. Reply as you would on the merge request; your final "
+            "message is posted there."
+        )
+        assert EventText(job).summary() == "/code-review"
+
+    def test_a_merge_request_job_never_names_its_sender_by_their_daiv_username(self):
+        payload = {"prompt": "/code-review", "trigger_type": "api_job"}
+        job = _event(EventKind.MERGE_REQUEST_JOB, payload, author_username="", author=User(username="alex"))
+
+        assert RunInput([job]).request().startswith("/code-review\n\nThis was sent as a job on !9.")
 
 
 class TestEventText:

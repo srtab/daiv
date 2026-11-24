@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}Blog — DAIV{% endblock %}
+
+{% block meta_description %}<meta name="description" content="Experiments, numbers and design notes from building DAIV, an open-source, self-hosted coding agent for GitLab &amp; GitHub.">{% endblock %}
+
+{% block og_title %}The DAIV blog{% endblock %}
+
+{% block og_description %}Experiments, numbers and design notes from building DAIV, an open-source, self-hosted coding agent for GitLab &amp; GitHub.{% endblock %}
+
+{% block head_extra %}{% include "dashboard/_landing_analytics.html" %}{% block feed_link %}<link rel="alternate" type="application/rss+xml" title="DAIV blog" href="{% url 'blog:feed' %}">{% endblock %}{% endblock %}
+
+{% block content %}
+{% include "dashboard/_landing_nav.html" %}
+
+<main>
+<section class="landing-page">
+    <div class="landing-container">
+        <p class="landing-eyebrow">Blog</p>
+        <h1 class="landing-heading">Building DAIV in the open</h1>
+        <p class="landing-lede">Experiments, numbers and design notes from building an open-source, self-hosted coding agent.</p>
+
+        <ul class="mt-12 grid gap-4">
+            {% for post, status in posts %}
+            <li>
+                <a href="{% url 'blog:post' post.slug %}" class="landing-card landing-card--link">
+                    <p class="landing-eyebrow">
+                        <time datetime="{{ post.date|date:'Y-m-d' }}">{{ post.date|date:"j M Y" }}</time>
+                        {% if status %}<span class="landing-badge ml-2 px-2.5 py-0.5">{{ status }}</span>{% endif %}
+                    </p>
+                    <h2 class="landing-item-title mt-3">{{ post.title }}</h2>
+                    <p class="landing-item-body">{{ post.summary }}</p>
+                </a>
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
+</section>
+</main>
+
+{% include "dashboard/_landing_footer.html" %}
+{% endblock content %}

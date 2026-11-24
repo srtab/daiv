@@ -1,0 +1,67 @@
+{% load i18n icon_tags session_tags %}
+{% comment %}
+The Filter menu: the list's filters by name, each opening its values in place of the list. It sits inside the filter
+bar's Alpine component (sessions/js/session-filters.js), which places it under whatever opened it. A filter with
+`choices` loads its values from `choices.url` when first opened and as its search changes, showing only its current
+value until then.
+{% endcomment %}
+<div data-surface class="filter-menu filter-menu--drill scrollbar-thin" x-ref="filterMenu" x-show="open === 'filter'" x-cloak
+     :style="anchor && `left: ${anchor.left}px; top: ${anchor.top}px`"
+     @click.outside="$event.target.closest('[data-filter-opener]') || closeFilter(false)"
+     @keydown.escape.stop="closeFilter()">
+    <div x-show="!property">
+        <input type="text" class="filter-menu__search" x-model="propertyQuery" data-filter-focus
+               placeholder="{% translate 'Filter by…' %}" aria-label="{% translate 'Filter by' %}">
+        {% for property in filter_properties %}
+        <button type="button" class="filter-menu-item w-full" data-filter-property="{{ property.key }}" data-name="{{ property.name }}"
+                x-show="matches($el.dataset.name, propertyQuery)" @click="drill('{{ property.key }}')">
+            <span class="filter-menu-item__lead">{% icon property.icon "h-4 w-4" %}</span>
+            <span>{{ property.name }}</span>
+            <span class="filter-menu-item__end">
+                <span class="truncate" x-show="isSet('{{ property.key }}')" x-text="valueLabel('{{ property.key }}')"></span>
+                <span x-show="!isSet('{{ property.key }}')">{% icon "chevron-right" "h-3.5 w-3.5" %}</span>
+            </span>
+        </button>
+        {% endfor %}
+    </div>
+
+    {% for property in filter_properties %}
+    <div data-filter-panel="{{ property.key }}" x-show="property === '{{ property.key }}'" style="display:none">
+        <button type="button" class="filter-menu__back" @click="back()">
+            {% icon "chevron-right" "h-3.5 w-3.5 rotate-180" %}{{ property.name }}
+        </button>
+        {% if property.key == "status" %}
+        {% include "sessions/_filter_options.html" with key="status" options=statuses current=current_status lead="status" %}
+        {% elif property.key == "trigger" %}
+        {% include "sessions/_filter_options.html" with key="trigger" options=origins current=current_trigger lead="origin" %}
+        {% elif property.key == "time" %}
+        {% for value, label in ranges %}
+        <a href="{% querystring range=value date_from=None date_to=None page=None %}"
+           class="filter-menu-item{% if current_range == value %} filter-menu-item--active{% endif %}"
+           data-filter-key="range" data-value="{{ value }}" data-label="{{ label }}"
+           @click.prevent="setRange('{{ value }}')" :class="{ 'filter-menu-item--active': range === '{{ value }}' }">{{ label }}</a>
+        {% endfor %}
+        <div class="filter-menu__section">
+            <p class="filter-menu__label">{% translate "Custom range" %}</p>
+            <div class="filter-range" x-data="{ from: '{{ current_from|escapejs }}', to: '{{ current_to|escapejs }}' }"
+                 @sessions:url-changed.window="const p = new URLSearchParams(location.search); from = p.get('date_from') || ''; to = p.get('date_to') || ''">
+                <input type="date" x-model="from" aria-label="{% translate 'From date' %}" class="filter-date">
+                <span class="text-text-faint">–</span>
+                <input type="date" x-model="to" aria-label="{% translate 'To date' %}" class="filter-date">
+                <button type="button" class="filter-apply" @click="setCustomRange(from, to)">{% translate "Apply" %}</button>
+            </div>
+        </div>
+        {% elif property.choices %}
+        <input type="text" class="filter-menu__search" x-model="valueQuery" data-filter-focus
+               @input.debounce.250ms="findChoices()"
+               placeholder="{% translate 'Find…' %}" aria-label="{% blocktranslate with name=property.name %}Find a {{ name }}{% endblocktranslate %}">
+        <div data-filter-choices="{{ property.key }}" data-choices-url="{{ property.choices.url }}" data-reload-on="{{ property.choices.reload_on }}"
+             data-error-message="{% translate "Couldn't load these choices." %}"
+             @htmx:response-error="choicesFailed($el)" @htmx:send-error="choicesFailed($el)">
+            {% include "sessions/_filter_options.html" with key=property.key options=property.choices.options current=property.choices.current lead=property.lead %}
+            <p class="filter-menu__label filter-menu__loading" role="status">{% translate "Loading…" %}</p>
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>

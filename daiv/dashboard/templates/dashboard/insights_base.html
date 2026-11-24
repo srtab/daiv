@@ -1,0 +1,37 @@
+{% extends "base_app.html" %}
+{% load i18n %}
+{% comment %}
+The frame both Insights views share: the header with the view tabs, then the filter row with the period.
+
+Blocks: insights_subtitle; insights_filters (more filters beside the period); insights_actions (the row's right end);
+insights_content.
+
+Context:
+- periods, current_period: the period choices and the one shown.
+{% endcomment %}
+
+{% block container_width %}max-w-6xl{% endblock %}
+
+{% block app_content %}
+<div class="animate-fade-up page-header">
+    <div class="page-header__title">
+        <h1 class="text-2xl font-bold tracking-tight text-text-strong">{% translate "Insights" %}</h1>
+        <p class="mt-1.5 text-[15px] font-light text-text-muted">{% block insights_subtitle %}{% endblock %}</p>
+    </div>
+    {% include "dashboard/_insights_nav.html" %}
+</div>
+
+<div class="animate-fade-up mt-6 flex flex-wrap items-center justify-between gap-3">
+    <div class="flex flex-wrap gap-2.5">
+        <nav aria-label="{% translate 'Period' %}" class="segmented-nav">
+            {% for p in periods %}
+            <a href="{% querystring period=p.key %}" class="segmented-nav__item"{% if p.key == current_period %} aria-current="true"{% endif %}>{{ p.label }}</a>
+            {% endfor %}
+        </nav>
+        {% block insights_filters %}{% endblock %}
+    </div>
+    {% block insights_actions %}{% endblock %}
+</div>
+
+{% block insights_content %}{% endblock %}
+{% endblock app_content %}

@@ -4,8 +4,9 @@ from typing import TYPE_CHECKING
 from django import template
 from django.contrib.humanize.templatetags.humanize import naturaltime
 from django.utils import formats, timezone
-from django.utils.translation import gettext
+from django.utils.translation import gettext, gettext_lazy
 
+from sessions.filters import CLEARED_WITH
 from sessions.models import MergeRequestOwnership
 
 if TYPE_CHECKING:
@@ -95,6 +96,20 @@ _ORIGIN_ICONS = {
 
 
 @register.filter
+def option_label(options, value) -> str:
+    """The label ``(value, label)`` pairs give ``value``, or ``value`` itself when none matches."""
+    return next((label for option, label in options if option == value), value)
+
+
+@register.simple_tag
+def cost_text(cost, floor) -> str:
+    """A cost, marked ``+`` as a floor when some of its tokens have no price, and never "$0" when none of them do."""
+    if floor and not cost:
+        return gettext("no price")
+    return (format_cost(cost) if cost else "$0.00") + ("+" if floor else "")
+
+
+@register.filter
 def origin_icon(origin) -> str:
     """Map a SessionOrigin value to an icon name; unknown → generic 'jobs'."""
     return _ORIGIN_ICONS.get(origin, "jobs")
@@ -129,6 +144,37 @@ def short_timestamp(dt) -> str:
     return formats.date_format(timezone.localtime(dt), "M j")
 
 
+_DAY = 86400
+# (below this many seconds, seconds per unit, label); the m/h/d labels are the sidebar's ``compact_time`` ones.
+_AGE_UNITS = (
+    (3600, 60, gettext_lazy("%(count)dm")),
+    (_DAY, 3600, gettext_lazy("%(count)dh")),
+    (14 * _DAY, _DAY, gettext_lazy("%(count)dd")),
+    (60 * _DAY, 7 * _DAY, gettext_lazy("%(count)dw")),
+    (365 * _DAY, 30 * _DAY, gettext_lazy("%(count)dmo")),
+)
+
+
+@register.filter
+def short_age(dt) -> str:
+    """How long ago ``dt`` was, in one compact unit: ``now``, ``5m``, ``3h``, ``13d``, ``3w``, ``4mo``, ``1y``."""
+    if dt is None:
+        return ""
+    seconds = (timezone.now() - dt).total_seconds()
+    if seconds < 60:
+        return gettext("now")
+    for below, unit, label in _AGE_UNITS:
+        if seconds < below:
+            return label % {"count": seconds // unit}
+    return gettext("%(count)dy") % {"count": seconds // (365 * _DAY)}
+
+
+@register.filter
+def option_param(key: str, value: str | None = None) -> dict[str, str | None]:
+    """``{key: value}`` for a filter's ``{% querystring %}``, clearing the params that hang on ``key``."""
+    return {key: value} | dict.fromkeys(CLEARED_WITH.get(key, ()))
+
+
 _ARTIFACT_ICONS = {"markdown": "document-text", "html": "code-bracket", "image": "photo", "text": "document"}
 
 
@@ -140,7 +186,7 @@ def artifact_icon(kind) -> str:
 
 def linked_merge_request(session) -> dict | None:
     """The merge request a session row links: the one the session is scoped to, else the newest one recorded on its
-    runs. Expects ``runs`` prefetched newest first, as ``with_row_runs`` does."""
+    runs. Expects ``runs`` prefetched newest first, as ``with_row_runs`` and ``with_merge_request_runs`` do."""
     runs = [r for r in session.runs.all() if r.merge_request_iid]
     iid = session.merge_request_iid or (runs[0].merge_request_iid if runs else None)
     if iid is None:
@@ -162,10 +208,3 @@ def session_merge_request(session) -> dict | None:
     """``linked_merge_request`` with its ``state``, from ``attach_merge_request_states``."""
     merge_request = linked_merge_request(session)
     return merge_request and {**merge_request, "state": session.merge_request_state}
-
-
-@register.simple_tag
-def session_cost(session) -> str:
-    """Sum cost_usd across a session's runs (uses the prefetch cache), formatted."""
-    total = sum((r.cost_usd for r in session.runs.all() if r.cost_usd is not None), Decimal("0"))
-    return format_cost(total) if total > 0 else ""

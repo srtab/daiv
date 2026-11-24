@@ -11,12 +11,14 @@ on:
       - "v*.*.*"
     paths:
       - 'docs/**'
+      - 'daiv/static/fonts/geist/**'
       - 'mkdocs.yml'
       - '.github/workflows/docs.yml'
 
   pull_request:
     paths:
       - 'docs/**'
+      - 'daiv/static/fonts/geist/**'
       - 'mkdocs.yml'
       - '.github/workflows/docs.yml'
 

@@ -13,6 +13,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 
 from accounts.models import User
 from tests.unit_tests.mcp_connectors.helpers import only_servers
+from tests.unit_tests.sessions.conftest import make_task_result
 
 
 async def _user(username):
@@ -320,7 +321,7 @@ async def test_submit_job_forwards_references(_default_mcp_user):
 @pytest.mark.django_db(transaction=True)
 async def test_submit_job_gives_a_repository_its_own_prompt(_default_mcp_user):
     from mcp_api.server import submit_job
-    from sessions.services import BatchSubmitResult, RepoTarget
+    from sessions.services import BatchSubmitResult
 
     run = await _run(await _session(user=_default_mcp_user, repo_id="a/b"))
 
@@ -334,7 +335,7 @@ async def test_submit_job_gives_a_repository_its_own_prompt(_default_mcp_user):
         await submit_job(repos=[{"repo_id": "a/b", "ref": None, "prompt": "only for a/b"}], prompt="batch")
 
     assert submit.call_args.kwargs["prompt"] == "batch"
-    assert submit.call_args.kwargs["repos"] == [RepoTarget(repo_id="a/b", prompt="only for a/b")]
+    assert [(t.repo_id, t.prompt) for t in submit.call_args.kwargs["repos"]] == [("a/b", "only for a/b")]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -540,6 +541,18 @@ async def test_job_status_lists_every_mr_and_error(_default_mcp_user):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_a_job_that_did_not_start_says_why(_default_mcp_user):
+    from mcp_api.server import get_job_status
+    from sessions.inbox.merge_request_jobs import NOT_STARTED_CLOSED
+
+    run = await _run(await _session(_default_mcp_user), status=RunStatus.FAILED, error_message=NOT_STARTED_CLOSED)
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["error"] == NOT_STARTED_CLOSED
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_job_status_legacy_run_lists_its_single_mr(_default_mcp_user):
     from mcp_api.server import get_job_status
 
@@ -573,3 +586,86 @@ async def test_submit_job_forwards_resolved_mcp_overrides(_default_mcp_user):
         await submit_job(repos=[{"repo_id": "a/b", "ref": None}], prompt="x", mcp_overrides={"grafana": True})
 
     assert submit.call_args.kwargs["mcp_overrides"] == {"grafana": "on"}
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_failed_by_a_provider_says_why(_default_mcp_user):
+    from mcp_api.server import get_job_status
+
+    from core.provider_failures import failure_message
+
+    run = await _run(
+        await _session(_default_mcp_user),
+        status=RunStatus.FAILED,
+        failure_kind="out_of_credits",
+        failure_provider="openrouter",
+    )
+
+    data = json.loads(await get_job_status(job_id=str(run.id)))
+
+    assert data["error"] == failure_message("out_of_credits", "openrouter")
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_get_job_failed_otherwise_keeps_the_generic_error(_default_mcp_user):
+    from mcp_api.server import get_job_status
+
+    run = await _run(await _session(_default_mcp_user), status=RunStatus.FAILED)
+
+    assert json.loads(await get_job_status(job_id=str(run.id)))["error"] == "Job execution failed."
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"repo_id": "a/b", "merge_request": 7, "ref": "main"},
+        {"repo_id": "a/b", "merge_request": 7, "prompt": "only here"},
+        {"repo_id": "a/b", "merge_request": 0},
+    ],
+    ids=["with-ref", "with-prompt", "not-positive"],
+)
+def test_a_merge_request_target_with_a_ref_or_its_own_prompt_is_refused(entry):
+    from mcp_api.server import RepoSubmitSpec
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        RepoSubmitSpec(**entry)
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_merge_request_target_in_a_shared_session_is_refused():
+    from mcp_api.server import submit_job
+
+    with patch("mcp_api.server._allow_job_submission", return_value=True):
+        result = await submit_job(repos=[{"repo_id": "a/b", "merge_request": 7}], prompt="x", shared_session=True)
+
+    assert json.loads(result)["error"] == "A merge request target can't be combined with shared_session or thread_id."
+
+
+@pytest.mark.django_db(transaction=True)
+async def test_a_merge_request_target_runs_as_an_mcp_job_in_the_merge_requests_session(mock_repo_client):
+    from mcp_api.server import submit_job
+    from sessions.ids import compute_thread_id
+
+    from codebase.base import MergeRequest, Scope
+    from codebase.base import User as PlatformUser
+
+    mock_repo_client.get_merge_request.return_value = MergeRequest(
+        repo_id="a/b", merge_request_id=7, source_branch="feat", target_branch="main", title="F", description="",
+        author=PlatformUser(id=1, username="author"),
+    )  # fmt: skip
+
+    with (
+        patch("mcp_api.server._allow_job_submission", return_value=True),
+        patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        patch("sessions.merge_request_runs.service.address_merge_request_task") as task,
+    ):
+        task.get_or_enqueue.return_value = (await sync_to_async(make_task_result)(status="READY"), True)
+        result = await submit_job(repos=[{"repo_id": "a/b", "merge_request": 7}], prompt="/code-review")
+
+    [job] = json.loads(result)["jobs"]
+    run = await Run.objects.aget(pk=job["job_id"])
+    assert (run.trigger_type, run.merge_request_iid, run.session_id) == (
+        SessionOrigin.MCP_JOB, 7, compute_thread_id(repo_slug="a/b", scope=Scope.MERGE_REQUEST, entity_iid=7),
+    )  # fmt: skip
+    assert task.get_or_enqueue.call_args.kwargs["request_key"].startswith("job:")

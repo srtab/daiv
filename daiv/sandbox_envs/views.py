@@ -8,8 +8,10 @@ from django.core.exceptions import ValidationError
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
+from django.utils.decorators import method_decorator
 from django.utils.functional import cached_property
 from django.views import View
+from django.views.decorators.vary import vary_on_headers
 from django.views.generic import ListView
 
 from core.mixins import AdminRequiredMixin
@@ -43,6 +45,7 @@ class EnvListView(LoginRequiredMixin, ListView):
         return ctx
 
 
+@method_decorator(vary_on_headers("HX-Request"), name="dispatch")
 class EnvFormView(LoginRequiredMixin, View):
     """Drawer-only create / edit. Dispatches on the presence of ``pk`` in
     ``kwargs``. Non-HTMX GET redirects to the list with ``?open=`` so deep
@@ -105,6 +108,7 @@ class EnvFormView(LoginRequiredMixin, View):
         return HttpResponse(status=204, headers={"HX-Trigger": json.dumps(build_env_trigger(env, action))})
 
 
+@method_decorator(vary_on_headers("HX-Request"), name="dispatch")
 class EnvDeleteView(LoginRequiredMixin, View):
     http_method_names = ["get", "post"]
 

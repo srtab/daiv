@@ -8,6 +8,8 @@ from sessions.views import (
     SessionListView,
     SessionMergeRequestRedirectView,
     SessionNewView,
+    SessionRepoChoicesView,
+    SessionSpendChoicesView,
     SessionStreamView,
     ToolResultMediaRawView,
 )
@@ -18,6 +20,8 @@ urlpatterns = [
     path("new/", SessionNewView.as_view(), name="session_new"),
     path("new/chat/", SessionDetailView.as_view(), name="session_new_chat"),
     path("stream/", SessionStreamView.as_view(), name="session_stream"),
+    path("spend-choices/<str:key>/", SessionSpendChoicesView.as_view(), name="session_spend_choices"),
+    path("repo-choices/", SessionRepoChoicesView.as_view(), name="session_repo_choices"),
     path("<slug:thread_id>/", SessionDetailView.as_view(), name="session_detail"),
     path("<slug:thread_id>/merge-request/", SessionMergeRequestRedirectView.as_view(), name="session_merge_request"),
     path(

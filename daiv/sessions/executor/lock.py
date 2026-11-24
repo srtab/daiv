@@ -28,6 +28,7 @@ LOCK_WAIT_TIMEOUT_S = STALE_RUN_MINUTES * 60.0  # give a long-running chat turn 
 LOCK_POLL_INTERVAL_S = 5.0
 LOCK_HEARTBEAT_INTERVAL_S = 60.0
 TASK_HOLDER_DEAD_AFTER = timedelta(seconds=3 * LOCK_HEARTBEAT_INTERVAL_S)
+DEAD_RUN_MESSAGE = "Dead run: its worker stopped heartbeating (crash); reaped by sync_stuck_runs."
 
 
 def stale_cutoff(now: datetime | None = None) -> datetime:
@@ -295,6 +296,10 @@ class SessionLockLostError(Exception):
 
 class RunStoppedError(Exception):
     """The run was asked to stop: by its ``should_stop``, or by its worker's shutdown (``core.worker_shutdown``)."""
+
+
+class DeadWorkerError(Exception):
+    """A task's worker died, and DAIV failed the task in its place."""
 
 
 @asynccontextmanager

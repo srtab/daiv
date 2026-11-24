@@ -3,7 +3,7 @@ from datetime import date, datetime, timedelta
 from django.utils import timezone
 
 import pytest
-from dashboard.insights import Window, _bucket_starts, _change, _signed_pct, window_for
+from dashboard.insights import Window, _bucket_starts, _change, _count_change, _relative_change, window_for
 from sessions.filters import local_midnight
 
 
@@ -72,20 +72,43 @@ class TestBucketStarts:
 
 class TestChange:
     def test_up(self):
-        assert _change(174, 156) == {"direction": "up", "amount": "18", "was": "156"}
+        assert _change(174, 156) == {"direction": "up", "amount": "18", "was": "156", "tone": "neutral"}
 
     def test_down_with_unit(self):
-        assert _change(90, 92, unit=" pts") == {"direction": "down", "amount": "2 pts", "was": "92 pts"}
+        change = _change(90, 92, unit=" pts")
+        assert (change["amount"], change["was"]) == ("2 pts", "92 pts")
 
     def test_a_rate_changes_in_points_and_was_a_percentage(self):
-        assert _change(72, 100, unit=" pts", was_unit="%") == {"direction": "down", "amount": "28 pts", "was": "100%"}
+        change = _change(72, 100, unit=" pts", was_unit="%")
+        assert (change["amount"], change["was"]) == ("28 pts", "100%")
 
     def test_nothing_to_compare(self):
         assert _change(5, None) is None
         assert _change(None, 5) is None
 
-    def test_signed_pct(self):
-        assert _signed_pct(28, 22) == "+27%"
-        assert _signed_pct(12, 15) == "−20%"
-        assert _signed_pct(3, 0) == ""
-        assert _signed_pct(7, 7) == ""
+    @pytest.mark.parametrize(
+        ("current", "previous", "better", "tone"),
+        [
+            (10, 8, "up", "good"),
+            (10, 8, "down", "bad"),
+            (8, 10, "down", "good"),
+            (8, 10, "up", "bad"),
+            (8, 8, "up", "neutral"),
+            (8, 8, "down", "neutral"),
+            (10, 8, None, "neutral"),
+        ],
+    )
+    def test_a_better_direction_gives_the_move_a_tone(self, current, previous, better, tone):
+        assert _change(current, previous, better=better)["tone"] == tone
+
+    @pytest.mark.parametrize(
+        ("current", "previous", "amount"), [(29, 10, "190%"), (35, 10, "3.5×"), (240, 10, "24×"), (5, 0, "5")]
+    )
+    def test_a_relative_move_is_a_multiple_once_the_figure_at_least_tripled(self, current, previous, amount):
+        assert _relative_change(current, previous, text=str, better=None)["amount"] == amount
+
+    @pytest.mark.parametrize(
+        ("current", "previous", "relative"), [(28, 22, "27%"), (12, 15, "20%"), (66, 22, "3×"), (3, 0, ""), (7, 7, "")]
+    )
+    def test_a_count_change_carries_its_relative_amount(self, current, previous, relative):
+        assert _count_change(current, previous)["relative"] == relative

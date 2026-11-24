@@ -214,12 +214,14 @@ Set `CODEBASE_CLIENT` to `gitlab` or `github`. Only one platform is active at a 
 | :material-asterisk: `CODEBASE_GITLAB_URL`            | URL of the GitLab instance                  | *(none)*  | `https://gitlab.com` |
 | :material-asterisk: `CODEBASE_GITLAB_AUTH_TOKEN`  :material-lock:    | Authentication token for GitLab             | *(none)*  | `glpat-xyz`          |
 | :material-asterisk: `CODEBASE_GITLAB_WEBHOOK_SECRET` :material-lock:| Secret token for GitLab webhook validation. Without it, every GitLab webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
+| `CODEBASE_GITLAB_PAT_FALLBACK`  | Use `CODEBASE_GITLAB_AUTH_TOKEN` for `git clone` and `git push` when a per-project clone token can't be created | `true` | `false` |
+| `CODEBASE_GITLAB_ID_TOKEN_ISSUER` | Issuer of the GitLab CI ID tokens that pipelines present to the jobs API as [CI identity tokens](../features/jobs-api.md#ci-identity-tokens): GitLab's external URL. Set it when `CODEBASE_GITLAB_URL` is another address, such as an internal host name. *env-only* | `CODEBASE_GITLAB_URL` | `https://gitlab.example.com` |
 
 `CODEBASE_GITLAB_AUTH_TOKEN` is a personal access token with the `api` scope.
 
 For `git clone` and `git push`, DAIV does not put this token in the repository workspace. It creates a short-lived project access token for each repository instead: named `daiv-clone`, with the `write_repository` scope and the Developer access level, and valid for 48 to 72 hours. DAIV reuses a repository's token for up to 24 hours, so expect a few `daiv-clone` bot members on a project at a time. GitLab removes expired ones.
 
-Creating these tokens needs the token's user to hold at least the Maintainer role on each project and, on GitLab.com, the Premium or Ultimate tier. Self-managed instances accept any tier. When DAIV cannot create a token, it logs a warning and falls back to the personal access token.
+Creating these tokens needs the token's user to hold at least the Maintainer role on each project and, on GitLab.com, the Premium or Ultimate tier. Self-managed instances accept any tier. When DAIV cannot create a token, it logs a warning and falls back to the personal access token. To keep the personal access token out of the workspace entirely, set `CODEBASE_GITLAB_PAT_FALLBACK` to `false`: the run then fails with an error instead of falling back. DAIV remembers a failed token creation and retries it after up to an hour, or 5 minutes after a transient GitLab error, so runs on that project keep failing for that long after you fix the cause. To retry sooner, run `docker compose exec app django-admin shell -c "from codebase.clients.gitlab.clone_tokens import invalidate_clone_token; invalidate_clone_token(<project-id>)"`.
 
 The project access token pushes at the Developer level. If a branch protection rule matches the branches DAIV pushes to, for example a wildcard pattern that limits pushes to Maintainers, allow Developers to push on that pattern, or pushes fail.
 
@@ -235,8 +237,9 @@ The project access token pushes at the Developer level. If a branch protection r
 | :material-asterisk: `CODEBASE_GITHUB_INSTALLATION_ID`      | GitHub App Installation ID                  | *(none)*  | `789012`             |
 | :material-asterisk: `CODEBASE_GITHUB_PRIVATE_KEY` :material-lock:         | GitHub App private key (PEM format)         | *(none)*  |                      |
 | :material-asterisk: `CODEBASE_GITHUB_WEBHOOK_SECRET` :material-lock:| Secret token for GitHub webhook validation. Without it, every GitHub webhook request is rejected with 401 | *(none)*  | `random-webhook-secret` |
+| `CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER` | Issuer of the GitHub Actions OIDC tokens that workflows present to the jobs API as [CI identity tokens](../features/jobs-api.md#ci-identity-tokens). Set it when the tokens name another issuer, such as when `CODEBASE_GITHUB_URL` is an internal address of GitHub Enterprise Server. *env-only* | `https://token.actions.<subdomain>.ghe.com` when the host of `CODEBASE_GITHUB_URL` is `<subdomain>.ghe.com` or `api.<subdomain>.ghe.com`, else `https://<host>/_services/token` when that host, `<host>`, is neither `github.com` nor `api.github.com`, else `https://token.actions.githubusercontent.com` | `https://github.example.com/_services/token` |
 
-GitHub uses GitHub App authentication, so you create a GitHub App in your account or organization settings. The private key is a multi-line PEM file; store it as a Docker secret. For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to its URL, for example `https://github.example.com`. For GitHub.com, you can omit it.
+GitHub uses GitHub App authentication, so you create a GitHub App in your account or organization settings. The private key is a multi-line PEM file; store it as a Docker secret. For GitHub Enterprise Server, set `CODEBASE_GITHUB_URL` to its URL, for example `https://github.example.com`; DAIV then accepts CI identity tokens issued by `https://<host>/_services/token`, where `<host>` is that URL's host name. For GitHub Enterprise Cloud with data residency (GHE.com), set it to your enterprise's API URL, `https://api.<subdomain>.ghe.com`; DAIV then accepts CI identity tokens issued by `https://token.actions.<subdomain>.ghe.com`. For GitHub.com, you can omit `CODEBASE_GITHUB_URL`.
 
 ---
 
@@ -388,6 +391,7 @@ The [Jobs API](../features/jobs-api.md) runs the agent from your own code.
 | Variable | Description | Default |
 |-------------------------------|----------------------------------------------|------------------------|
 | `DAIV_JOBS_THROTTLE_RATE` | Rate limit for job submissions per authenticated user. Format: `N/sec`, `N/min`, `N/hour`, or `N/day`, or the short forms `N/s`, `N/m`, `N/h` and `N/d` | `20/hour` |
+| `DAIV_JOBS_CI_IDENTITY_AUDIENCE` | The audience (`aud`) a [CI identity token](../features/jobs-api.md#ci-identity-tokens) must carry. *env-only* | `DAIV_EXTERNAL_URL` |
 
 ### Diff to metadata
 

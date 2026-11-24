@@ -5,7 +5,7 @@ from django.core.cache import cache
 import pytest
 
 from accounts.models import User
-from core.api.throttling import JobsRateThrottle
+from core.api.throttling import JobsRateThrottle, SpendRateThrottle
 
 
 @pytest.fixture(autouse=True)
@@ -44,3 +44,38 @@ def test_anonymous_requests_are_bucketed_by_ip():
     assert JobsRateThrottle("1/hour").allow_request(anonymous("10.0.0.1")) is True
     assert JobsRateThrottle("1/hour").allow_request(anonymous("10.0.0.1")) is False
     assert JobsRateThrottle("1/hour").allow_request(anonymous("10.0.0.2")) is True
+
+
+def test_spend_reads_allow_sixty_a_minute_per_user_in_a_bucket_of_their_own():
+    user, other = User(pk=1, username="a"), User(pk=2, username="b")
+
+    assert all(SpendRateThrottle().allow_request(_authed(user)) for _ in range(60))
+    assert SpendRateThrottle().allow_request(_authed(user)) is False
+    assert SpendRateThrottle().allow_request(_authed(other)) is True
+    assert JobsRateThrottle("1/hour").allow_request(_authed(user)) is True
+
+
+def _ci_identity(actor_uid: str, jti: str, user: User | None = None):
+    from datetime import UTC, datetime
+
+    from accounts.api.ci_identity import CIIdentity
+    from codebase.base import GitPlatform
+
+    return CIIdentity(
+        provider=GitPlatform.GITLAB, repo_id="group/project", repo_platform_id=1, actor_uid=actor_uid,
+        actor_username="pusher", user=user, sha=None, jti=jti, expires_at=datetime.now(UTC),
+    )  # fmt: skip
+
+
+def test_ci_identity_tokens_are_bucketed_by_their_triggering_account():
+    assert JobsRateThrottle("1/hour").allow_request(_authed(_ci_identity("9", "a"))) is True
+    assert JobsRateThrottle("1/hour").allow_request(_authed(_ci_identity("9", "b"))) is False
+    assert JobsRateThrottle("1/hour").allow_request(_authed(_ci_identity("10", "c"))) is True
+    assert JobsRateThrottle("1/hour").allow_request(_authed(User(pk=9, username="nine"))) is True
+
+
+def test_a_linked_accounts_ci_identity_tokens_share_its_users_bucket():
+    user = User(pk=11, username="eleven")
+
+    assert JobsRateThrottle("1/hour").allow_request(_authed(user)) is True
+    assert JobsRateThrottle("1/hour").allow_request(_authed(_ci_identity("9", "a", user=user))) is False

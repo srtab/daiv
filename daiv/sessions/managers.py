@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Self
 
 from django.core.files.base import ContentFile
 from django.db import close_old_connections, models, transaction
@@ -17,7 +18,7 @@ from sessions.live.notify import publish_session_changed, session_changed
 from sessions.signal_defs import run_ended, run_finished
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from datetime import date, datetime
 
     from accounts.models import User
     from sessions.models import MergeRequestOwnership, Run, RunArtifact, Session, ToolResultMedia
@@ -49,6 +50,14 @@ def _started_by_q(user: User) -> models.Q:
         user=user, provider=models.OuterRef("external_provider"), uid=models.OuterRef("external_uid")
     )
     return models.Q(user=user) | models.Exists(linked)
+
+
+def _run_owner_q(user: User) -> models.Q:
+    """Rows of a run ``user`` owns: started it, or subscribe to its session's schedule."""
+    return _started_by_q(user) | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
+
+
+RUN_SPEND = models.Q(task="")
 
 
 def _session_runs_newest_first(session: models.OuterRef) -> models.QuerySet[Run]:
@@ -168,6 +177,19 @@ class SessionQuerySet(models.QuerySet["Session"]):
     def archived(self) -> models.QuerySet[Session]:
         return self.filter(archived_at__isnull=False)
 
+    def with_run_spend(self, start: date | None = None, end: date | None = None) -> models.QuerySet[Session]:
+        """Annotate ``run_spend``: the priced cost of the session's runs, from local midnight of ``start`` to the end
+        of ``end`` when given; None when nothing was priced. Background spend is not counted, as on the session page.
+        ``run_spend_floor`` says some of those tokens have no price, so the cost is a floor.
+        """
+        from sessions.models import SpendRecord
+
+        records = SpendRecord.objects.filter(session=models.OuterRef("pk")).run_spend().between(start, end)
+        total = records.order_by().values("session").annotate(total=models.Sum("cost_usd")).values("total")
+        return self.annotate(
+            run_spend=models.Subquery(total), run_spend_floor=models.Exists(records.filter(unpriced_tokens__gt=0))
+        )
+
     def with_latest_status(self) -> models.QuerySet[Session]:
         """Annotate each session with ``latest_run_status`` (status of the newest run).
 
@@ -175,6 +197,17 @@ class SessionQuerySet(models.QuerySet["Session"]):
         """
         latest = _session_runs_newest_first(models.OuterRef("pk"))
         return self.annotate(latest_run_status=models.Subquery(latest.values("status")[:1]))
+
+    def with_status_rank(self) -> models.QuerySet[Session]:
+        """Annotate ``status_rank``: where ``latest_run_status`` falls in ``RunStatus.attention_order()``, sessions with
+        no run last. Needs ``with_latest_status()``."""
+        from sessions.models import RunStatus
+
+        order = RunStatus.attention_order()
+        whens = [models.When(latest_run_status=status, then=models.Value(rank)) for rank, status in enumerate(order)]
+        return self.annotate(
+            status_rank=models.Case(*whens, default=models.Value(len(order)), output_field=models.IntegerField())
+        )
 
     def with_row_runs(self) -> models.QuerySet[Session]:
         """Prefetch each session's runs, newest first, with only the columns a session row reads.
@@ -184,18 +217,21 @@ class SessionQuerySet(models.QuerySet["Session"]):
         from sessions.models import Run
 
         runs = Run.objects.only(
-            "id",
-            "session_id",
-            "status",
-            "started_at",
-            "finished_at",
-            "merge_request_iid",
-            "merge_request_web_url",
-            "cost_usd",
-            "agent_model",
-            "created_at",
+            "id", "session_id", "status", "merge_request_iid", "merge_request_web_url", "agent_model", "created_at"
         ).order_by(*_NEWEST_FIRST)
         return self.select_related("user", "scheduled_job").prefetch_related(models.Prefetch("runs", queryset=runs))
+
+    def with_merge_request_runs(self) -> models.QuerySet[Session]:
+        """Prefetch, newest first, only the runs that reached a merge request, for ``linked_merge_request`` alone."""
+        from sessions.models import Run
+
+        runs = (
+            Run.objects
+            .filter(merge_request_iid__isnull=False)
+            .only("id", "session_id", "merge_request_iid", "merge_request_web_url", "created_at")
+            .order_by(*_NEWEST_FIRST)
+        )
+        return self.prefetch_related(models.Prefetch("runs", queryset=runs))
 
 
 # ``by_owner``/``visible_to``/``with_latest_status`` live on the QuerySet so they chain
@@ -287,9 +323,6 @@ class RunQuerySet(models.QuerySet["Run"]):
 
 
 class RunManager(models.Manager.from_queryset(RunQuerySet)):
-    def _owner_q(self, user: User) -> models.Q:
-        return _started_by_q(user) | models.Q(session__scheduled_job__in=user.subscribed_schedules.values("pk"))
-
     def visible_to(self, user: User) -> models.QuerySet[Run]:
         """Runs the user may view: ownership OR a repository they can currently read.
 
@@ -298,7 +331,7 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         """
         if user.is_admin:
             return self.all()
-        return self.filter(self._owner_q(user) | _readable_repos_q(user, "session_id"))
+        return self.filter(_run_owner_q(user) | _readable_repos_q(user, "session_id"))
 
     def by_batch(self, batch_id) -> models.QuerySet[Run]:
         return self.filter(batch_id=batch_id)
@@ -359,9 +392,10 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         task fails too unless a worker claimed it. A ``run_job_task`` running the run stops at its next
         :meth:`acancel_requested` check, before the agent if it has not reached it, and a RUNNING run finishes as that
         task does: with what it recorded, or SUCCESSFUL if it finished first. A RUNNING run whose worker is gone has no
-        task left to check, so it finishes FAILED here, on a repeated call too (:meth:`_finish_dead_holder`).
+        task left to check, so it finishes FAILED here with its task, on a repeated call too
+        (:meth:`_finish_dead_holder`).
         """
-        from sessions.executor.run import RunStoppedError
+        from sessions.executor.lock import RunStoppedError
         from sessions.models import RunStatus
 
         now = timezone.now()
@@ -384,30 +418,48 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
             session_changed(run.session_id)
             run.refresh_from_db(fields=["status"])
             return run.status not in RunStatus.terminal()
-        DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY).update(
-            status=TaskResultStatus.FAILED,
-            finished_at=now,
-            exception_class_path=f"{RunStoppedError.__module__}.{RunStoppedError.__qualname__}",
-            traceback=message,
+        fail_tasks(
+            DBTaskResult.objects.filter(run=run, status=TaskResultStatus.READY),
+            error=RunStoppedError,
+            message=message,
+            now=now,
         )
         return True
 
     def _finish_dead_holder(self, run: Run, *, message: str, now: datetime) -> bool:
-        """Finish ``run`` FAILED with ``message`` if it is a task-backed RUNNING run holding its session's slot under
-        its pk whose heartbeat has been silent for ``TASK_HOLDER_DEAD_AFTER`` and whose worker is no longer alive
+        """:meth:`finish_dead` ``run`` with ``message`` if it is a task-backed RUNNING run holding its session's slot
+        under its pk whose heartbeat has been silent for ``TASK_HOLDER_DEAD_AFTER`` and whose worker is no longer alive
         (:mod:`core.worker_liveness`): its worker was killed and nothing will read the stop request. A live worker
         whose run cannot heartbeat still reads it. Returns whether this call finished it.
         """
         from core import worker_liveness
-        from sessions.executor.lock import TASK_HOLDER_DEAD_AFTER
+        from sessions.executor.lock import TASK_HOLDER_DEAD_AFTER, RunStoppedError
         from sessions.models import RunStatus, Session
 
         silent = Session.objects.filter(active_run_id=str(run.pk), last_active_at__lt=now - TASK_HOLDER_DEAD_AFTER)
         dead = models.Q(status=RunStatus.RUNNING, task_result__isnull=False, session_id__in=silent.values("pk"))
         worker_ids = self.filter(dead, pk=run.pk).values_list("task_result__worker_ids", flat=True).first()
-        if worker_ids is None or (worker_ids and worker_liveness.alive(worker_ids[-1])):
+        if worker_ids is None or worker_liveness.claimant_alive(worker_ids):
             return False
-        return self.finish(run, RunStatus.FAILED, where=dead, error_message=message, finished_at=now)
+        return self.finish_dead(run, where=dead, error=RunStoppedError, message=message, now=now)
+
+    def finish_dead(
+        self, run: Run, *, where: models.Q, error: type[BaseException], message: str, now: datetime
+    ) -> bool:
+        """Finish ``run`` FAILED with ``message`` under ``where`` because its worker died, and fail its task with
+        ``error`` too, which no worker will end: the DBTaskResult sync would report it RUNNING for good, and a RUNNING
+        dedup task (``webhooks.tasks``) stands in for any repeat of its trigger. The task fails only while it is still
+        RUNNING, so an outcome its worker wrote meanwhile stands; one left RUNNING by a crash between the two writes is
+        failed by ``sync_stuck_runs``. Returns whether this call finished the run.
+        """
+        from sessions.models import RunStatus
+
+        if not self.finish(run, RunStatus.FAILED, where=where, error_message=message, finished_at=now):
+            return False
+        fail_tasks(
+            DBTaskResult.objects.filter(run=run, status=TaskResultStatus.RUNNING), error=error, message=message, now=now
+        )
+        return True
 
     async def acancel_requested(self, run_id: str) -> bool:
         """Whether :meth:`cancel` asked the run ``run_id`` to stop."""
@@ -465,11 +517,66 @@ class RunManager(models.Manager.from_queryset(RunQuerySet)):
         run_finished.send_robust(sender=type(run), run=run, **flags)
 
 
+def fail_tasks(tasks: models.QuerySet[DBTaskResult], *, error: type[BaseException], message: str, now: datetime) -> int:
+    """Fail ``tasks`` with ``error`` and ``message`` in place of a worker; a worker that finishes one later overwrites
+    it. Returns how many were failed."""
+    return tasks.update(
+        status=TaskResultStatus.FAILED,
+        finished_at=now,
+        exception_class_path=f"{error.__module__}.{error.__qualname__}",
+        traceback=message,
+    )
+
+
 def _require_terminal(status: str) -> None:
     from sessions.models import RunStatus
 
     if status not in RunStatus.terminal():
         raise ValueError(f"{status!r} is not a terminal run status")
+
+
+class SpendRecordQuerySet(models.QuerySet["SpendRecord"]):
+    def visible_to(self, user: User) -> Self:
+        """Records the user may see: everything for admins, else the rule ``RunManager.visible_to`` applies to runs.
+
+        A record with no session passes on its repository alone, and one with neither on its person alone.
+        SYNC ONLY, like the run rule; wrap in ``sync_to_async`` when used from async code.
+        """
+        if user.is_admin:
+            return self.all()
+        return self.filter(_run_owner_q(user) | _readable_repos_q(user, "session_id"))
+
+    def started_by(self, user: User) -> Self:
+        return self.filter(_started_by_q(user))
+
+    def for_scope(self, user: User, scope: str) -> Self:
+        """The records ``user`` may see; under ``scope="mine"`` only those they started. SYNC ONLY."""
+        from sessions.filters import SCOPE_MINE
+
+        records = self.visible_to(user)
+        return records.started_by(user) if scope == SCOPE_MINE else records
+
+    def between(self, start: date | None, end: date | None) -> Self:
+        """Records from local midnight of ``start`` to the end of ``end``; a None bound is left open."""
+        from sessions.filters import local_midnight
+
+        records = self
+        if start is not None:
+            records = records.filter(occurred_at__gte=local_midnight(start))
+        if end is not None:
+            records = records.filter(occurred_at__lt=local_midnight(end + timedelta(days=1)))
+        return records
+
+    def in_window(self, window: Any) -> Self:
+        """Records counted in ``window``, an Insights ``Window``."""
+        return self.filter(window.date_q("occurred_at"))
+
+    def run_spend(self) -> Self:
+        return self.filter(RUN_SPEND)
+
+
+class SpendRecordManager(models.Manager.from_queryset(SpendRecordQuerySet)):
+    pass
 
 
 class RunFileManager[T: (RunArtifact, ToolResultMedia)](models.Manager[T]):

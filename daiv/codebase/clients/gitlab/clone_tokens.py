@@ -23,8 +23,8 @@ CLONE_TOKEN_LIFETIME_DAYS = 3
 CLONE_TOKEN_CACHE_TIMEOUT = 60 * 60 * 24
 # Persistent failures (role, tier, dead PAT): retrying soon won't change the answer.
 CLONE_TOKEN_UNAVAILABLE_TIMEOUT = 60 * 60
-# Transient failures (network blips, 429, 5xx): retry soon so a single blip doesn't park
-# clones on the PAT for a whole hour.
+# Transient failures (network blips, 429, 5xx): retry soon so a single blip doesn't leave
+# clones without an ephemeral token for a whole hour.
 CLONE_TOKEN_TRANSIENT_UNAVAILABLE_TIMEOUT = 60 * 5
 
 _CACHE_KEY = "codebase:gitlab:clone-token:{project_pk}"
@@ -88,27 +88,21 @@ def _create_token(client: Gitlab, project_pk: int) -> tuple[str | None, int]:
             "expires_at": expires_at,
         })
     except GitlabAuthenticationError as e:
-        # The fallback authenticates with the very credential GitLab just rejected, so the clone
-        # is likely to fail too — name the real culprit instead of claiming a benign degradation.
         logger.warning(
             "GitLab rejected the configured PAT while provisioning a clone token for project %s "
-            "(is the PAT revoked or expired?); the clone will fall back to the PAT: %s",
+            "(is the PAT revoked or expired?): %s",
             project_pk,
             e,
         )
         return None, CLONE_TOKEN_UNAVAILABLE_TIMEOUT
     except (GitlabError, requests.RequestException) as e:
-        logger.warning(
-            "Could not create an ephemeral clone token for project %s (the clone will fall back to the PAT): %s",
-            project_pk,
-            e,
-        )
+        logger.warning("Could not create an ephemeral clone token for project %s: %s", project_pk, e)
         return None, CLONE_TOKEN_TRANSIENT_UNAVAILABLE_TIMEOUT if _is_transient(e) else CLONE_TOKEN_UNAVAILABLE_TIMEOUT
     if not (secret := getattr(token, "token", None)):
         # The create call succeeded, so GitLab now holds a token it never disclosed to us.
         logger.warning(
-            "GitLab returned an access token for project %s without a token secret; the clone will fall "
-            "back to the PAT (an orphaned '%s' token was likely left on the project).",
+            "GitLab returned an access token for project %s without a token secret "
+            "(an orphaned '%s' token was likely left on the project).",
             project_pk,
             CLONE_TOKEN_NAME,
         )

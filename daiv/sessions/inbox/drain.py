@@ -9,17 +9,21 @@ requester of the oldest one (an event about another of the session's repositorie
 is gated where it is made, FR-026), and takes their waking events for the branch with every remembered one, up to their
 first request that runs alone (:meth:`sessions.inbox.splits.RequestSplits.runs_alone`). A builtin slash command that
 comes first is taken alone, with nothing remembered: the slash-command middleware answers it only as the whole request,
-and ends the run. A leg follow-up that comes first is taken alone with every remembered event, and its own run, posted
-with it, is promoted to READY to run it; when its leg's merge request was merged or closed meanwhile it is stopped
-instead, its run finishing FAILED with its not-run label (:meth:`sessions.inbox.leg_follow_ups.LegFollowUps.stop`), and
-the drain runs again once that commits. Otherwise the requester's next run for the branch is promoted to READY to run
-what was taken, unless requests it holds stay behind; it then keeps waiting for them, and a READY run is created
-instead. The drain claims the slot for that run and marks its events ``taken``. A CI failure among them spends one of
-its merge request's attempts on the commit it reports in that same transaction, so a crash before the enqueue still
-counts it. A denied requester's events fail, their next run and their leg follow-ups' runs end FAILED with the
-``access_denied`` label (a follow-up job's id still resolves, a leg follow-up's batch finishes), and the drain goes on
-to the next requester. The run is enqueued once the take commits; a failed enqueue frees the slot, puts the events back
-and refunds the attempt, for the sweep to retry.
+and ends the run. A leg follow-up or a merge request job that comes first is taken alone with every remembered event,
+unless its request is a builtin slash command, and its own run, posted with it, is promoted to READY to run it; when its
+merge request was merged or closed meanwhile it is stopped instead, its run finishing FAILED never started
+(:meth:`sessions.inbox.own_runs.OwnRunEvents.stop`), and the drain runs again once that commits.
+Otherwise the requester's next run for the branch is promoted to READY to run what was taken, unless requests it holds
+stay behind; it then keeps waiting for them, and a READY run is created instead. The drain claims the slot for that run
+and marks its events ``taken``. A CI failure among them spends one of its merge request's attempts on the commit it
+reports in that same transaction, so a crash before the enqueue still counts it. A denied requester's events fail and
+their next run ends FAILED with the ``access_denied`` label; their leg follow-ups and merge request jobs are stopped
+with it, a job saying so on its merge request (a job's id still resolves, a leg follow-up's batch finishes), and the
+drain goes on to the next requester. A merge request job only attributed to its requester, a CI identity's, needs no
+access to the repository the platform proved, but its linked user must be able to run on the session's others, and
+with none there must be none; it neither counts toward nor fails with that user's own requests.
+The run is enqueued once the take commits; a failed enqueue frees the slot, puts the events back and refunds the
+attempt, for the sweep to retry.
 
 A next run is a QUEUED run with an inbox trigger type, no task yet, and events linked to it. ``sessions.queue`` leaves
 such runs alone: only this module starts them, because only it claims the slot for them.
@@ -45,8 +49,9 @@ from sandbox_envs.selection import resolve_env_for_run
 from automation.agent.references import merge_stored_refs
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
-from sessions.inbox.kinds import PERSON_KINDS, PRECEDENCE, EventContent
+from sessions.inbox.kinds import OWN_RUN_KINDS, PERSON_KINDS, PRECEDENCE, EventContent
 from sessions.inbox.leg_follow_ups import LegFollowUps
+from sessions.inbox.merge_request_jobs import MergeRequestJobs
 from sessions.inbox.next_runs import NextRuns
 from sessions.inbox.pending import PendingEvents
 from sessions.inbox.policy import WakePolicy
@@ -70,10 +75,13 @@ from sessions.services import pinned_agent_override
 
 if TYPE_CHECKING:
     from accounts.models import User
+    from sessions.inbox.own_runs import OwnRunEvents
 
 logger = logging.getLogger("daiv.sessions")
 
 DRAIN_SWEEP_LIMIT = 200
+
+OWN_RUNS: dict[str, type[OwnRunEvents]] = {own_runs.kind: own_runs for own_runs in (LegFollowUps, MergeRequestJobs)}
 
 
 class Drain:
@@ -128,9 +136,9 @@ class Drain:
     @classmethod
     def sessions_to_drain(cls, limit: int = DRAIN_SWEEP_LIMIT) -> list[str]:
         """Sessions with a pending waking event and a free or stale slot, for the sweep: an archived one only for a leg
-        follow-up its drain stops. SYNC ONLY."""
+        follow-up or merge request job its drain stops. SYNC ONLY."""
         free = Q(session__active_run_id__isnull=True) | Q(session__last_active_at__lt=stale_cutoff())
-        takes_it = Q(session__archived_at__isnull=True) | Q(kind=EventKind.LEG_FOLLOW_UP)
+        takes_it = Q(session__archived_at__isnull=True) | Q(kind__in=OWN_RUN_KINDS)
         return list(
             InboxEvent.objects
             .filter(free, takes_it, state=EventState.PENDING, wake=True)
@@ -147,8 +155,8 @@ class Drain:
     def _undo_take(self, run: Run, charges: list[_Charge]) -> None:
         """Free the slot claimed for ``run``, put its events back and refund the CI attempts its take spent, after its
         enqueue failed. The slot and events are usually back already: the failed run's ``run_ended`` did both
-        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`), unless its finish did not land. A leg follow-up stays
-        with its run, whose end settles it.
+        (:meth:`sessions.inbox.complete.RunEnd.on_run_ended`), unless its finish did not land. A leg follow-up or a
+        merge request job stays with its run, whose end settles it.
 
         A refund leaves the merge request's examined commit blank, as the one before is not kept. That commit is older
         than the failure's, so it is no longer the head DAIV pushed, the only commit whose failure wakes the session. A
@@ -158,7 +166,7 @@ class Drain:
         with transaction.atomic():
             Session.objects.select_for_update().filter(pk=run.session_id).exists()
             SessionLock.release_for_run(run.session_id, run.pk)
-            InboxEvent.objects.filter(run=run, state=EventState.TAKEN).exclude(kind=EventKind.LEG_FOLLOW_UP).update(
+            InboxEvent.objects.filter(run=run, state=EventState.TAKEN).exclude(kind__in=OWN_RUN_KINDS).update(
                 state=EventState.PENDING, run=None, updated_at=timezone.now()
             )
             retaken = set(
@@ -197,7 +205,8 @@ class _Take:
         session = self.session
         next_runs = NextRuns(session)
         if session.archived_at is not None:
-            LegFollowUps.stop_held(session)
+            for held in InboxEvent.objects.filter(session=session, state=EventState.PENDING, kind__in=OWN_RUN_KINDS):
+                self._stop_or_settle(held)
             return None
         if SessionLock.is_held(session) or next_runs.job_run_active():
             return None
@@ -230,20 +239,10 @@ class _Take:
         ]
         splits = RequestSplits(requested)
         asked = splits.splits[0]
-        follow_up = asked[0] if asked[0].kind == EventKind.LEG_FOLLOW_UP else None
         own_run = None
-        if follow_up is not None:
-            # Locked so a coordinator's cancel can't land between this read and the promotion to READY.
-            own_run = Run.objects.select_for_update().filter(pk=follow_up.run_id).first()
-            if own_run is None or own_run.status != RunStatus.QUEUED:
-                LegFollowUps.settle_unstartable(follow_up, own_run)
-                own_run = None
-            elif (stop := LegFollowUps.stop_reason(session)) is not None:
-                LegFollowUps.stop(follow_up, stop, own_run)
-                own_run = None
-            if own_run is None:
-                transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
-                return None
+        if asked[0].kind in OWN_RUN_KINDS and (own_run := self._stop_or_settle(asked[0])) is None:
+            transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
+            return None
         if RequestSplits.takes_context(asked[0]):
             taken = [
                 event
@@ -260,9 +259,17 @@ class _Take:
         else:
             next_run = None
         user = requester.user(session, requested)
-        checked = any(event.kind != EventKind.MENTION for event in requested)
-        if user is not None and checked and not self._may_run(user, session.repo_ids()):
-            self._fail(requested, waiting_run)
+        refused: tuple[list[InboxEvent], Run | None] | None = None
+        if own_run is not None and not own_run.acts_as_user:
+            if not self._proves_access(user, asked[0]):
+                refused = (asked, None)
+            user = None
+        elif user is not None:
+            acting = self._acting_as_requester(requested)
+            if any(event.kind != EventKind.MENTION for event in acting) and not self._may_run(user, session.repo_ids()):
+                refused = (acting, waiting_run)
+        if refused is not None:
+            self._fail(*refused)
             next_runs.drop_emptied(queued_runs)
             transaction.on_commit(Drain(session.thread_id).start_logged, robust=True)
             return None
@@ -271,7 +278,11 @@ class _Take:
         try:
             with transaction.atomic():
                 run = self._promote_or_create(
-                    branch, taken, next_run, requester=requester, sandbox_environment_id=env_id
+                    branch,
+                    taken,
+                    next_run,
+                    requester=None if own_run is not None else requester,
+                    sandbox_environment_id=env_id,
                 )
         except IntegrityError:
             # A job run took the session's one active place after ``NextRuns.job_run_active`` looked
@@ -296,6 +307,21 @@ class _Take:
         self._apply_tools_selection(taken)
         return run, self._charge_ci_attempts(taken)
 
+    def _stop_or_settle(self, own: InboxEvent, *, failure: EventFailure | None = None) -> Run | None:
+        """The own run of the leg follow-up or merge request job ``own``, locked, while it may start; else ``None``,
+        once ``own`` is settled because its run is gone or no longer QUEUED, or stopped with ``failure``, else because
+        its session was archived or its merge request ended. SYNC ONLY."""
+        own_runs = OWN_RUNS[own.kind]
+        # Locked so a cancel can't land between this read and the stop or the promotion to READY.
+        run = Run.objects.select_for_update().filter(pk=own.run_id).first()
+        if run is None or run.status != RunStatus.QUEUED:
+            own_runs.settle_unstartable(own, run)
+            return None
+        if (stop := failure or own_runs.stop_reason(self.session, own)) is not None:
+            own_runs.stop(own, stop, run)
+            return None
+        return run
+
     def _link_superseded(self, taken: list[InboxEvent], run: Run, branch: str) -> None:
         """Link to ``run`` the superseded events of the subjects it took, on its ``branch``, which it shows replaced."""
         subjects = {event.subject_key for event in taken if event.subject}
@@ -311,7 +337,7 @@ class _Take:
 
     def _merge_references(self, taken: list[InboxEvent]) -> None:
         """Add the references the follow-up jobs and leg follow-ups the run took declared to the session, which the run
-        reads them from."""
+        reads them from; a merge request job's apply to its run only."""
         session = self.session
         declared = [
             ref
@@ -356,6 +382,26 @@ class _Take:
         if QuietReason.RUN_LIMIT in reasons.values():
             transaction.on_commit(WakePolicy(self.session).report_run_limit, robust=True)
 
+    def _proves_access(self, user: User | None, job: InboxEvent) -> bool:
+        """Whether a job only attributed to ``user`` (a CI identity's) may run in the session. The platform proved the
+        job's own repository, so ``user`` must be able to run on the session's other repositories, which its run checks
+        out too; with no linked user, there must be none."""
+        others = [
+            repo_id for repo_id in self.session.repo_ids() if repo_id != job.effective_repo_id(self.session.repo_id)
+        ]
+        return not others or (user is not None and self._may_run(user, others))
+
+    @staticmethod
+    def _acting_as_requester(events: list[InboxEvent]) -> list[InboxEvent]:
+        """``events`` but those whose own run is only attributed to its requester (``Run.acts_as_user`` off), which
+        neither need the requester's access nor fail without it."""
+        attributed = set(
+            Run.objects.filter(
+                pk__in=[event.run_id for event in events if event.kind in OWN_RUN_KINDS], acts_as_user=False
+            ).values_list("pk", flat=True)
+        )
+        return [event for event in events if event.run_id not in attributed]
+
     @staticmethod
     def _may_run(user: User, repo_ids: list[str]) -> bool:
         try:
@@ -365,10 +411,11 @@ class _Take:
         return True
 
     def _fail(self, asked: list[InboxEvent], next_run: Run | None) -> None:
-        """Fail the events of a requester who may no longer run on the repository, and finish their QUEUED next run
-        and each leg follow-up's own run FAILED with the ``access_denied`` label, so the id a follow-up job's caller
-        polls still resolves and a leg follow-up's batch finishes. A leg follow-up stays linked to its run, which is
-        how its batch tells the run apart.
+        """Fail the events of a requester who may no longer run on the repository and finish their QUEUED next run
+        FAILED with the ``access_denied`` label, so the id a job's caller polls still resolves. Each leg follow-up and
+        merge request job among them is stopped with that failure (:meth:`_stop_or_settle`), so a job says so on its
+        merge request and a leg follow-up's batch finishes; those events stay linked to their runs, which is how a batch
+        tells the run apart.
 
         The finishes say ``skip_dispatch``: the caller drains once this commits, and the events, already failed rather
         than taken, are left as they are by the run's end (:meth:`sessions.inbox.complete.RunEnd.settle_events`)."""
@@ -379,22 +426,14 @@ class _Take:
             len(asked),
         )
         now = timezone.now()
-        follow_ups = [event for event in asked if event.kind == EventKind.LEG_FOLLOW_UP]
-        InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).exclude(kind=EventKind.LEG_FOLLOW_UP).update(
+        InboxEvent.objects.filter(pk__in=[event.pk for event in asked]).exclude(kind__in=OWN_RUN_KINDS).update(
             state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, run=None, updated_at=now
-        )
-        InboxEvent.objects.filter(pk__in=[event.pk for event in follow_ups]).update(
-            state=EventState.FAILED, failure=EventFailure.ACCESS_DENIED, updated_at=now
         )
         session_changed(self.session.thread_id)
         if next_run is not None:
             InboxEvent.objects.filter(run=next_run).update(run=None, updated_at=now)
-        runs = [next_run, *Run.objects.filter(pk__in=[event.run_id for event in follow_ups])]
-        for run in runs:
-            if run is None:
-                continue
             Run.objects.finish(
-                run,
+                next_run,
                 RunStatus.FAILED,
                 skip_dispatch=True,
                 never_started=True,
@@ -402,16 +441,17 @@ class _Take:
                 finished_at=now,
                 started_at=now,
             )
+        for event in asked:
+            if event.kind in OWN_RUN_KINDS:
+                self._stop_or_settle(event, failure=EventFailure.ACCESS_DENIED)
 
     def _sandbox_env_id(self, user: User | None, taken: list[InboxEvent]) -> uuid.UUID | None:
-        """The environment the newest follow-up job among ``taken`` was submitted with, while ``user`` still sees it.
+        """The environment the newest job among ``taken`` was submitted with, while ``user`` still sees it.
         Else the session's, unless it is a USER environment ``user`` does not own: a run for another person, or for no
         one, never gets the owner's secrets. Then the one the repository resolves to for ``user``."""
         visible = SandboxEnvironment.objects.visible_to(user)  # ty: ignore[missing-attribute]
         asked = [
-            event.payload["sandbox_environment_id"]
-            for event in taken
-            if event.kind == EventKind.FOLLOW_UP_JOB and event.payload.get("sandbox_environment_id")
+            event.payload["sandbox_environment_id"] for event in taken if event.payload.get("sandbox_environment_id")
         ]
         if asked and visible.filter(pk=asked[-1]).exists():
             return uuid.UUID(asked[-1])
@@ -427,9 +467,12 @@ class _Take:
         taken: list[InboxEvent],
         run: Run | None,
         *,
-        requester: Requester,
+        requester: Requester | None,
         sandbox_environment_id: uuid.UUID | None,
     ) -> Run:
+        """Make ``run``, else a new run, READY to run ``taken`` on ``branch`` for ``requester``. ``None`` keeps the
+        person ``run`` names: an own run's, whose post named its caller's platform account, which the requester leaves
+        out."""
         session = self.session
         waking = sorted(
             (event for event in taken if event.wake), key=lambda event: (PRECEDENCE[event.kind], event.created_at)
@@ -442,7 +485,6 @@ class _Take:
             "status": RunStatus.READY,
             "ref": branch,
             "trigger_type": EventContent.of(top).run_trigger_type(),
-            **requester.run_fields(person.author_username if person is not None else ""),
             "agent_model": agent_model,
             "agent_thinking_level": agent_thinking_level,
             "message_id": chats[-1].payload["agui_message_id"] if chats else "",
@@ -453,6 +495,8 @@ class _Take:
             "prompt": RunInput(taken).request(),
             "muted": (person or top).payload.get("muted"),
         }
+        if requester is not None:
+            fields |= requester.run_fields(person.author_username if person is not None else "")
         if run is None:
             return Run.objects.create(session=session, repo_id=session.repo_id, **fields)
         for name, value in fields.items():

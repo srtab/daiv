@@ -29,12 +29,15 @@ from sessions.admission import (
     check_agent_override,
 )
 from sessions.artifacts import aserialize_run_artifacts_for_status
+from sessions.inbox.merge_request_jobs import MergeRequestJobs
+from sessions.merge_request_runs.schemas import MergeRequestTarget
 from sessions.models import Run, RunStatus, SessionOrigin
 from sessions.multi_repo import THREAD_NOT_FOUND, asubmit_jobs
 from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs
 
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
+from codebase.base import RepoId  # noqa: TC001 - runtime type for MCPServer
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
 from daiv import __version__
@@ -79,6 +82,8 @@ in-review branch. Otherwise DAIV creates a new branch off `ref` and opens a new 
 
 Set `shared_session` to true to open one session over several repositories (at most 5, the first is the main one): \
 the agent sees all of them and DAIV opens one merge request per repository it changes.
+Set `merge_request` on the only `repos` entry, instead of `ref`, to run the prompt on that open merge request as a \
+mention would: the run works on its branch and its final message is posted on it (e.g. `/code-review`).
 A `thread_id` job sent to a session that is busy joins that session's next run for its branch, \
 so two such jobs may return the same `job_id`; poll that `job_id` and read its result once.
 
@@ -116,7 +121,9 @@ MAX_POLL_DURATION = 600.0  # 10 minutes
 
 
 class RepoSpec(BaseModel):
-    repo_id: str = Field(description='Repository identifier. "owner/repo" for GitHub or full project path for GitLab.')
+    repo_id: RepoId = Field(
+        description='Repository identifier. "owner/repo" for GitHub or full project path for GitLab.'
+    )
     ref: str | None = Field(
         default=None, description="Branch name to start from. None / empty string = default branch."
     )
@@ -127,7 +134,7 @@ class RepoScheduleSpec(RepoSpec):
     model_config = ConfigDict(extra="forbid")
 
 
-class RepoSubmitSpec(RepoSpec):
+class RepoSubmitSpec(MergeRequestTarget, RepoSpec):
     prompt: str | None = Field(
         default=None,
         pattern=r"\S",
@@ -303,7 +310,10 @@ async def submit_job(
     try:
         result = await asubmit_jobs(
             user=mcp_user,
-            repos=[RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt or "") for s in specs],
+            repos=[
+                RepoTarget(repo_id=s.repo_id, ref=s.ref or "", prompt=s.prompt or "", merge_request_iid=s.merge_request)
+                for s in specs
+            ],
             shared=shared_session,
             thread_id=thread_id_str,
             prompt=prompt,
@@ -344,7 +354,9 @@ async def submit_job(
 
 async def _build_job_response_dict(run: Run) -> dict:
     """Build a dict response from a Run (shared by single + batch paths)."""
-    error = "Job execution failed." if run.status == RunStatus.FAILED else None
+    error = None
+    if run.status == RunStatus.FAILED:
+        error = MergeRequestJobs.caller_failure_message(run) or "Job execution failed."
     artifacts, artifacts_error = await aserialize_run_artifacts_for_status(run)
     result = await sync_to_async(lambda: run.response_text)()
     return {

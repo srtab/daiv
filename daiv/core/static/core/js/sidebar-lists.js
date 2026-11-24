@@ -1,13 +1,14 @@
 /**
  * The sidebar's session and schedule lists: which schedules are expanded, how far "Show more"
- * reached, and swapping in fresh rows when runs start or finish.
+ * reached, and swapping in fresh rows when runs start or finish or a merge request's state
+ * changes.
  *
  * The rows are server-rendered (`dashboard/_sidebar_lists.html`) into every
  * `[data-testid="sidebar-lists"]` — the persistent sidebar and the mobile sheet. On
- * `daiv:runs-changed` (nav-events.js) the store fetches that same partial from the container's
- * `data-url` and replaces each container's rows. Expand state lives here rather than in the
- * rows, so a swap cannot close a schedule; the focused row and the scroll position are carried
- * across it by `data-row-key`.
+ * `daiv:runs-changed` or `daiv:sidebar-changed` (nav-events.js) the store fetches that same
+ * partial from the container's `data-url` and replaces each container's rows. Expand state
+ * lives here rather than in the rows, so a swap cannot close a schedule; the focused row and
+ * the scroll position are carried across it by `data-row-key`.
  *
  *     <button @click="$store.sidebarLists.toggle(7, false)" :aria-expanded="...isOpen(7, false)...">
  *     <ul x-show="$store.sidebarLists.isOpen(7, false)" x-cloak>
@@ -42,6 +43,7 @@ document.addEventListener("alpine:init", () => {
 
     init() {
       window.addEventListener("daiv:runs-changed", () => this.refresh());
+      window.addEventListener("daiv:sidebar-changed", () => this.refresh());
     },
 
     isOpen(scheduleId, startsOpen) {

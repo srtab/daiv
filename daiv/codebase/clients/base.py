@@ -49,6 +49,12 @@ PLATFORM_ERRORS: tuple[type[Exception], ...] = (GitlabError, GithubException, OS
 ``requests`` and its ``RequestException`` is an ``OSError``."""
 
 
+def is_not_found(err: Exception) -> bool:
+    """Whether the platform answered that what was asked for doesn't exist: GitLab's ``response_code`` and GitHub's
+    ``status`` are both 404."""
+    return 404 in (getattr(err, "response_code", None), getattr(err, "status", None))
+
+
 def is_transient_platform_error(exc: BaseException) -> bool:
     """True for an anticipated GitLab/GitHub outage rather than a bug in how we call it.
 

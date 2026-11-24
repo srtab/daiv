@@ -78,6 +78,20 @@ class TestAenqueueRun:
         await run.arefresh_from_db()
         assert run.task_result_id == task.id
 
+    async def test_a_run_attributed_without_acting_reaches_the_task_with_no_user(
+        self, create_db_task_result, member_user
+    ):
+        run = await sync_to_async(make_run)(
+            session_id=str(uuid.uuid4()), status=RunStatus.READY, user=member_user, acts_as_user=False
+        )
+        task = await sync_to_async(create_db_task_result)(status="READY")
+
+        with patch("sessions.queue.run_job_task") as mock_task:
+            mock_task.aenqueue = AsyncMock(return_value=MagicMock(id=task.id))
+            await aenqueue_run(run, log_context="test")
+
+        assert mock_task.aenqueue.call_args.kwargs["user_id"] is None
+
     async def test_an_inbox_run_says_so_to_the_task(self, create_db_task_result):
         run = await sync_to_async(make_run)(session_id=str(uuid.uuid4()), status=RunStatus.READY)
         task = await sync_to_async(create_db_task_result)(status="READY")

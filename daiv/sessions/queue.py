@@ -72,7 +72,7 @@ async def aenqueue_run(
             agent_thinking_level=run.agent_thinking_level or None,
             sandbox_environment_id=str(run.sandbox_environment_id) if run.sandbox_environment_id else None,
             run_id=str(run.pk),
-            user_id=run.user_id,
+            user_id=run.acting_user_id,
             ask_user_enabled=await _acan_ask_user(run),
             fork_branch=await _afork_branch(run),
             inbox=inbox,

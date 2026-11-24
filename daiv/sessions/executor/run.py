@@ -17,6 +17,7 @@ from redis.exceptions import RedisError
 from redisvl.exceptions import RedisSearchError
 
 from automation.agent.git_state import checkpointed_repo_publishes
+from automation.agent.provider_errors import provider_failure_of
 from automation.agent.session_links import SessionLinks
 from core import worker_shutdown
 from core.constants import INTERRUPTED_MESSAGE
@@ -31,6 +32,7 @@ from sessions.inbox.ownership import Ownerships
 from sessions.models import PublishStatus, Run, RunStatus, publish_field_updates
 from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
 from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
+from sessions.spend_recording import RunSpendRecorder
 from sessions.tool_media import RunToolMediaStore
 
 if TYPE_CHECKING:
@@ -157,6 +159,7 @@ async def stream_run(
                     outcome = await _after_run(spec, run)
             except Exception as exc:
                 if interrupted is None:
+                    await _arecord_provider_failure(spec.run_id, exc)
                     await _notify_failure(
                         hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot
                     )
@@ -216,6 +219,7 @@ async def _run_in_slot(
             invoke = partial(_invoke, spec, hooks, recovery, run_relay)
             outcome = await _until_stopped(invoke, spec.thread_id, should_stop)
         except Exception as exc:
+            await _arecord_provider_failure(spec.run_id, exc)
             await _notify_failure(hooks, exc, draft_published=recovery.draft_published, snapshot=recovery.snapshot)
             raise
         if hooks.on_success is not None:
@@ -483,30 +487,32 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
             if archiving and not reset:
                 await arestore_thread(agent, checkpointer, config)
             with track_usage_metadata() as usage, record_publish_result() as publish, bind_active_run(spec.run_id):
-                run = AgentRun(
-                    ctx=ctx,
-                    agent=agent,
-                    config=config,
-                    usage=usage,
-                    thread_id=thread_id,
-                    workspace=workspace,
-                    settings=settings,
-                    session_links=session_links,
-                    publish=publish,
-                    fast_forward=fast_forward,
-                )
-                try:
-                    yield run
-                except SessionLockLostError:
-                    archiving = False
-                    handed_over = await _handed_over(run)
-                    raise
-                finally:
-                    await _record_publish_result(
-                        spec.run_id, publish.payload, recovery.draft, siblings=list(publish.siblings.values())
+                recording = RunSpendRecorder(spec.run_id, usage) if spec.run_id is not None else nullcontext()
+                async with recording:
+                    run = AgentRun(
+                        ctx=ctx,
+                        agent=agent,
+                        config=config,
+                        usage=usage,
+                        thread_id=thread_id,
+                        workspace=workspace,
+                        settings=settings,
+                        session_links=session_links,
+                        publish=publish,
+                        fast_forward=fast_forward,
                     )
-                    if archiving:
-                        await _archive_thread(checkpointer, thread_id, reset=reset)
+                    try:
+                        yield run
+                    except SessionLockLostError:
+                        archiving = False
+                        handed_over = await _handed_over(run)
+                        raise
+                    finally:
+                        await _record_publish_result(
+                            spec.run_id, publish.payload, recovery.draft, siblings=list(publish.siblings.values())
+                        )
+                        if archiving:
+                            await _archive_thread(checkpointer, thread_id, reset=reset)
         finally:
             try:
                 try:
@@ -787,6 +793,19 @@ async def _record_measurements(run_id: str | None, ctx: RuntimeCtx, workspace: W
             logger.error("executor: no Run row %s to record run measurements on", run_id)
     except Exception:
         logger.exception("executor: failed to record run measurements for run_id=%s", run_id)
+
+
+async def _arecord_provider_failure(run_id: str | None, exc: BaseException) -> None:
+    if run_id is None:
+        return
+    try:
+        failure = provider_failure_of(exc)
+        if failure is not None:
+            await Run.objects.filter(pk=run_id).aupdate(
+                failure_kind=failure.kind, failure_provider=failure.provider_slug
+            )
+    except Exception:
+        logger.exception("executor: failed to record the provider failure for run_id=%s", run_id)
 
 
 async def _notify_failure(

@@ -5,8 +5,10 @@ from unittest.mock import MagicMock, patch
 from django.contrib.messages import get_messages
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.cache import has_vary_header
 
 import pytest
+from bs4 import BeautifulSoup
 from memory.models import MemoryObservation, ObservationCategory, ObservationStatus, RepositoryMemory
 
 
@@ -32,11 +34,30 @@ def test_list_allows_member(client, member_user):
 
 
 @pytest.mark.django_db
+def test_list_varies_on_the_htmx_header(client, member_user):
+    client.force_login(member_user)
+
+    assert has_vary_header(client.get(reverse("memory:list")), "HX-Request")
+
+
+@pytest.mark.django_db
 def test_list_search_input_has_aria_label(client, member_user):
     client.force_login(member_user)
     resp = client.get(reverse("memory:list"))
     assert resp.status_code == 200
     assert 'aria-label="Search by repository"' in resp.content.decode()
+
+
+@pytest.mark.django_db
+def test_list_status_is_a_segmented_nav_with_clear_all(client, member_user):
+    client.force_login(member_user)
+
+    soup = BeautifulSoup(client.get(reverse("memory:list"), {"status": "pending"}).content, "html.parser")
+
+    items = soup.select("nav.segmented-nav .segmented-nav__item")
+    assert [item.get_text(strip=True) for item in items] == ["All", "Document", "No document", "Pending"]
+    assert [item.get_text(strip=True) for item in items if item.has_attr("aria-current")] == ["Pending"]
+    assert soup.select_one(".filter-clear").get_text(strip=True) == "Clear all"
 
 
 @pytest.mark.django_db
