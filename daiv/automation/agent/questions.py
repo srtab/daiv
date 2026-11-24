@@ -8,6 +8,7 @@ record; nothing is stored in agent state, and the user's next message clears it 
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Annotated, Any
 
 from langchain_core.messages import AIMessage, ToolMessage
@@ -27,6 +28,7 @@ NOT_ALONE_ERROR = f"`{ASK_USER_QUESTION_TOOL_NAME}` must be the only tool call i
 
 _FREE_TEXT_HINT = "_If none of the options fit, reply in your own words._"
 _MULTI_SELECT_HINT = "_Pick any that apply._"
+_QUESTION_SENTENCE_END = re.compile(r"\?(?=\s|$)|？")
 
 
 class Option(BaseModel):
@@ -53,9 +55,9 @@ class Question(BaseModel):
 
     @field_validator("question")
     @classmethod
-    def _ends_with_question_mark(cls, question: str) -> str:
-        if not question.rstrip().endswith(("?", "？")):
-            raise ValueError("question must end with '?'")
+    def _asks_something(cls, question: str) -> str:
+        if not _QUESTION_SENTENCE_END.search(question):
+            raise ValueError("question must contain a sentence ending with '?'")
         return question
 
     @field_validator("options")
