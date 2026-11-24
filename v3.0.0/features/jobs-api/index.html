@@ -1,0 +1,3094 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Trigger DAIV agents programmatically with the Jobs REST API from CI pipelines, scripts or other tools: submit a prompt, get a job ID, poll the result.">
+      
+      
+        <meta name="author" content="Sandro Rodrigues">
+      
+      
+        <link rel="canonical" href="https://docs.daivagent.com/latest/features/jobs-api/">
+      
+      
+        <link rel="prev" href="../sessions/">
+      
+      
+        <link rel="next" href="../scheduled-jobs/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+  
+    
+      
+        <title>Jobs API - DAIV</title>
+      
+    
+  
+
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+
+  <script defer src="https://cloud.umami.is/script.js" data-website-id="f2d8b948-0c1b-48e7-b0ca-e296f9d48863" data-domains="docs.daivagent.com" data-do-not-track="true"></script>
+
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  <meta name="theme-color" content="#0d1117">
+  <link rel="preload" href="../../assets/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  
+
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#jobs-api" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAIV
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Jobs API
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    DAIV
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts and roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issue-addressing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Issue addressing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pull-request-assistant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pull request assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline-watch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sessions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#before-you-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before you start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#create-an-api-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create an API key
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#authenticate-a-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authenticate a request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rate-limiting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate limiting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#submit-a-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Submit a job
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#poll-job-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Poll job status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#answer-a-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Answer a question
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-a-job-on-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run a job on a merge request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ci-identity-tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI identity tokens
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CI identity tokens">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#request-a-token-in-gitlab-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a token in GitLab CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-a-token-in-github-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a token in GitHub Actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-daiv-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What DAIV checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-token-can-submit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a token can submit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#who-the-run-belongs-to" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who the run belongs to
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#poll-with-a-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Poll with a token
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#request-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#job-status-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job status values
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error responses
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-repository-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-repository sessions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multi-repository sessions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#merge-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Merge requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#continuing-a-multi-repository-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Continuing a multi-repository session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#visibility-and-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Visibility and CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#job-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#poll-from-a-shell-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Poll from a shell script
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chain-two-jobs-in-a-scheduled-gitlab-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chain two jobs in a scheduled GitLab pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review-every-push-to-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review every push to a merge request
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scheduled-jobs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scheduled jobs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../orchestration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../merge-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Merge metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slash-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slash commands and skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../browser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/rt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Request Tracker triage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Customization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/repository-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/env-variables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#before-you-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before you start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#create-an-api-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create an API key
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#authenticate-a-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authenticate a request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#rate-limiting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rate limiting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#submit-a-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Submit a job
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#poll-job-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Poll job status
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#answer-a-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Answer a question
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-a-job-on-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run a job on a merge request
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ci-identity-tokens" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CI identity tokens
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="CI identity tokens">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#request-a-token-in-gitlab-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a token in GitLab CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#request-a-token-in-github-actions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request a token in GitHub Actions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-daiv-checks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What DAIV checks
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-a-token-can-submit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a token can submit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#who-the-run-belongs-to" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who the run belongs to
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#poll-with-a-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Poll with a token
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#request-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Request fields
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#job-status-values" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job status values
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#error-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error responses
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-repository-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-repository sessions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Multi-repository sessions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#merge-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Merge requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#continuing-a-multi-repository-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Continuing a multi-repository session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#visibility-and-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Visibility and CI
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#job-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#poll-from-a-shell-script" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Poll from a shell script
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chain-two-jobs-in-a-scheduled-gitlab-pipeline" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chain two jobs in a scheduled GitLab pipeline
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#review-every-push-to-a-merge-request" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Review every push to a merge request
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../issue-addressing/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Features
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/jobs-api.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="jobs-api">Jobs API</h1>
+<p>The jobs API runs DAIV agents outside the git webhook flow. You send a prompt and a list of repositories, DAIV returns a job ID for each run, and you poll that ID for the result.</p>
+<p>Use it to run agents from a CI pipeline, chain agent tasks, trigger runs from Slack bots, scripts or other tools, or start a one-off run with <code>curl</code>. A job can also run on a merge request and post its result there, for example a code review on every push (<a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>). To run a prompt on a recurring schedule without any external trigger, use <a href="../scheduled-jobs/">scheduled jobs</a>.</p>
+<h2 id="before-you-start">Before you start</h2>
+<p>You need:</p>
+<ul>
+<li>A DAIV account with an API key, created as described in <a href="#create-an-api-key">Create an API key</a>. A GitLab CI job or a GitHub Actions workflow can use its <a href="#ci-identity-tokens">CI identity token</a> instead.</li>
+<li>Write access to every repository you name in <code>repos</code>. A CI identity token is the proof of access for its own repository.</li>
+<li>For multi-repository sessions (<code>shared_session</code>), a daiv-sandbox release with path-scoped egress rules and repository seeding. Deploy the sandbox release first: with an older sandbox the run fails before any command runs, with an error that says so. Single-repository runs are unaffected.</li>
+</ul>
+<h2 id="create-an-api-key">Create an API key</h2>
+<p>An API key belongs to one user and authenticates the jobs API and every other API surface, including the <a href="../mcp-endpoint/#api-key-authentication">MCP endpoint</a>, chat completions and the sessions API. Create it from the dashboard, or from the command line for headless provisioning.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>DAIV shows the full key once, when you create it, and cannot show it again. Copy it before you leave the page; if you lose it, revoke the key and create another.</p>
+</div>
+<p>To create a key in the dashboard:</p>
+<ol>
+<li>Open the account menu at the bottom of the sidebar and select <strong>API keys</strong> (<code>/accounts/api-keys/</code>).</li>
+<li>In <strong>Create a new key</strong>, enter a name, for example <code>CI/CD</code>.</li>
+<li>Select <strong>Create key</strong>.</li>
+<li>Select <strong>Copy</strong> next to <strong>Your new API key</strong>.</li>
+</ol>
+<p>To create a key from the command line, run <code>django-admin</code> in the DAIV app container:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>create_api_key<span class="w"> </span>&lt;username&gt;<span class="w"> </span>--name<span class="w"> </span><span class="s2">"my-key"</span>
+</code></pre></div></td></tr></table></div>
+<p>Replace <code>&lt;username&gt;</code> with the username of the key's owner. The command prints the key once, in the form <code>prefix.secret</code>. For the <code>--expires-at</code> option and its time-zone rule, see <a href="../../reference/management-commands/#create_api_key"><code>create_api_key</code></a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Revoking a key cannot be undone. The key stops authenticating immediately on every API surface, so any script or client that uses it fails until you give it another key.</p>
+</div>
+<p>To stop a key from working, select <strong>Revoke</strong> next to it on the <strong>API keys</strong> page.</p>
+<p>Admins see every user's keys; other users see their own.</p>
+<h2 id="authenticate-a-request">Authenticate a request</h2>
+<p>Pass the key as a Bearer token in the <code>Authorization</code> header of every request:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
+<span class="normal"><a href="#__codelineno-1-2">2</a></span>
+<span class="normal"><a href="#__codelineno-1-3">3</a></span>
+<span class="normal"><a href="#__codelineno-1-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>curl<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>https://daiv.example.com/api/jobs<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer &lt;api-key&gt;"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'...'</span>
+</code></pre></div></td></tr></table></div>
+<p>Replace <code>&lt;api-key&gt;</code> with your key. A missing or invalid key returns <code>401</code>. A CI job can pass its identity token the same way; see <a href="#ci-identity-tokens">CI identity tokens</a>.</p>
+<h2 id="rate-limiting">Rate limiting</h2>
+<p>DAIV limits job submissions per authenticated user, or for a <a href="#ci-identity-tokens">CI identity token</a> per account that triggered the pipeline, and returns <code>429 Too Many Requests</code> when you exceed the limit. The same budget applies to the <a href="../mcp-endpoint/">MCP endpoint</a> and to chat completions. An admin sets the rate in <strong>Configuration</strong> under the <strong>Jobs</strong> group, or with <code>DAIV_JOBS_THROTTLE_RATE</code>; the default and the accepted formats are in <a href="../../reference/env-variables/#jobs-api">Environment variables</a>.</p>
+<h2 id="submit-a-job">Submit a job</h2>
+<p>Send a <code>POST</code> request to <code>/api/jobs</code> with a prompt and the repositories to run it on. For example:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span>
+<span class="normal"><a href="#__codelineno-2-3">3</a></span>
+<span class="normal"><a href="#__codelineno-2-4">4</a></span>
+<span class="normal"><a href="#__codelineno-2-5">5</a></span>
+<span class="normal"><a href="#__codelineno-2-6">6</a></span>
+<span class="normal"><a href="#__codelineno-2-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>https://daiv.example.com/api/jobs<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$DAIV_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5"></a><span class="s1">    "repos": [{"repo_id": "mygroup/myproject"}],</span>
+<a id="__codelineno-2-6" name="__codelineno-2-6"></a><span class="s1">    "prompt": "List all Python files and summarize the project structure"</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7"></a><span class="s1">  }'</span>
+</code></pre></div></td></tr></table></div>
+<p>DAIV answers <code>202 Accepted</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-3-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-3-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-3-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-3-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-3-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-3-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-3-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-3-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-3-10">10</a></span>
+<span class="normal"><a href="#__codelineno-3-11">11</a></span>
+<span class="normal"><a href="#__codelineno-3-12">12</a></span>
+<span class="normal"><a href="#__codelineno-3-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="p">{</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="w">  </span><span class="nt">"batch_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"5b9e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90"</span><span class="p">,</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a><span class="w">  </span><span class="nt">"jobs"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="w">    </span><span class="p">{</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5"></a><span class="w">      </span><span class="nt">"job_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1adfbf7a-917e-4f2e-8f54-17a27c006ec5"</span><span class="p">,</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="w">      </span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/myproject"</span><span class="p">,</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="w">      </span><span class="nt">"ref"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8"></a><span class="w">      </span><span class="nt">"thread_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90"</span><span class="p">,</span>
+<a id="__codelineno-3-9" name="__codelineno-3-9"></a><span class="w">      </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"READY"</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11"></a><span class="w">  </span><span class="p">],</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12"></a><span class="w">  </span><span class="nt">"failed"</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>Each entry in <code>jobs</code> is an independent run, so poll each <code>job_id</code> separately. Its <code>status</code> is <code>READY</code> when the run can start, or <code>QUEUED</code> when the session named by <code>thread_id</code> is busy; see <a href="#job-lifecycle">Job lifecycle</a>. DAIV reports a repository it rejects before enqueuing, such as an unknown <code>repo_id</code>, in <code>failed</code> as <code>{repo_id, ref, error}</code>, and still runs the rest of the batch.</p>
+<p>For every field of the request, see <a href="#request-fields">Request fields</a>.</p>
+<h2 id="poll-job-status">Poll job status</h2>
+<p>Send a <code>GET</code> request to <code>/api/jobs/{job_id}</code>. DAIV answers <code>200 OK</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-4-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-4-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-4-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-4-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-4-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-4-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-4-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-4-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-4-10">10</a></span>
+<span class="normal"><a href="#__codelineno-4-11">11</a></span>
+<span class="normal"><a href="#__codelineno-4-12">12</a></span>
+<span class="normal"><a href="#__codelineno-4-13">13</a></span>
+<span class="normal"><a href="#__codelineno-4-14">14</a></span>
+<span class="normal"><a href="#__codelineno-4-15">15</a></span>
+<span class="normal"><a href="#__codelineno-4-16">16</a></span>
+<span class="normal"><a href="#__codelineno-4-17">17</a></span>
+<span class="normal"><a href="#__codelineno-4-18">18</a></span>
+<span class="normal"><a href="#__codelineno-4-19">19</a></span>
+<span class="normal"><a href="#__codelineno-4-20">20</a></span>
+<span class="normal"><a href="#__codelineno-4-21">21</a></span>
+<span class="normal"><a href="#__codelineno-4-22">22</a></span>
+<span class="normal"><a href="#__codelineno-4-23">23</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="p">{</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2"></a><span class="w">  </span><span class="nt">"job_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1adfbf7a-917e-4f2e-8f54-17a27c006ec5"</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a><span class="w">  </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"SUCCESSFUL"</span><span class="p">,</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a><span class="w">  </span><span class="nt">"thread_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90"</span><span class="p">,</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5"></a><span class="w">  </span><span class="nt">"result"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Here are the Python files..."</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6"></a><span class="w">  </span><span class="nt">"merge_request_url"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="w">  </span><span class="nt">"artifacts"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-4-8" name="__codelineno-4-8"></a><span class="w">    </span><span class="p">{</span>
+<a id="__codelineno-4-9" name="__codelineno-4-9"></a><span class="w">      </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"3f1c2b6e-0d7a-4f0e-9c4b-2a8d6e1f5b70"</span><span class="p">,</span>
+<a id="__codelineno-4-10" name="__codelineno-4-10"></a><span class="w">      </span><span class="nt">"title"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Dependency audit"</span><span class="p">,</span>
+<a id="__codelineno-4-11" name="__codelineno-4-11"></a><span class="w">      </span><span class="nt">"filename"</span><span class="p">:</span><span class="w"> </span><span class="s2">"dependency-audit.html"</span><span class="p">,</span>
+<a id="__codelineno-4-12" name="__codelineno-4-12"></a><span class="w">      </span><span class="nt">"content_type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"text/html"</span><span class="p">,</span>
+<a id="__codelineno-4-13" name="__codelineno-4-13"></a><span class="w">      </span><span class="nt">"kind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"html"</span><span class="p">,</span>
+<a id="__codelineno-4-14" name="__codelineno-4-14"></a><span class="w">      </span><span class="nt">"size"</span><span class="p">:</span><span class="w"> </span><span class="mi">48213</span><span class="p">,</span>
+<a id="__codelineno-4-15" name="__codelineno-4-15"></a><span class="w">      </span><span class="nt">"url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://daiv.example.com/dashboard/sessions/9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90/artifacts/3f1c2b6e-0d7a-4f0e-9c4b-2a8d6e1f5b70/"</span><span class="p">,</span>
+<a id="__codelineno-4-16" name="__codelineno-4-16"></a><span class="w">      </span><span class="nt">"download_url"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://daiv.example.com/dashboard/sessions/9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90/artifacts/3f1c2b6e-0d7a-4f0e-9c4b-2a8d6e1f5b70/raw/?download=1"</span>
+<a id="__codelineno-4-17" name="__codelineno-4-17"></a><span class="w">    </span><span class="p">}</span>
+<a id="__codelineno-4-18" name="__codelineno-4-18"></a><span class="w">  </span><span class="p">],</span>
+<a id="__codelineno-4-19" name="__codelineno-4-19"></a><span class="w">  </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="kc">null</span><span class="p">,</span>
+<a id="__codelineno-4-20" name="__codelineno-4-20"></a><span class="w">  </span><span class="nt">"created_at"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-03-27T18:22:39.012Z"</span><span class="p">,</span>
+<a id="__codelineno-4-21" name="__codelineno-4-21"></a><span class="w">  </span><span class="nt">"started_at"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-03-27T18:22:39.401Z"</span><span class="p">,</span>
+<a id="__codelineno-4-22" name="__codelineno-4-22"></a><span class="w">  </span><span class="nt">"finished_at"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-03-27T18:22:52.402Z"</span>
+<a id="__codelineno-4-23" name="__codelineno-4-23"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p><code>merge_request_url</code> holds the merge request DAIV opened when the agent committed and pushed code changes, and is <code>null</code> otherwise, for example on a read-only triage run. In a <a href="#multi-repository-sessions">multi-repository session</a> it is the main repository's merge request, else the first one opened. <code>thread_id</code> identifies the thread the job ran on; pass it back as <code>thread_id</code> on a new submission to continue the conversation.</p>
+<p><code>artifacts</code> lists the files the agent published with its <code>publish_artifact</code> tool, such as reports, datasets and charts; see <a href="../sessions/#artifacts">Artifacts</a>. Each entry has the viewer page (<code>url</code>), a direct download (<code>download_url</code>), and a <code>kind</code> (<code>markdown</code>, <code>html</code>, <code>image</code>, <code>text</code> or <code>other</code>) that says how the viewer renders it. Opening either URL needs a signed-in DAIV user who can see the run. An artifact that a later job on the same thread revises keeps its ID and URLs, and appears under the job that first published it and under every job that revised it, with its current file (<a href="../sessions/#revise-an-artifact">Revise an artifact</a>). The list is empty for a run that published nothing, and fills as the run progresses, so you can read it while the job is <code>RUNNING</code>. If DAIV cannot list the artifacts, <code>artifacts</code> is empty and <code>artifacts_error</code> says why; the rest of the status is unaffected.</p>
+<p><code>result</code> holds the agent's last response in full, not the rest of the run's messages. DAIV deletes a finished job's stored task result after 14 days, and from then on <code>result</code> holds the stored summary of the response, cut at 2,000 characters; the job's token usage and cost are kept. The MCP <code>get_job_status</code> tool behaves the same.</p>
+<p>For the meaning of each <code>status</code>, see <a href="#job-status-values">Job status values</a>.</p>
+<h2 id="answer-a-question">Answer a question</h2>
+<p>When a job comes back <code>WAITING_INPUT</code>, the agent stopped to ask you a question instead of guessing. To answer it:</p>
+<ol>
+<li>Read <code>question</code> for the questions asked, and <code>result</code> for their rendered text.</li>
+<li>
+<p>Send a new <code>POST /api/jobs</code> request with the same <code>thread_id</code> and your answer as <code>prompt</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
+<span class="normal"><a href="#__codelineno-5-2">2</a></span>
+<span class="normal"><a href="#__codelineno-5-3">3</a></span>
+<span class="normal"><a href="#__codelineno-5-4">4</a></span>
+<span class="normal"><a href="#__codelineno-5-5">5</a></span>
+<span class="normal"><a href="#__codelineno-5-6">6</a></span>
+<span class="normal"><a href="#__codelineno-5-7">7</a></span>
+<span class="normal"><a href="#__codelineno-5-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span>https://daiv.example.com/api/jobs<span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$DAIV_API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="s1">    "repos": [{"repo_id": "mygroup/myproject"}],</span>
+<a id="__codelineno-5-6" name="__codelineno-5-6"></a><span class="s1">    "prompt": "Use PostgreSQL.",</span>
+<a id="__codelineno-5-7" name="__codelineno-5-7"></a><span class="s1">    "thread_id": "9c1e8a3c-9b7e-4c0d-a1f5-7e2c8d4b1a90"</span>
+<a id="__codelineno-5-8" name="__codelineno-5-8"></a><span class="s1">  }'</span>
+</code></pre></div></td></tr></table></div>
+</li>
+<li>
+<p>Poll the new <code>job_id</code>. DAIV starts a new run that continues the agent's work from where it stopped.</p>
+</li>
+</ol>
+<p>The <code>thread_id</code> rules in <a href="#request-fields">Request fields</a> apply to the answer too: <code>repos</code> has exactly one entry, or for a <a href="#continuing-a-multi-repository-session">multi-repository session</a> the main repository alone or the session's full list, and the thread's most recent run must be yours.</p>
+<p>You do not have to poll for the question. When a job ends in <code>WAITING_INPUT</code>, DAIV sends you a <a href="../notifications/">notification</a> listing the questions, unless you muted it or the job asked on a merge request, mentioning you (<a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>). For a multi-repository batch, the run counts in the batch rollup, and appears in the email and Rocket.Chat versions, once every repository's run has settled.</p>
+<h2 id="run-a-job-on-a-merge-request">Run a job on a merge request</h2>
+<p>Name a merge request with <code>merge_request</code> on the <code>repos</code> entry, in place of <code>ref</code>. DAIV runs the prompt with the merge request as its context, on its source branch, the way a mention of DAIV on that merge request would, and posts the run's final message as one comment on the merge request, from DAIV's account. <code>merge_request</code> is the GitLab merge request IID or the GitHub pull request number. For example, to review merge request <code>!42</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
+<span class="normal"><a href="#__codelineno-6-2">2</a></span>
+<span class="normal"><a href="#__codelineno-6-3">3</a></span>
+<span class="normal"><a href="#__codelineno-6-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="p">{</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="w">  </span><span class="nt">"repos"</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/myproject"</span><span class="p">,</span><span class="w"> </span><span class="nt">"merge_request"</span><span class="p">:</span><span class="w"> </span><span class="mi">42</span><span class="p">}],</span>
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="w">  </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"/code-review"</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p>The entry must be the only one in <code>repos</code>, with no <code>ref</code> and no per-repository <code>prompt</code> (<code>422</code> otherwise), and the request can't set <code>shared_session</code> or <code>thread_id</code> (<code>400</code>). You need write access to the repository, as for any job; without it the request gets the usual opaque <code>404</code>, which does not confirm the merge request exists.</p>
+<p>The run goes where a mention by you would:</p>
+<ul>
+<li><strong>No DAIV session owns the merge request:</strong> the run goes into the merge request's own session, which later mentions on the merge request share, so they have the job's result in context. The job starts <code>READY</code>, and runs after any run already in that session.</li>
+<li><strong>A DAIV session owns it</strong> (DAIV published the merge request): the job runs as one turn of that session, acting as you. It is <code>QUEUED</code> while the session is busy. Each job keeps its own <code>job_id</code>, so two jobs sent while the session is busy run as two turns, one after the other.</li>
+</ul>
+<p><code>references</code>, <code>mcp_overrides</code> and <code>environment</code> apply to the job's run only. In a session that owns the merge request, the references join the session's for that run, and <code>mcp_overrides</code> apply on top of the session's own; the session keeps its own references and MCP servers for later turns. A named <code>environment</code> replaces the session's for that turn.</p>
+<p>The job ends with one of these on the merge request:</p>
+<ul>
+<li><strong>The result:</strong> the final message, also returned in <code>result</code>.</li>
+<li><strong>A question:</strong> the question, mentioning the git platform account your DAIV account is linked to, if any, and the job is <code>WAITING_INPUT</code>. Anyone who mentions DAIV on the merge request answers it, or you send a new job with the same target. A question that mentions you sends no separate <a href="../notifications/#what-produces-a-notification">notification</a>.</li>
+<li><strong>A failure:</strong> a short comment that DAIV could not complete the request, naming the provider's failure or a DAIV restart that interrupted the run when either caused it, and the job is <code>FAILED</code>. To run it again, send the job again: its session does not offer <strong>Retry</strong> for it (<a href="../sessions/#retry-a-run">Retry a run</a>).</li>
+<li><strong>A merge or close before the run started</strong>, including while the job waited for another run in its session: DAIV posts "This merge request was merged before the job could start, so I didn't run it." ("closed" for a closed one), and the job is <code>FAILED</code> with that text in <code>error</code>.</li>
+<li><strong>A deleted source branch:</strong> when the run goes into the merge request's own session and the source branch no longer exists, DAIV posts "The source branch of this merge request no longer exists, so I didn't run the job.", and the job is <code>FAILED</code> with that text in <code>error</code>. A merge request merged or closed meanwhile gets the merge or close note instead.</li>
+<li><strong>A repository you can't run on:</strong> when the session that owns the merge request also works on a repository you can't run on, DAIV posts "The person this job would run as can't run on every repository its session works on, so I didn't run it." The job is <code>FAILED</code> with that text in <code>error</code>, or, when the session was idle, refused in <code>failed</code> with that text.</li>
+</ul>
+<p>DAIV refuses the job, and puts it in <code>failed</code> with the reason, when the merge request is not in the repository (<code>Merge request !42 was not found in mygroup/myproject.</code>), is merged or closed (<code>Merge request !42 is merged.</code>), its DAIV session is archived, the owning session works on a repository you can't run on (above), or the run could not start (<code>The job on merge request !42 could not start.</code>). Only the refusal for a repository you can't run on posts on the merge request. An archived session's refusal links the session to unarchive. A session archived after DAIV accepted the job ends the job <code>FAILED</code> with <code>Not run: its session was archived</code> in <code>error</code>, and DAIV posts nothing on the merge request.</p>
+<p>To run this from CI on every push, see <a href="#review-every-push-to-a-merge-request">Review every push to a merge request</a>.</p>
+<h2 id="ci-identity-tokens">CI identity tokens</h2>
+<p>A GitLab CI job or a GitHub Actions workflow can authenticate to the jobs API with the short-lived identity token its platform signs for it, so your CI stores no DAIV key. The run belongs to the account that triggered the pipeline, not to a shared key's owner. DAIV accepts identity tokens from the git platform it is configured for, on <code>POST /api/jobs</code> and <code>GET /api/jobs/{job_id}</code>; the MCP endpoint does not take them.</p>
+<h3 id="request-a-token-in-gitlab-ci">Request a token in GitLab CI</h3>
+<p>Add an <code>id_tokens</code> entry whose <code>aud</code> is DAIV's address, <code>DAIV_EXTERNAL_URL</code>, and pass it as the Bearer token:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
+<span class="normal"><a href="#__codelineno-7-2">2</a></span>
+<span class="normal"><a href="#__codelineno-7-3">3</a></span>
+<span class="normal"><a href="#__codelineno-7-4">4</a></span>
+<span class="normal"><a href="#__codelineno-7-5">5</a></span>
+<span class="normal"><a href="#__codelineno-7-6">6</a></span>
+<span class="normal"><a href="#__codelineno-7-7">7</a></span>
+<span class="normal"><a href="#__codelineno-7-8">8</a></span>
+<span class="normal"><a href="#__codelineno-7-9">9</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="nt">daiv-job</span><span class="p">:</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="w">  </span><span class="nt">id_tokens</span><span class="p">:</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="w">    </span><span class="nt">DAIV_ID_TOKEN</span><span class="p">:</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="w">      </span><span class="nt">aud</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://daiv.example.com</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+<a id="__codelineno-7-6" name="__codelineno-7-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
+<a id="__codelineno-7-7" name="__codelineno-7-7"></a><span class="w">      </span><span class="no">curl --fail-with-body -sS -X POST "https://daiv.example.com/api/jobs"</span>
+<a id="__codelineno-7-8" name="__codelineno-7-8"></a><span class="w">      </span><span class="no">-H "Authorization: Bearer $DAIV_ID_TOKEN" -H "Content-Type: application/json"</span>
+<a id="__codelineno-7-9" name="__codelineno-7-9"></a><span class="w">      </span><span class="no">-d "{\"repos\":[{\"repo_id\":\"$CI_PROJECT_PATH\"}],\"prompt\":\"List all TODO comments\"}"</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="request-a-token-in-github-actions">Request a token in GitHub Actions</h3>
+<p>Give the workflow the <code>id-token: write</code> permission, and request a token for DAIV's address:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span>
+<span class="normal"><a href="#__codelineno-8-2">2</a></span>
+<span class="normal"><a href="#__codelineno-8-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a><span class="nt">permissions</span><span class="p">:</span>
+<a id="__codelineno-8-2" name="__codelineno-8-2"></a><span class="w">  </span><span class="nt">id-token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">write</span>
+<a id="__codelineno-8-3" name="__codelineno-8-3"></a><span class="w">  </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span>
+<span class="normal"><a href="#__codelineno-9-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: bearer </span><span class="nv">$ACTIONS_ID_TOKEN_REQUEST_TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2"></a><span class="w">  </span><span class="s2">"</span><span class="nv">$ACTIONS_ID_TOKEN_REQUEST_URL</span><span class="s2">&amp;audience=https://daiv.example.com"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span>.value<span class="k">)</span>
+</code></pre></div></td></tr></table></div>
+<p>A <code>pull_request</code> workflow for a pull request from a fork gets no <code>id-token</code> permission, so it can't request a token, unless your repository is private and its Actions settings send write tokens to workflows from fork pull requests. Such a workflow runs in your repository, so its token names your repository, and DAIV accepts its job unless <code>allowed_usernames</code> leaves out the account that triggered it.</p>
+<h3 id="what-daiv-checks">What DAIV checks</h3>
+<p>DAIV accepts a token only when all of these hold:</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>GitLab</th>
+<th>GitHub</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Signature</td>
+<td><code>RS256</code>, by a key GitLab publishes at <code>&lt;CODEBASE_GITLAB_URL&gt;/oauth/discovery/keys</code></td>
+<td><code>RS256</code>, by a key GitHub publishes at <code>&lt;issuer&gt;/.well-known/jwks</code></td>
+</tr>
+<tr>
+<td>Issuer</td>
+<td><code>CODEBASE_GITLAB_ID_TOKEN_ISSUER</code>, by default <code>CODEBASE_GITLAB_URL</code>, or <code>https://gitlab.com</code> when both are unset</td>
+<td><code>CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER</code>, by default <code>https://token.actions.&lt;subdomain&gt;.ghe.com</code> when <code>CODEBASE_GITHUB_URL</code> is a GHE.com enterprise at <code>&lt;subdomain&gt;.ghe.com</code>, <code>https://&lt;host&gt;/_services/token</code> when it is a GitHub Enterprise Server at <code>&lt;host&gt;</code>, else <code>https://token.actions.githubusercontent.com</code></td>
+</tr>
+<tr>
+<td>Audience</td>
+<td><code>DAIV_JOBS_CI_IDENTITY_AUDIENCE</code>, by default <code>DAIV_EXTERNAL_URL</code></td>
+<td>the same</td>
+</tr>
+<tr>
+<td>Expiry</td>
+<td>not expired, with 60 seconds of leeway</td>
+<td>the same</td>
+</tr>
+<tr>
+<td>Repository</td>
+<td>the token's <code>project_id</code> is the ID of the job's repository</td>
+<td>the token's <code>repository_id</code> is the ID of the job's repository</td>
+</tr>
+<tr>
+<td>Allowed users</td>
+<td>when the repository's <code>allowed_usernames</code> is set, it lists the token's <code>user_login</code></td>
+<td>it lists the token's <code>actor</code></td>
+</tr>
+<tr>
+<td>First attempt</td>
+<td>not checked</td>
+<td>the token's <code>run_attempt</code> is <code>1</code></td>
+</tr>
+<tr>
+<td>Single use</td>
+<td>no job was accepted with this token yet</td>
+<td>the same</td>
+</tr>
+</tbody>
+</table>
+<p>The repository is matched by its numeric ID, which a rename does not change, so a pipeline in a fork can't submit jobs on the repository it was forked from. A token that fails a check gets <code>401</code> with <code>{"detail": "Unauthorized"}</code>, which does not say which check failed. DAIV logs each refusal once at <code>WARNING</code>, with the check and the repository path the token names, and never the token. When DAIV can't get a usable set of signing keys from the platform, or the platform fails to answer when DAIV reads the job's repository, the request gets <code>401</code> and DAIV logs an <code>ERROR</code> instead. The variables are in <a href="../../reference/env-variables/#jobs-api">Environment variables</a>.</p>
+<p>On GitHub, the token of a re-run names the account that started the workflow run's first attempt, not the account that re-ran it, so DAIV refuses it rather than attribute the job to the wrong account. To submit the job again, start a new workflow run instead, for example by pushing a commit, or with a <code>workflow_dispatch</code> trigger.</p>
+<h3 id="what-a-token-can-submit">What a token can submit</h3>
+<p>A request a token authenticates submits one job on the token's own repository:</p>
+<ul>
+<li><code>repos</code> has exactly one entry, the token's repository, which must be in DAIV's repository list (<code>404</code> otherwise).</li>
+<li>It can't set <code>thread_id</code>, <code>shared_session</code> or <code>references</code> (<code>400</code>: <code>A CI identity token submits one job on its own repository.</code>).</li>
+<li><code>mcp_overrides</code> can name global MCP servers only; a personal server's name is an unknown server (<code>400</code>).</li>
+<li>It can target a branch with <code>ref</code> or a merge request with <code>merge_request</code>. When a DAIV session that covers other repositories owns the merge request, the run checks them out too, so the triggering account must be linked to a DAIV account that can run on each of them; otherwise DAIV doesn't run the job (<a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>).</li>
+</ul>
+<p>DAIV accepts one job per token: a second submission with a token whose job DAIV already accepted gets <code>401</code>. A CI job that sends two jobs requests two tokens, with two <code>id_tokens</code> entries on GitLab or two token requests on GitHub. A submission DAIV refused (<code>400</code>, <code>404</code> or a <code>failed</code> entry) does not use the token, so you can retry with it. A submission that fails with a server error does use it, since DAIV may have started its job.</p>
+<h3 id="who-the-run-belongs-to">Who the run belongs to</h3>
+<p>The run belongs to the account that triggered the pipeline, never to a value in the request body: its DAIV account when one is linked through OAuth and active, else the platform account, which spend and the sessions list show as external.</p>
+<p>The run acts as no one. It loads the global MCP servers only, never the triggering person's personal servers or personal <a href="../sandbox-environments/">sandbox environments</a>, DAIV does not assign merge requests it opens to them, and it can't <a href="../orchestration/">delegate</a>. Its notifications are muted unless the request sets <code>"muted": false</code>, which keeps them for a linked account.</p>
+<h3 id="poll-with-a-token">Poll with a token</h3>
+<p><code>GET /api/jobs/{job_id}</code> with a token returns a job when it ran on the token's repository and belongs to the token's triggering account; any other job ID gets <code>404</code>. Polling does not use the token up, so the token that submitted a job can poll it until the token expires.</p>
+<h2 id="request-fields">Request fields</h2>
+<p>These are the fields of the <code>POST /api/jobs</code> body.</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Type</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>repos</code></td>
+<td>array of objects</td>
+<td>yes</td>
+<td>1–20 repositories to run against. Each item is <code>{ "repo_id": "group/project", "ref": "branch", "prompt": "..." }</code>. <code>ref</code> is optional, must be a branch that exists on the remote, and defaults to the repository's default branch. <code>prompt</code> is optional, must not be blank, and replaces the batch <code>prompt</code> for that repository only. A new merge or pull request targets <code>ref</code>, and DAIV assigns it to the API key's owner when their DAIV account is OAuth-linked to the git platform. An item can name <code>merge_request</code>, a merge request number, in place of <code>ref</code>; see <a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>.</td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td>string</td>
+<td>yes</td>
+<td>The prompt to send to the agent. It runs as an independent job against each repository in <code>repos</code>, except one that gives its own <code>prompt</code>, and it titles the batch.</td>
+</tr>
+<tr>
+<td><code>agent_model</code></td>
+<td>string</td>
+<td>no</td>
+<td>The model for this batch. DAIV rejects an invalid model and thinking-level combination with <code>400</code>.</td>
+</tr>
+<tr>
+<td><code>agent_thinking_level</code></td>
+<td>string</td>
+<td>no</td>
+<td>The agent's reasoning effort: <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code> or <code>xhigh</code>. DAIV rejects an invalid combination with <code>400</code>.</td>
+</tr>
+<tr>
+<td><code>muted</code></td>
+<td>boolean</td>
+<td>no</td>
+<td>Mute notifications for every job in this batch. Default <code>false</code>, or <code>true</code> for a request a <a href="#ci-identity-tokens">CI identity token</a> authenticates.</td>
+</tr>
+<tr>
+<td><code>environment</code></td>
+<td>string</td>
+<td>no</td>
+<td>The <a href="../sandbox-environments/">sandbox environment</a>, by name or ID, for every job in the batch. DAIV rejects an environment it cannot resolve with <code>400</code>.</td>
+</tr>
+<tr>
+<td><code>shared_session</code></td>
+<td>boolean</td>
+<td>no</td>
+<td>Run all repositories in <code>repos</code> in one session instead of one job each. At most 5 entries. See <a href="#multi-repository-sessions">Multi-repository sessions</a>.</td>
+</tr>
+<tr>
+<td><code>thread_id</code></td>
+<td>string (UUID)</td>
+<td>no</td>
+<td>Continue an existing thread. <code>repos</code> must hold exactly one entry (a <a href="#continuing-a-multi-repository-session">multi-repository session</a> also accepts its full list), the thread's most recent run must be yours, and the session must not be an <a href="../sessions/#archived-sessions">archived session</a>; otherwise DAIV returns <code>400</code>. If the session is busy, the job joins the session's next run for its branch in <code>QUEUED</code> state, which starts once the current run ends; see <a href="#job-lifecycle">Job lifecycle</a>.</td>
+</tr>
+<tr>
+<td><code>references</code></td>
+<td>array of objects</td>
+<td>no</td>
+<td>Up to 20 external work-item references, such as Jira, Sentry or RT tickets and git platform issues, that DAIV links into the merge or pull request it creates. Each item is <code>{ "key": "PROJ-123", "url": "https://…", "provider": "jira", "relation": "relates" }</code>, and only <code>key</code> is required. The per-field rules are in <a href="../mcp-endpoint/#references">References</a>; DAIV rejects an invalid reference with <code>422</code> and stores nothing.</td>
+</tr>
+<tr>
+<td><code>mcp_overrides</code></td>
+<td>object</td>
+<td>no</td>
+<td>MCP servers to switch on or off for every job in the batch, relative to the default set: <code>{"grafana": true}</code> adds an on-demand server, <code>{"sentry": false}</code> drops an active one. Names are those of the global servers and your own personal ones. DAIV rejects an unknown name with <code>400</code>, and a value other than <code>true</code> or <code>false</code> with <code>422</code>. On a continued thread (<code>thread_id</code>) the overrides apply on top of the thread's own, so a server you do not name keeps its setting. DAIV returns a continuation that would change them while another run on the thread is unfinished in <code>failed</code>, since that run would pick them up too.</td>
+</tr>
+</tbody>
+</table>
+<p>DAIV validates the body strictly and rejects unknown fields with <code>422</code>, <code>use_max</code> and <code>notify_on</code> included. Use <code>muted</code> to silence notifications, and <code>agent_model</code> and <code>agent_thinking_level</code> to choose the model.</p>
+<h2 id="job-status-values">Job status values</h2>
+<table>
+<thead>
+<tr>
+<th>Status</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>QUEUED</code></td>
+<td>The job waits for the session's current run to finish. Only occurs for thread continuations (<code>thread_id</code> supplied) and for jobs on a merge request a busy session owns.</td>
+</tr>
+<tr>
+<td><code>READY</code></td>
+<td>The job is waiting for a worker.</td>
+</tr>
+<tr>
+<td><code>RUNNING</code></td>
+<td>The agent is executing.</td>
+</tr>
+<tr>
+<td><code>SUCCESSFUL</code></td>
+<td>The run completed, and <code>result</code> holds the agent's last response.</td>
+</tr>
+<tr>
+<td><code>WAITING_INPUT</code></td>
+<td>The agent stopped to ask you a question. This is a final state, not a step towards <code>SUCCESSFUL</code>. <code>question</code> holds the questions asked, and <code>result</code> their rendered text.</td>
+</tr>
+<tr>
+<td><code>FAILED</code></td>
+<td>The agent hit an error, and <code>error</code> holds a message. When a model provider stopped the run, for example because it ran out of credits, hit its spending limit or rejected DAIV's API key, the message names the provider and the cause. A job on a merge request that never started says why. Otherwise it is a generic failure text.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="error-responses">Error responses</h2>
+<p>For <code>GET /api/jobs/{job_id}</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>401</code></td>
+<td>The API key is missing or invalid, or the CI identity token fails a check.</td>
+</tr>
+<tr>
+<td><code>404</code></td>
+<td>The job ID is not found or is not a valid ID, or, with a CI identity token, the job did not run on its repository for its triggering account.</td>
+</tr>
+</tbody>
+</table>
+<p>For <code>POST /api/jobs</code>:</p>
+<table>
+<thead>
+<tr>
+<th>Code</th>
+<th>When</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>400</code></td>
+<td>The request is invalid: a bad <code>agent_model</code> or <code>agent_thinking_level</code>; no <code>agent_model</code> given and no system default model configured (a model set only in <code>.daiv.yml</code> does not count); an unresolvable <code>environment</code>; an unknown MCP server in <code>mcp_overrides</code>; an invalid <code>shared_session</code> list (more than 5 entries, a repository listed twice, or a per-repository <code>prompt</code>); an invalid <code>thread_id</code> continuation (an unknown or unowned thread, an archived session, more than one repository for a single-repository session, a <code>ref</code> on a multi-repository session, or anything but the main repository alone or the full list in order); a <code>merge_request</code> with <code>shared_session</code>, <code>thread_id</code> or another <code>repos</code> entry; or a CI identity token's request for more than one job on its own repository.</td>
+</tr>
+<tr>
+<td><code>401</code></td>
+<td>The API key is missing or invalid, or the CI identity token fails a check or already submitted an accepted job.</td>
+</tr>
+<tr>
+<td><code>404</code></td>
+<td>A repository in <code>repos</code> is not found, or you lack write access to it. The response does not say which one.</td>
+</tr>
+<tr>
+<td><code>422</code></td>
+<td>The body is malformed or has unknown fields, for example <code>use_max</code> or <code>notify_on</code>, a <code>references</code> entry is invalid, or a <code>merge_request</code> entry also sets <code>ref</code> or <code>prompt</code>.</td>
+</tr>
+<tr>
+<td><code>429</code></td>
+<td>You exceeded the <a href="#rate-limiting">rate limit</a>.</td>
+</tr>
+</tbody>
+</table>
+<h2 id="multi-repository-sessions">Multi-repository sessions</h2>
+<p>By default, several entries in <code>repos</code> fan out into independent jobs, one session per repository. To let the agent work across repositories in one conversation, for example a backend change and the client that consumes it, set <code>shared_session: true</code>:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">JSON</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span>
+<span class="normal"><a href="#__codelineno-10-2">2</a></span>
+<span class="normal"><a href="#__codelineno-10-3">3</a></span>
+<span class="normal"><a href="#__codelineno-10-4">4</a></span>
+<span class="normal"><a href="#__codelineno-10-5">5</a></span>
+<span class="normal"><a href="#__codelineno-10-6">6</a></span>
+<span class="normal"><a href="#__codelineno-10-7">7</a></span>
+<span class="normal"><a href="#__codelineno-10-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a><span class="p">{</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2"></a><span class="w">  </span><span class="nt">"repos"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3"></a><span class="w">    </span><span class="p">{</span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/backend"</span><span class="p">},</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4"></a><span class="w">    </span><span class="p">{</span><span class="nt">"repo_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mygroup/client"</span><span class="p">,</span><span class="w"> </span><span class="nt">"ref"</span><span class="p">:</span><span class="w"> </span><span class="s2">"develop"</span><span class="p">}</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5"></a><span class="w">  </span><span class="p">],</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6"></a><span class="w">  </span><span class="nt">"shared_session"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7"></a><span class="w">  </span><span class="nt">"prompt"</span><span class="p">:</span><span class="w"> </span><span class="s2">"Add a `locale` field to the profile endpoint and use it in the client."</span>
+<a id="__codelineno-10-8" name="__codelineno-10-8"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<ul>
+<li>You can also start such a session from the dashboard chat, which takes the same list: see <a href="../sessions/#start-a-chat-over-several-repositories">Start a chat over several repositories</a>.</li>
+<li><code>repos</code> takes up to 5 entries, the first being the main one, each repository at most once, and no per-repository <code>prompt</code>: the session runs the one <code>prompt</code>.</li>
+<li>The response holds one job and one <code>thread_id</code>. The job's <code>repo_id</code> is the first entry, the main repository.</li>
+<li>You need write access to every repository. If one is missing or unknown, the call fails with the usual opaque <code>404</code>.</li>
+<li>The main repository's <code>.daiv.yml</code>, model, sandbox environment, skills, subagents and <a href="../memory/">memory</a> drive the session. DAIV checks it out at <code>/workspace/repo</code> and the others at <code>/workspace/repos/&lt;repository path&gt;</code>. The agent is told about them and reads their <code>AGENTS.md</code>.</li>
+<li>The agent reads the main repository's memory, but a multi-repository run adds no observations to it, since its transcript holds the other repositories' code.</li>
+</ul>
+<h3 id="merge-requests">Merge requests</h3>
+<p>At the end of each turn, every repository that changed gets its own commit, branch and merge request. Unchanged repositories get nothing, and one repository failing to publish does not stop the others. Each merge request's description lists the session's other merge requests as platform references (<code>group/project!12</code>, <code>owner/repo#12</code>), which the platform links and titles only for readers who can see that repository. External references, such as a support ticket, go into every merge request, but only the main repository's closes them; the others relate to them. GitLab or GitHub issue references go only into the main repository's.</p>
+<p>The job status adds two lists:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>merge_requests</code></td>
+<td><code>[{"repo_id": "...", "url": "..."}]</code>, one per opened or updated merge request.</td>
+</tr>
+<tr>
+<td><code>publish_errors</code></td>
+<td><code>[{"repo_id": "...", "error": "..."}]</code>, one per repository that could not be published.</td>
+</tr>
+</tbody>
+</table>
+<p><code>merge_request_url</code> stays: the main repository's merge request, else the first one opened.</p>
+<h3 id="continuing-a-multi-repository-session">Continuing a multi-repository session</h3>
+<p>Pass the session's <code>thread_id</code>. <code>shared_session</code> is optional and ignored, because the session decides whether a continuation is shared: a single-repository session continues as one even with <code>shared_session: true</code>. Send the main repository alone, or the identical list in the same order, and no <code>ref</code>. Anything else returns <code>400</code>. Each repository continues on its stored working branch. If that branch is gone because its merge request was merged, the repository falls back to its default branch and opens a new merge request the next time it changes.</p>
+<h3 id="visibility-and-ci">Visibility and CI</h3>
+<p>A multi-repository session, with its runs, transcript, artifacts and merge request links, is visible only to its owner, admins, and users who can read every repository in it.</p>
+<p>The session owns every merge request it opens, the main repository's and each other repository's, so their <a href="../pipeline-watch/">CI watch</a> results and <code>@daiv</code> comments reach the session's <a href="../sessions/#the-session-inbox">inbox</a>. The session's next run handles a CI failure or a mention on any of them, on the main repository's branch with every repository checked out, and DAIV answers a mention on the merge request it was made on. Each merge request has its own CI fix attempts. In the dashboard, a multi-repository session continued in chat keeps all its repositories and its main repository cannot be switched, and the session page lists every repository and merge request.</p>
+<h2 id="job-lifecycle">Job lifecycle</h2>
+<p>A job moves through these statuses:</p>
+<ol>
+<li><code>POST /api/jobs</code> creates the job as <code>READY</code>, or as <code>QUEUED</code> when you supply a <code>thread_id</code>, or name a merge request a session owns, and the session is busy.</li>
+<li>A <code>QUEUED</code> job becomes <code>READY</code> when the session's current run finishes.</li>
+<li>A worker picks up a <code>READY</code> job and it becomes <code>RUNNING</code>.</li>
+<li>A <code>RUNNING</code> job ends as <code>SUCCESSFUL</code> when the agent completes, <code>WAITING_INPUT</code> when the agent asks a question, or <code>FAILED</code> when the agent errors.</li>
+<li>A <code>WAITING_INPUT</code> job does not change. Your answer is a new job: <code>POST /api/jobs</code> with the same <code>thread_id</code> and your answer as <code>prompt</code>. It starts at <code>READY</code>, or at <code>QUEUED</code> when the session is busy.</li>
+</ol>
+<pre class="mermaid"><code>stateDiagram-v2
+    [*] --&gt; READY: POST /api/jobs
+    [*] --&gt; QUEUED: POST /api/jobs (thread continuation or owned merge request, session busy)
+    QUEUED --&gt; READY: The session's current run finishes
+    READY --&gt; RUNNING: Worker picks up job
+    RUNNING --&gt; SUCCESSFUL: Agent completes
+    RUNNING --&gt; WAITING_INPUT: Agent asks a question
+    RUNNING --&gt; FAILED: Agent errors
+    SUCCESSFUL --&gt; [*]
+    WAITING_INPUT --&gt; [*]: Answer with a new job on the same thread_id
+    FAILED --&gt; [*]</code></pre>
+<p>A job on a merge request a busy session owns starts in <code>QUEUED</code> and runs as a turn of its own (<a href="#run-a-job-on-a-merge-request">Run a job on a merge request</a>). Otherwise a job starts in <code>QUEUED</code> only when you supply a <code>thread_id</code> and the session is busy. The job then joins the session's next run for its branch (<code>ref</code>, or the session's branch when you leave it out), which starts at <code>READY</code> once the current run ends. Everything waiting for the session on that branch goes into the same run: another job, a chat message, a CI failure DAIV is fixing. So two jobs sent while the session is busy can return the same <code>job_id</code>; poll it once and read one <code>result</code> for both. A job on a different branch gets a next run of its own. Every other submission starts at <code>READY</code>.</p>
+<p><code>SUCCESSFUL</code>, <code>WAITING_INPUT</code> and <code>FAILED</code> are final for that job. <code>WAITING_INPUT</code> does not progress to <code>SUCCESSFUL</code> on its own; it waits for a new job on the same thread (see <a href="#answer-a-question">Answer a question</a>).</p>
+<h2 id="examples">Examples</h2>
+<h3 id="poll-from-a-shell-script">Poll from a shell script</h3>
+<p>Replace <code>&lt;api-key&gt;</code> with your DAIV API key before you run the script.</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-11-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-11-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-11-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-11-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-11-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-11-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-11-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-11-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-11-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-11-10">10</a></span>
+<span class="normal"><a href="#__codelineno-11-11">11</a></span>
+<span class="normal"><a href="#__codelineno-11-12">12</a></span>
+<span class="normal"><a href="#__codelineno-11-13">13</a></span>
+<span class="normal"><a href="#__codelineno-11-14">14</a></span>
+<span class="normal"><a href="#__codelineno-11-15">15</a></span>
+<span class="normal"><a href="#__codelineno-11-16">16</a></span>
+<span class="normal"><a href="#__codelineno-11-17">17</a></span>
+<span class="normal"><a href="#__codelineno-11-18">18</a></span>
+<span class="normal"><a href="#__codelineno-11-19">19</a></span>
+<span class="normal"><a href="#__codelineno-11-20">20</a></span>
+<span class="normal"><a href="#__codelineno-11-21">21</a></span>
+<span class="normal"><a href="#__codelineno-11-22">22</a></span>
+<span class="normal"><a href="#__codelineno-11-23">23</a></span>
+<span class="normal"><a href="#__codelineno-11-24">24</a></span>
+<span class="normal"><a href="#__codelineno-11-25">25</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1"></a><span class="ch">#!/bin/bash</span>
+<a id="__codelineno-11-2" name="__codelineno-11-2"></a><span class="nv">DAIV_URL</span><span class="o">=</span><span class="s2">"https://daiv.example.com"</span>
+<a id="__codelineno-11-3" name="__codelineno-11-3"></a><span class="nv">API_KEY</span><span class="o">=</span><span class="s2">"&lt;api-key&gt;"</span>
+<a id="__codelineno-11-4" name="__codelineno-11-4"></a>
+<a id="__codelineno-11-5" name="__codelineno-11-5"></a><span class="c1"># Submit (single-repo batch)</span>
+<a id="__codelineno-11-6" name="__codelineno-11-6"></a><span class="nv">JOB_ID</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="s2">"</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-7" name="__codelineno-11-7"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-8" name="__codelineno-11-8"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-9" name="__codelineno-11-9"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"repos":[{"repo_id":"mygroup/myproject"}],"prompt":"List all TODO comments"}'</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-10" name="__codelineno-11-10"></a><span class="w">  </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.jobs[0].job_id'</span><span class="k">)</span>
+<a id="__codelineno-11-11" name="__codelineno-11-11"></a>
+<a id="__codelineno-11-12" name="__codelineno-11-12"></a><span class="nb">echo</span><span class="w"> </span><span class="s2">"Job submitted: </span><span class="nv">$JOB_ID</span><span class="s2">"</span>
+<a id="__codelineno-11-13" name="__codelineno-11-13"></a>
+<a id="__codelineno-11-14" name="__codelineno-11-14"></a><span class="c1"># Poll until done</span>
+<a id="__codelineno-11-15" name="__codelineno-11-15"></a><span class="k">while</span><span class="w"> </span>true<span class="p">;</span><span class="w"> </span><span class="k">do</span>
+<a id="__codelineno-11-16" name="__codelineno-11-16"></a><span class="w">  </span><span class="nv">RESPONSE</span><span class="o">=</span><span class="k">$(</span>curl<span class="w"> </span>-s<span class="w"> </span><span class="s2">"</span><span class="nv">$DAIV_URL</span><span class="s2">/api/jobs/</span><span class="nv">$JOB_ID</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+<a id="__codelineno-11-17" name="__codelineno-11-17"></a><span class="w">    </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$API_KEY</span><span class="s2">"</span><span class="k">)</span>
+<a id="__codelineno-11-18" name="__codelineno-11-18"></a><span class="w">  </span><span class="nv">STATUS</span><span class="o">=</span><span class="k">$(</span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$RESPONSE</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.status'</span><span class="k">)</span>
+<a id="__codelineno-11-19" name="__codelineno-11-19"></a>
+<a id="__codelineno-11-20" name="__codelineno-11-20"></a><span class="w">  </span><span class="k">case</span><span class="w"> </span><span class="s2">"</span><span class="nv">$STATUS</span><span class="s2">"</span><span class="w"> </span><span class="k">in</span>
+<a id="__codelineno-11-21" name="__codelineno-11-21"></a><span class="w">    </span>SUCCESSFUL<span class="o">)</span><span class="w"> </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"</span><span class="nv">$RESPONSE</span><span class="s2">"</span><span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span><span class="s1">'.result'</span><span class="p">;</span><span class="w"> </span><span class="k">break</span><span class="w"> </span><span class="p">;;</span>
+<a id="__codelineno-11-22" name="__codelineno-11-22"></a><span class="w">    </span>FAILED<span class="o">)</span><span class="w">     </span><span class="nb">echo</span><span class="w"> </span><span class="s2">"Job failed"</span><span class="p">;</span><span class="w"> </span><span class="nb">exit</span><span class="w"> </span><span class="m">1</span><span class="w"> </span><span class="p">;;</span>
+<a id="__codelineno-11-23" name="__codelineno-11-23"></a><span class="w">    </span>*<span class="o">)</span><span class="w">          </span>sleep<span class="w"> </span><span class="m">10</span><span class="w"> </span><span class="p">;;</span>
+<a id="__codelineno-11-24" name="__codelineno-11-24"></a><span class="w">  </span><span class="k">esac</span>
+<a id="__codelineno-11-25" name="__codelineno-11-25"></a><span class="k">done</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="chain-two-jobs-in-a-scheduled-gitlab-pipeline">Chain two jobs in a scheduled GitLab pipeline</h3>
+<p>This job in a scheduled GitLab CI pipeline triages support tickets, then creates issues from the report:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-12-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-12-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-12-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-12-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-12-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-12-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-12-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-12-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-12-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-12-10">10</a></span>
+<span class="normal"><a href="#__codelineno-12-11">11</a></span>
+<span class="normal"><a href="#__codelineno-12-12">12</a></span>
+<span class="normal"><a href="#__codelineno-12-13">13</a></span>
+<span class="normal"><a href="#__codelineno-12-14">14</a></span>
+<span class="normal"><a href="#__codelineno-12-15">15</a></span>
+<span class="normal"><a href="#__codelineno-12-16">16</a></span>
+<span class="normal"><a href="#__codelineno-12-17">17</a></span>
+<span class="normal"><a href="#__codelineno-12-18">18</a></span>
+<span class="normal"><a href="#__codelineno-12-19">19</a></span>
+<span class="normal"><a href="#__codelineno-12-20">20</a></span>
+<span class="normal"><a href="#__codelineno-12-21">21</a></span>
+<span class="normal"><a href="#__codelineno-12-22">22</a></span>
+<span class="normal"><a href="#__codelineno-12-23">23</a></span>
+<span class="normal"><a href="#__codelineno-12-24">24</a></span>
+<span class="normal"><a href="#__codelineno-12-25">25</a></span>
+<span class="normal"><a href="#__codelineno-12-26">26</a></span>
+<span class="normal"><a href="#__codelineno-12-27">27</a></span>
+<span class="normal"><a href="#__codelineno-12-28">28</a></span>
+<span class="normal"><a href="#__codelineno-12-29">29</a></span>
+<span class="normal"><a href="#__codelineno-12-30">30</a></span>
+<span class="normal"><a href="#__codelineno-12-31">31</a></span>
+<span class="normal"><a href="#__codelineno-12-32">32</a></span>
+<span class="normal"><a href="#__codelineno-12-33">33</a></span>
+<span class="normal"><a href="#__codelineno-12-34">34</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1"></a><span class="c1"># .gitlab-ci.yml</span>
+<a id="__codelineno-12-2" name="__codelineno-12-2"></a><span class="nt">triage-and-create-issues</span><span class="p">:</span>
+<a id="__codelineno-12-3" name="__codelineno-12-3"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
+<a id="__codelineno-12-4" name="__codelineno-12-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$CI_PIPELINE_SOURCE == "schedule"</span>
+<a id="__codelineno-12-5" name="__codelineno-12-5"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+<a id="__codelineno-12-6" name="__codelineno-12-6"></a><span class="w">    </span><span class="c1"># Step 1: Triage tickets</span>
+<a id="__codelineno-12-7" name="__codelineno-12-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-12-8" name="__codelineno-12-8"></a><span class="w">      </span><span class="no">JOB_ID=$(curl -s -X POST "$DAIV_URL/api/jobs" \</span>
+<a id="__codelineno-12-9" name="__codelineno-12-9"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" \</span>
+<a id="__codelineno-12-10" name="__codelineno-12-10"></a><span class="w">        </span><span class="no">-H "Content-Type: application/json" \</span>
+<a id="__codelineno-12-11" name="__codelineno-12-11"></a><span class="w">        </span><span class="no">-d '{</span>
+<a id="__codelineno-12-12" name="__codelineno-12-12"></a><span class="w">          </span><span class="no">"repos": [{"repo_id": "mygroup/myproject"}],</span>
+<a id="__codelineno-12-13" name="__codelineno-12-13"></a><span class="w">          </span><span class="no">"prompt": "Triage the RT queue and identify code-related tickets. Return a summary with ticket IDs, descriptions, and priorities."</span>
+<a id="__codelineno-12-14" name="__codelineno-12-14"></a><span class="w">        </span><span class="no">}' | jq -r '.jobs[0].job_id')</span>
+<a id="__codelineno-12-15" name="__codelineno-12-15"></a>
+<a id="__codelineno-12-16" name="__codelineno-12-16"></a><span class="w">    </span><span class="c1"># Step 2: Poll until done</span>
+<a id="__codelineno-12-17" name="__codelineno-12-17"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-12-18" name="__codelineno-12-18"></a><span class="w">      </span><span class="no">while true; do</span>
+<a id="__codelineno-12-19" name="__codelineno-12-19"></a><span class="w">        </span><span class="no">STATUS=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \</span>
+<a id="__codelineno-12-20" name="__codelineno-12-20"></a><span class="w">          </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.status')</span>
+<a id="__codelineno-12-21" name="__codelineno-12-21"></a><span class="w">        </span><span class="no">[ "$STATUS" = "SUCCESSFUL" ] &amp;&amp; break</span>
+<a id="__codelineno-12-22" name="__codelineno-12-22"></a><span class="w">        </span><span class="no">[ "$STATUS" = "FAILED" ] &amp;&amp; exit 1</span>
+<a id="__codelineno-12-23" name="__codelineno-12-23"></a><span class="w">        </span><span class="no">sleep 30</span>
+<a id="__codelineno-12-24" name="__codelineno-12-24"></a><span class="w">      </span><span class="no">done</span>
+<a id="__codelineno-12-25" name="__codelineno-12-25"></a><span class="w">      </span><span class="no">TRIAGE=$(curl -s "$DAIV_URL/api/jobs/$JOB_ID" \</span>
+<a id="__codelineno-12-26" name="__codelineno-12-26"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" | jq -r '.result')</span>
+<a id="__codelineno-12-27" name="__codelineno-12-27"></a>
+<a id="__codelineno-12-28" name="__codelineno-12-28"></a><span class="w">    </span><span class="c1"># Step 3: Chain — create issues from the triage report</span>
+<a id="__codelineno-12-29" name="__codelineno-12-29"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-12-30" name="__codelineno-12-30"></a><span class="w">      </span><span class="no">curl -s -X POST "$DAIV_URL/api/jobs" \</span>
+<a id="__codelineno-12-31" name="__codelineno-12-31"></a><span class="w">        </span><span class="no">-H "Authorization: Bearer $DAIV_API_KEY" \</span>
+<a id="__codelineno-12-32" name="__codelineno-12-32"></a><span class="w">        </span><span class="no">-H "Content-Type: application/json" \</span>
+<a id="__codelineno-12-33" name="__codelineno-12-33"></a><span class="w">        </span><span class="no">-d "$(jq -n --arg prompt "Based on this triage report, create GitLab issues for each actionable item: $TRIAGE" \</span>
+<a id="__codelineno-12-34" name="__codelineno-12-34"></a><span class="w">          </span><span class="no">'{repos: [{repo_id: "mygroup/myproject"}], prompt: $prompt}')"</span>
+</code></pre></div></td></tr></table></div>
+<p>Store <code>DAIV_URL</code> and <code>DAIV_API_KEY</code> as CI/CD variables in your GitLab project settings, and turn on <strong>Mask variable</strong> and <strong>Protect variable</strong> for the API key.</p>
+<h3 id="review-every-push-to-a-merge-request">Review every push to a merge request</h3>
+<p>These CI jobs ask DAIV to run <code>/code-review</code> on the pipeline's merge request at every push, with the pipeline's <a href="#ci-identity-tokens">CI identity token</a>, so you store no DAIV key. Each review is posted on the merge request and covers only the commits since the previous one; see <a href="../pull-request-assistant/#review-reports">Review reports</a>. Replace <code>https://daiv.example.com</code> with DAIV's address.</p>
+<p>In GitLab CI:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-13-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-13-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-13-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-13-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-13-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-13-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-13-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-13-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-13-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-13-10">10</a></span>
+<span class="normal"><a href="#__codelineno-13-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1"></a><span class="nt">daiv-code-review</span><span class="p">:</span>
+<a id="__codelineno-13-2" name="__codelineno-13-2"></a><span class="w">  </span><span class="nt">rules</span><span class="p">:</span>
+<a id="__codelineno-13-3" name="__codelineno-13-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">if</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$CI_PIPELINE_SOURCE == "merge_request_event"</span>
+<a id="__codelineno-13-4" name="__codelineno-13-4"></a><span class="w">  </span><span class="nt">id_tokens</span><span class="p">:</span>
+<a id="__codelineno-13-5" name="__codelineno-13-5"></a><span class="w">    </span><span class="nt">DAIV_ID_TOKEN</span><span class="p">:</span>
+<a id="__codelineno-13-6" name="__codelineno-13-6"></a><span class="w">      </span><span class="nt">aud</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://daiv.example.com</span>
+<a id="__codelineno-13-7" name="__codelineno-13-7"></a><span class="w">  </span><span class="nt">script</span><span class="p">:</span>
+<a id="__codelineno-13-8" name="__codelineno-13-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
+<a id="__codelineno-13-9" name="__codelineno-13-9"></a><span class="w">      </span><span class="no">curl --fail-with-body -sS -X POST "https://daiv.example.com/api/jobs"</span>
+<a id="__codelineno-13-10" name="__codelineno-13-10"></a><span class="w">      </span><span class="no">-H "Authorization: Bearer $DAIV_ID_TOKEN" -H "Content-Type: application/json"</span>
+<a id="__codelineno-13-11" name="__codelineno-13-11"></a><span class="w">      </span><span class="no">-d "{\"repos\":[{\"repo_id\":\"$CI_PROJECT_PATH\",\"merge_request\":$CI_MERGE_REQUEST_IID}],\"prompt\":\"/code-review\"}"</span>
+</code></pre></div></td></tr></table></div>
+<p>In GitHub Actions:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-14-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-14-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-14-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-14-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-14-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-14-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-14-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-14-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-14-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-14-10">10</a></span>
+<span class="normal"><a href="#__codelineno-14-11">11</a></span>
+<span class="normal"><a href="#__codelineno-14-12">12</a></span>
+<span class="normal"><a href="#__codelineno-14-13">13</a></span>
+<span class="normal"><a href="#__codelineno-14-14">14</a></span>
+<span class="normal"><a href="#__codelineno-14-15">15</a></span>
+<span class="normal"><a href="#__codelineno-14-16">16</a></span>
+<span class="normal"><a href="#__codelineno-14-17">17</a></span>
+<span class="normal"><a href="#__codelineno-14-18">18</a></span>
+<span class="normal"><a href="#__codelineno-14-19">19</a></span>
+<span class="normal"><a href="#__codelineno-14-20">20</a></span>
+<span class="normal"><a href="#__codelineno-14-21">21</a></span>
+<span class="normal"><a href="#__codelineno-14-22">22</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1"></a><span class="c1"># .github/workflows/daiv-code-review.yml</span>
+<a id="__codelineno-14-2" name="__codelineno-14-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">DAIV code review</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3"></a><span class="nt">on</span><span class="p">:</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4"></a><span class="w">  </span><span class="nt">pull_request</span><span class="p">:</span>
+<a id="__codelineno-14-5" name="__codelineno-14-5"></a><span class="w">    </span><span class="nt">types</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">opened</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">synchronize</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">reopened</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6"></a><span class="nt">permissions</span><span class="p">:</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7"></a><span class="w">  </span><span class="nt">id-token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">write</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8"></a><span class="w">  </span><span class="nt">contents</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">read</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9"></a><span class="nt">jobs</span><span class="p">:</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10"></a><span class="w">  </span><span class="nt">review</span><span class="p">:</span>
+<a id="__codelineno-14-11" name="__codelineno-14-11"></a><span class="w">    </span><span class="nt">runs-on</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ubuntu-latest</span>
+<a id="__codelineno-14-12" name="__codelineno-14-12"></a><span class="w">    </span><span class="nt">steps</span><span class="p">:</span>
+<a id="__codelineno-14-13" name="__codelineno-14-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Ask DAIV to review the pull request</span>
+<a id="__codelineno-14-14" name="__codelineno-14-14"></a><span class="w">        </span><span class="nt">env</span><span class="p">:</span>
+<a id="__codelineno-14-15" name="__codelineno-14-15"></a><span class="w">          </span><span class="nt">DAIV_URL</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://daiv.example.com</span>
+<a id="__codelineno-14-16" name="__codelineno-14-16"></a><span class="w">          </span><span class="nt">PR_NUMBER</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${{ github.event.pull_request.number }}</span>
+<a id="__codelineno-14-17" name="__codelineno-14-17"></a><span class="w">        </span><span class="nt">run</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<a id="__codelineno-14-18" name="__codelineno-14-18"></a><span class="w">          </span><span class="no">TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \</span>
+<a id="__codelineno-14-19" name="__codelineno-14-19"></a><span class="w">            </span><span class="no">"$ACTIONS_ID_TOKEN_REQUEST_URL&amp;audience=$DAIV_URL" | jq -r .value)</span>
+<a id="__codelineno-14-20" name="__codelineno-14-20"></a><span class="w">          </span><span class="no">curl --fail-with-body -sS -X POST "$DAIV_URL/api/jobs" \</span>
+<a id="__codelineno-14-21" name="__codelineno-14-21"></a><span class="w">            </span><span class="no">-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \</span>
+<a id="__codelineno-14-22" name="__codelineno-14-22"></a><span class="w">            </span><span class="no">-d "{\"repos\":[{\"repo_id\":\"$GITHUB_REPOSITORY\",\"merge_request\":$PR_NUMBER}],\"prompt\":\"/code-review\"}"</span>
+</code></pre></div></td></tr></table></div>
+<p>The CI job ends as soon as DAIV accepts the review; the review itself appears on the merge request when its run finishes.</p>
+<h2 id="related-pages">Related pages</h2>
+<ul>
+<li><a href="../../integrations/rt/">Request Tracker triage</a>: an end-to-end example of using the jobs API from an RT Scrip to triage new support tickets.</li>
+<li><a href="../mcp-endpoint/">MCP endpoint</a>: the same submission and polling through an MCP client.</li>
+<li><a href="../scheduled-jobs/">Scheduled jobs</a>: recurring runs without an external trigger.</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 22, 2026 23:52:14 UTC">November 22, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 27, 2026 19:15:17 UTC">March 27, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

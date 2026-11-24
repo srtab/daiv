@@ -1,0 +1,2287 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Extend DAIV's agent with external services over the Model Context Protocol (MCP): built-in servers such as Sentry, custom servers and personal servers.">
+      
+      
+        <meta name="author" content="Sandro Rodrigues">
+      
+      
+        <link rel="canonical" href="https://docs.daivagent.com/latest/customization/mcp-tools/">
+      
+      
+        <link rel="prev" href="../agent-skills/">
+      
+      
+        <link rel="next" href="../../reference/env-variables/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+  
+    
+      
+        <title>MCP tools - DAIV</title>
+      
+    
+  
+
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+
+  <script defer src="https://cloud.umami.is/script.js" data-website-id="f2d8b948-0c1b-48e7-b0ca-e296f9d48863" data-domains="docs.daivagent.com" data-do-not-track="true"></script>
+
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  <meta name="theme-color" content="#0d1117">
+  <link rel="preload" href="../../assets/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  
+
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mcp-tools" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAIV
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              MCP tools
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    DAIV
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts and roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/issue-addressing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Issue addressing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/pull-request-assistant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pull request assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/pipeline-watch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sessions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/jobs-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/scheduled-jobs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scheduled jobs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/orchestration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/mcp-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/merge-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Merge metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/slash-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slash commands and skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/browser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/rt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Request Tracker triage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Customization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../repository-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP tools
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#server-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Server settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tool-filtering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool filtering
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#built-in-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built-in servers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Built-in servers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#enable-the-sentry-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enable the Sentry server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raise-the-context7-rate-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raise the context7 rate limits
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#add-a-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add a server
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stdio-only-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stdio-only servers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connect-an-on-premise-sentry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connect an on-premise Sentry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connect an on-premise Sentry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bridge-the-stdio-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge the stdio package
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deploy-sentrys-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deploy Sentry's worker
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#personal-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Personal servers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Personal servers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resolve-a-name-collision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolve a name collision
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/env-variables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#server-settings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server settings
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Server settings">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#tool-filtering" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool filtering
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#built-in-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built-in servers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Built-in servers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#enable-the-sentry-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enable the Sentry server
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#raise-the-context7-rate-limits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raise the context7 rate limits
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#add-a-server" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Add a server
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#stdio-only-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stdio-only servers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#connect-an-on-premise-sentry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Connect an on-premise Sentry
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Connect an on-premise Sentry">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bridge-the-stdio-package" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bridge the stdio package
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deploy-sentrys-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deploy Sentry's worker
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#personal-servers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Personal servers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Personal servers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#resolve-a-name-collision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Resolve a name collision
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../repository-config/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Customization
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/srtab/daiv/edit/main/docs/customization/mcp-tools.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="mcp-tools">MCP tools</h1>
+<p><a href="https://modelcontextprotocol.io/">Model Context Protocol (MCP)</a> tools extend DAIV's agent with access to external services. You manage MCP servers from the dashboard on two pages:</p>
+<ul>
+<li><strong>MCP Servers</strong>, in the sidebar's <strong>Settings</strong> menu as <strong>MCP servers</strong>, shows your personal servers and a read-only list of the global servers that load in every run.</li>
+<li><strong>Global MCP Servers</strong>, in the sidebar's <strong>Settings</strong> menu under <strong>Admin</strong> as <strong>Global MCP servers</strong>, is where admins manage the built-in and custom global servers.</li>
+</ul>
+<p>The DAIV app opens the connections itself at runtime, so no sidecar containers are required. DAIV skips a server that does not return its tools within the load timeout (see <a href="../../reference/env-variables/#mcp-tools">Environment variables</a>).</p>
+<h2 id="server-settings">Server settings</h2>
+<p>Each server is a row with these settings:</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Name</strong></td>
+<td>Unique slug of lowercase letters, digits and dashes, up to 80 characters. You cannot change it after you create the server. <code>new</code> and <code>test</code> are reserved.</td>
+</tr>
+<tr>
+<td><strong>Description</strong></td>
+<td>Optional text.</td>
+</tr>
+<tr>
+<td><strong>Status</strong></td>
+<td><strong>Active</strong> loads the server in every run (for a personal server, every run that acts as its owner). <strong>On-demand</strong> loads it only in runs that opt in, for example with <code>mcp_overrides</code> in the <a href="../../features/jobs-api/#request-fields">jobs API</a>. <strong>Disabled</strong> never loads it.</td>
+</tr>
+<tr>
+<td><strong>Transport</strong></td>
+<td><strong>HTTP (streamable)</strong> or <strong>SSE</strong>.</td>
+</tr>
+<tr>
+<td><strong>URL</strong></td>
+<td>The MCP endpoint, an <code>http</code> or <code>https</code> URL of up to 200 characters.</td>
+</tr>
+<tr>
+<td><strong>Headers</strong></td>
+<td>HTTP headers sent to the server. Each header is a literal value, encrypted at rest, or an <code>env_ref</code>, the name of an environment variable that DAIV resolves at runtime.</td>
+</tr>
+<tr>
+<td><strong>Tool filter</strong></td>
+<td>Which of the server's tools the agent sees (see <a href="#tool-filtering">Tool filtering</a>).</td>
+</tr>
+</tbody>
+</table>
+<p>There is no scope field on the form: the page you create the server from decides it.</p>
+<p>The <strong>Tool filter</strong> section is hidden until it has something to act on. On a new server it appears after a successful <strong>Test connection</strong>. On an existing server it appears once DAIV has synced the server's tools, or when a filter is active. The <strong>Refresh tools</strong> button next to the heading syncs the tools again, and the heading shows when the last sync ran and how many tools it found.</p>
+<h3 id="tool-filtering">Tool filtering</h3>
+<p>Set <strong>Tool filter mode</strong> to one of:</p>
+<ul>
+<li><strong>None</strong>: the agent sees all the server's tools.</li>
+<li><strong>Allow only listed tools</strong>: the agent sees only the listed tools.</li>
+<li><strong>Block listed tools</strong>: the agent sees all tools except the listed ones.</li>
+</ul>
+<p>A filter other than <strong>None</strong> needs at least one tool name. An allow-list fails closed: a tool that disappears upstream stops being exposed.</p>
+<h2 id="security">Security</h2>
+<div class="admonition warning">
+<p class="admonition-title">MCP connections bypass the sandbox egress proxy</p>
+<p>MCP connections originate from the DAIV app and worker containers, so the sandbox egress proxy does not apply to them. Restrict outbound access at your network layer if you need to.</p>
+</div>
+<ul>
+<li>DAIV encrypts header values at rest and never renders them back into the form. An <code>env_ref</code> header keeps the value out of the database entirely.</li>
+<li>Prefer allow-lists that exclude tools that change data, as the seeded Sentry filter does.</li>
+</ul>
+<h2 id="built-in-servers">Built-in servers</h2>
+<p>DAIV seeds two built-in servers that point at the official remote MCP endpoints. You can edit a built-in server's URL, headers and tool filter, but you cannot rename or delete it, only disable it.</p>
+<table>
+<thead>
+<tr>
+<th>Server</th>
+<th>URL</th>
+<th>Status</th>
+<th>Tool filter</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sentry</code></td>
+<td><code>https://mcp.sentry.dev/mcp?disable-skills=seer,docs,project-management</code></td>
+<td><strong>Disabled</strong>, because the endpoint requires authentication</td>
+<td><strong>Allow only listed tools</strong>, with read-only tools only</td>
+</tr>
+<tr>
+<td><code>context7</code></td>
+<td><code>https://mcp.context7.com/mcp</code></td>
+<td><strong>Active</strong>, and works without credentials at low rate limits</td>
+<td><strong>Allow only listed tools</strong>: <code>resolve-library-id</code> and <code>query-docs</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="enable-the-sentry-server">Enable the Sentry server</h3>
+<p>You need an admin account and a <a href="https://docs.sentry.io/account/auth-tokens/">Sentry User Auth Token</a> with the read scopes <code>org:read</code>, <code>project:read</code>, <code>team:read</code> and <code>event:read</code>.</p>
+<ol>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Global MCP servers</strong>.</li>
+<li>Under <strong>Built-in</strong>, select <strong>Edit</strong> on the <code>sentry</code> server.</li>
+<li>Under <strong>Headers</strong>, select <strong>Add header</strong>.</li>
+<li>Enter <code>Authorization</code> as the header name.</li>
+<li>Enter <code>Sentry-Bearer &lt;your token&gt;</code> as the value, and leave the mode as <code>literal</code>.</li>
+<li>Select <strong>Test connection</strong>. DAIV reports how many tools it discovered.</li>
+<li>Optional: under <strong>Tool filter</strong>, adjust which tools the agent sees.</li>
+<li>Under <strong>Status</strong>, select <strong>Active</strong>.</li>
+<li>Select <strong>Save</strong>.</li>
+</ol>
+<p>Replace <code>&lt;your token&gt;</code> with your Sentry token. <code>Sentry-Bearer</code>, not <code>Bearer</code>, is Sentry's scheme for passing an API token directly to its hosted MCP. To keep the token out of the database, set the header's mode to <code>env_ref</code> and enter the name of an environment variable that holds the whole <code>Sentry-Bearer &lt;your token&gt;</code> string.</p>
+<h3 id="raise-the-context7-rate-limits">Raise the <code>context7</code> rate limits</h3>
+<p>You need an admin account and an API key from <a href="https://context7.com/dashboard">context7.com/dashboard</a>.</p>
+<ol>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Global MCP servers</strong>.</li>
+<li>Under <strong>Built-in</strong>, select <strong>Edit</strong> on the <code>context7</code> server.</li>
+<li>Under <strong>Headers</strong>, select <strong>Add header</strong>.</li>
+<li>Enter <code>CONTEXT7_API_KEY</code> as the header name.</li>
+<li>Enter your API key as the value.</li>
+<li>Select <strong>Save</strong>.</li>
+</ol>
+<h2 id="add-a-server">Add a server</h2>
+<p>You can add any server that DAIV reaches over HTTP or SSE. A server that only speaks stdio needs a <a href="#stdio-only-servers">bridge</a> first. Any member can add a personal server. Only admins can add a global one.</p>
+<ol>
+<li>In the sidebar's <strong>Settings</strong> menu, open the page for the server's scope: <strong>MCP servers</strong> for a personal server, or, as an admin, <strong>Global MCP servers</strong> under <strong>Admin</strong> for a global one.</li>
+<li>Select <strong>New server</strong>.</li>
+<li>Enter a <strong>Name</strong>.</li>
+<li>Choose a <strong>Transport</strong>.</li>
+<li>Enter the <strong>URL</strong>.</li>
+<li>Optional: select <strong>Add header</strong> and enter each header's name, mode and value.</li>
+<li>Select <strong>Test connection</strong>. DAIV reports how many tools it discovered.</li>
+<li>Optional: under <strong>Tool filter</strong>, choose a <strong>Tool filter mode</strong> and select the tools.</li>
+<li>Set <strong>Status</strong>.</li>
+<li>Select <strong>Save</strong>.</li>
+</ol>
+<p><strong>Test connection</strong> fails after 5 seconds. A personal server's headers are always literal (see <a href="#personal-servers">Personal servers</a>).</p>
+<h2 id="stdio-only-servers">Stdio-only servers</h2>
+<p>DAIV connects over HTTP and SSE only. To use a stdio-based MCP server, wrap it with a stdio-to-HTTP bridge in its own container, then <a href="#add-a-server">add the bridge's URL</a> as a server. Run one bridge container per MCP server, so a failure in one does not affect another.</p>
+<h2 id="connect-an-on-premise-sentry">Connect an on-premise Sentry</h2>
+<p>Sentry's hosted MCP serves only sentry.io. The official <a href="https://www.npmjs.com/package/@sentry/mcp-server"><code>@sentry/mcp-server</code></a> package is stdio-only, so for a self-hosted Sentry you expose it over HTTP yourself and point the <code>sentry</code> server's URL at it. You have two options.</p>
+<h3 id="bridge-the-stdio-package">Bridge the stdio package</h3>
+<p>Any stdio-to-HTTP bridge works. This example uses <a href="https://github.com/supercorp-ai/supergateway">supergateway</a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Run the bridge in stateful mode</p>
+<p>Pass <code>--stateful</code>. In stateless mode every tool call starts a fresh child process chain, which can exhaust the system's thread limit under concurrent load. Pass <code>--sessionTimeout</code> in milliseconds (<code>300000</code> works well) to clean up idle sessions.</p>
+</div>
+<ol>
+<li>
+<p>Add the bridge to your Compose file:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-0-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-0-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-0-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-0-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-0-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-0-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-0-10">10</a></span>
+<span class="normal"><a href="#__codelineno-0-11">11</a></span>
+<span class="normal"><a href="#__codelineno-0-12">12</a></span>
+<span class="normal"><a href="#__codelineno-0-13">13</a></span>
+<span class="normal"><a href="#__codelineno-0-14">14</a></span>
+<span class="normal"><a href="#__codelineno-0-15">15</a></span>
+<span class="normal"><a href="#__codelineno-0-16">16</a></span>
+<span class="normal"><a href="#__codelineno-0-17">17</a></span>
+<span class="normal"><a href="#__codelineno-0-18">18</a></span>
+<span class="normal"><a href="#__codelineno-0-19">19</a></span>
+<span class="normal"><a href="#__codelineno-0-20">20</a></span>
+<span class="normal"><a href="#__codelineno-0-21">21</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="nt">mcp-sentry</span><span class="p">:</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="w">  </span><span class="nt">image</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">supercorp/supergateway:latest</span>
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="w">  </span><span class="nt">restart</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unless-stopped</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="w">  </span><span class="nt">command</span><span class="p">:</span>
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--stdio</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"npx</span><span class="nv"> </span><span class="s">@sentry/mcp-server@latest</span><span class="nv"> </span><span class="s">--host=sentry.example.com"</span>
+<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--outputTransport</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">streamableHttp</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--healthEndpoint</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"/healthz"</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--stateful</span>
+<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">--sessionTimeout</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">"300000"</span>
+<a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="w">  </span><span class="nt">environment</span><span class="p">:</span>
+<a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="w">    </span><span class="nt">SENTRY_ACCESS_TOKEN</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${SENTRY_ACCESS_TOKEN}</span>
+<a id="__codelineno-0-16" name="__codelineno-0-16"></a><span class="w">  </span><span class="nt">healthcheck</span><span class="p">:</span>
+<a id="__codelineno-0-17" name="__codelineno-0-17"></a><span class="w">    </span><span class="nt">test</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"CMD"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"wget"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"--spider"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"-q"</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">"http://localhost:8000/healthz"</span><span class="p p-Indicator">]</span>
+<a id="__codelineno-0-18" name="__codelineno-0-18"></a><span class="w">    </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
+<a id="__codelineno-0-19" name="__codelineno-0-19"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5s</span>
+<a id="__codelineno-0-20" name="__codelineno-0-20"></a><span class="w">    </span><span class="nt">retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span>
+<a id="__codelineno-0-21" name="__codelineno-0-21"></a><span class="w">    </span><span class="nt">start_period</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
+</code></pre></div></td></tr></table></div>
+</li>
+<li>
+<p>Set <code>SENTRY_ACCESS_TOKEN</code> in the environment that the Compose file reads.</p>
+</li>
+<li>Start the container.</li>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Global MCP servers</strong>.</li>
+<li>Under <strong>Built-in</strong>, select <strong>Edit</strong> on the <code>sentry</code> server.</li>
+<li>Set <strong>URL</strong> to <code>http://mcp-sentry:8000/mcp</code>.</li>
+<li>Under <strong>Headers</strong>, remove the <code>Authorization</code> header, because the bridge authenticates with its own <code>SENTRY_ACCESS_TOKEN</code>.</li>
+<li>Select <strong>Test connection</strong>.</li>
+<li>Under <strong>Status</strong>, select <strong>Active</strong>.</li>
+<li>Select <strong>Save</strong>.</li>
+</ol>
+<p>Replace <code>sentry.example.com</code> with your Sentry host. For a Sentry that serves plain HTTP, add <code>--insecure-http</code> to the <code>npx</code> command.</p>
+<h3 id="deploy-sentrys-worker">Deploy Sentry's worker</h3>
+<p>The <a href="https://github.com/getsentry/sentry-mcp">sentry-mcp</a> repository ships the open-source Cloudflare worker behind mcp.sentry.dev. Deploying your own instance gives you an HTTP endpoint without a bridge. Set the <code>sentry</code> server's URL to your worker, and keep the <code>Authorization: Sentry-Bearer &lt;token&gt;</code> header on it.</p>
+<h2 id="personal-servers">Personal servers</h2>
+<p>Every member, admins included, can add personal MCP servers from the <strong>MCP Servers</strong> page. <strong>New server</strong> there always creates a server that you own. Personal servers use the same transports, tool filters and <strong>Test connection</strong> as global custom servers, with these differences.</p>
+<p><strong>Where they load.</strong> A personal server loads only in runs where DAIV knows whom the run acts as. Those are chat sessions, dashboard-started runs, jobs submitted through the API or MCP interface, and runs that a GitLab or GitHub event starts for a person who signed in to DAIV with that platform account (an issue label or mention, or a mention on a merge request a DAIV session owns). A session's CI fixes act as its owner, and a resumed delegation as the user who delegated. A mention on a merge request no session owns, or by someone who never signed in with that account, has no acting user, and DAIV loads <strong>global servers only</strong>.</p>
+<p><strong>Header values are always literal.</strong> A personal server's headers cannot be an <code>env_ref</code>, so a member cannot probe the DAIV host's environment through their own configuration.</p>
+<p><strong>Name collisions.</strong> A personal server cannot take a global server's name when you create it. If an admin later adds a global server with the same name, the global server wins while it is <strong>Active</strong> or <strong>On-demand</strong>: DAIV skips the personal server in every run, and the <strong>MCP Servers</strong> page flags it with a <strong>Shadowed</strong> badge.</p>
+<p><strong>Admin oversight.</strong> On the <strong>MCP Servers</strong> page, admins have an owner dropdown, set to <strong>You</strong> by default, to list any member's personal servers. Admins can disable, delete or refresh those servers. They cannot edit them or see their header values.</p>
+<h3 id="resolve-a-name-collision">Resolve a name collision</h3>
+<p>You cannot rename a server, so you delete the shadowed personal server and create it again under another name.</p>
+<div class="admonition warning">
+<p class="admonition-title">Deleting a server deletes its headers</p>
+<p>DAIV removes the server and its stored headers permanently, and the form never shows header values. Keep the values somewhere else before you delete. A new server starts with no headers.</p>
+</div>
+<ol>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>MCP servers</strong>.</li>
+<li>Find the server marked <strong>Shadowed</strong>, and note its settings. Have its header values from your own records, because the form never shows them.</li>
+<li>Select <strong>Delete</strong> on it.</li>
+<li>On the confirmation page, select <strong>Delete</strong>.</li>
+<li>Select <strong>New server</strong>.</li>
+<li>Enter a <strong>Name</strong> that no global server uses, then re-enter the other settings and headers (see <a href="#add-a-server">Add a server</a>).</li>
+<li>Select <strong>Save</strong>.</li>
+</ol>
+<h2 id="related-pages">Related pages</h2>
+<ul>
+<li><a href="../../features/mcp-endpoint/">MCP endpoint</a>: the reverse direction, which exposes DAIV itself as an MCP server so Claude Code, Cursor or Codex CLI can delegate to it.</li>
+<li><a href="../../integrations/rt/">Request Tracker triage</a>: a worked example of DAIV driven from an external system.</li>
+<li><a href="../../reference/agent-architecture/">Agent tools</a>: when MCP tools join the agent's tool set.</li>
+<li><a href="../../reference/env-variables/#mcp-tools">Environment variables</a>: the MCP-related settings.</li>
+</ul>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 14:52:19 UTC">November 12, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 13, 2026 18:39:53 UTC">March 13, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

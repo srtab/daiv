@@ -1,0 +1,4093 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Reference for every environment variable that configures DAIV, including which ones are sensitive and should be provided as Docker secrets.">
+      
+      
+        <meta name="author" content="Sandro Rodrigues">
+      
+      
+        <link rel="canonical" href="https://docs.daivagent.com/latest/reference/env-variables/">
+      
+      
+        <link rel="prev" href="../../customization/mcp-tools/">
+      
+      
+        <link rel="next" href="../site-configuration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+  
+    
+      
+        <title>Environment variables - DAIV</title>
+      
+    
+  
+
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+
+  <script defer src="https://cloud.umami.is/script.js" data-website-id="f2d8b948-0c1b-48e7-b0ca-e296f9d48863" data-domains="docs.daivagent.com" data-do-not-track="true"></script>
+
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  <meta name="theme-color" content="#0d1117">
+  <link rel="preload" href="../../assets/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  
+
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#environment-variables" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAIV
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Environment variables
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    DAIV
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts and roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/issue-addressing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Issue addressing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/pull-request-assistant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pull request assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/pipeline-watch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sessions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/jobs-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/scheduled-jobs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scheduled jobs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/orchestration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/mcp-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/merge-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Merge metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/slash-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slash commands and skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/browser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/rt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Request Tracker triage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Customization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/repository-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment variables
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#django" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Django
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uvicorn" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uvicorn
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sentry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sentry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logging
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#monitoring-langsmith" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring (LangSmith)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#time-zone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Time zone
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox-client-side" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox (client-side)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rocketchat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rocket.Chat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#telegram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Telegram
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#external-url-and-encryption-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        External URL and encryption key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analytics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#codebase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codebase
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Codebase">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#git-platform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Git platform
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gitlab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#github" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#llm-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM providers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="LLM providers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#openrouter-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenRouter (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#anthropic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anthropic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openai" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenAI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#google" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Google
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#context-file-suggestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context file suggestion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#web-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Web search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#web-fetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Web fetch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#session-transcript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session transcript
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mcp-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deferred-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deferred tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agents
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#daiv-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DAIV agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jobs-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jobs API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diff-to-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diff to metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#titling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Titling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run classifier
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-watch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline watch
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#core" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Core
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Core">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#django" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Django
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#uvicorn" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Uvicorn
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#database" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Database
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#redis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Redis
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sentry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sentry
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Logging
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#monitoring-langsmith" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Monitoring (LangSmith)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#time-zone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Time zone
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox-client-side" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox (client-side)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rocketchat" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rocket.Chat
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#telegram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Telegram
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#external-url-and-encryption-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        External URL and encryption key
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#analytics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Analytics
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#codebase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Codebase
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Codebase">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#git-platform" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Git platform
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#gitlab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitLab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#github" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GitHub
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#llm-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LLM providers
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="LLM providers">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#openrouter-default" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenRouter (default)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#anthropic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anthropic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#openai" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenAI
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#google" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Google
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#context-file-suggestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context file suggestion
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#web-search" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Web search
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#web-fetch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Web fetch
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#session-transcript" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session transcript
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mcp-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deferred-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deferred tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agents
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#daiv-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        DAIV agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-requests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model requests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#jobs-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Jobs API
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#diff-to-metadata" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Diff to metadata
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#titling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Titling
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#run-classifier" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run classifier
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pipeline-watch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Pipeline watch
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="./" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Reference
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/srtab/daiv/edit/main/docs/reference/env-variables.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="environment-variables">Environment variables</h1>
+<p>This page lists the environment variables DAIV reads, with the default and an example for each. Use it to find the variable for a setting, or to check a default you rely on.</p>
+<p>In the tables, <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span> marks a sensitive variable (an API key, password or token) that you should provide as a Docker secret or from a secure credential manager, and <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> marks a variable you must set.</p>
+<p><a href="../site-configuration/">Site configuration</a> can change many of these settings at runtime. A variable that has a Site Configuration field overrides the stored value and locks the field; <a href="../site-configuration/#how-environment-variables-and-the-ui-interact">How environment variables and the UI interact</a> gives the order. Variables marked <em>env-only</em> have no field there. The provider API key variables are a different case: DAIV reads them once, as <a href="#llm-providers">LLM providers</a> explains.</p>
+<h2 id="core">Core</h2>
+<h3 id="django">Django</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DJANGO_DEBUG</code></td>
+<td>Toggle Django debug mode</td>
+<td style="text-align: center;"><code>False</code></td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>DJANGO_SECRET_KEY</code>  <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Secret key for Django</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>super-secret-key</code></td>
+</tr>
+<tr>
+<td><code>DJANGO_ALLOWED_HOSTS</code></td>
+<td>Comma-separated list of allowed hosts</td>
+<td style="text-align: center;"><code>*</code></td>
+<td><code>example.com,localhost</code></td>
+</tr>
+<tr>
+<td><code>DJANGO_SESSION_COOKIE_NAME</code></td>
+<td>Name of the session cookie; give each instance on one host its own</td>
+<td style="text-align: center;"><code>__Secure-sessionid</code></td>
+<td><code>__Secure-sessionid-1</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>DJANGO_ALLOWED_HOSTS</code> limits the hosts that can reach DAIV. The default <code>*</code> allows any host, so list the host DAIV runs on to restrict it.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Do not turn on <code>DJANGO_DEBUG</code> in production. It exposes sensitive information and breaks the security of the application.</p>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Keep <code>DJANGO_SECRET_KEY</code> stable and backed up. Unless you set <code>DAIV_ENCRYPTION_KEY</code>, DAIV derives the key that encrypts stored secrets from it, so a lost or changed <code>DJANGO_SECRET_KEY</code> makes every stored secret unreadable. See <a href="#external-url-and-encryption-key">External URL and encryption key</a>.</p>
+</div>
+<h3 id="uvicorn">Uvicorn</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>UVICORN_HOST</code></td>
+<td>Host to bind the Uvicorn server</td>
+<td style="text-align: center;"><code>0.0.0.0</code></td>
+<td><code>0.0.0.0</code></td>
+</tr>
+<tr>
+<td><code>UVICORN_PORT</code></td>
+<td>Port to bind the Uvicorn server</td>
+<td style="text-align: center;"><code>8000</code></td>
+<td><code>8000</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="database">Database</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>DB_NAME</code></td>
+<td>Database name</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>daiv</code></td>
+</tr>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>DB_USER</code></td>
+<td>Database user</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>daiv_admin</code></td>
+</tr>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>DB_PASSWORD</code>  <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Database password</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+<tr>
+<td><code>DB_HOST</code></td>
+<td>Database host</td>
+<td style="text-align: center;"><code>localhost</code></td>
+<td><code>db</code></td>
+</tr>
+<tr>
+<td><code>DB_PORT</code></td>
+<td>Database port</td>
+<td style="text-align: center;"><code>5432</code></td>
+<td><code>5432</code></td>
+</tr>
+<tr>
+<td><code>DB_SSLMODE</code></td>
+<td>PostgreSQL SSL mode</td>
+<td style="text-align: center;"><code>require</code></td>
+<td><code>prefer</code></td>
+</tr>
+<tr>
+<td><code>DB_POOL_MAX_SIZE</code></td>
+<td>Maximum size of a connection pool</td>
+<td style="text-align: center;"><code>15</code></td>
+<td><code>30</code></td>
+</tr>
+<tr>
+<td><code>DB_KEEPALIVES_IDLE</code></td>
+<td>Seconds a pooled connection may sit idle before a TCP keepalive probe is sent</td>
+<td style="text-align: center;"><code>60</code></td>
+<td><code>120</code></td>
+</tr>
+<tr>
+<td><code>DB_KEEPALIVES_INTERVAL</code></td>
+<td>Seconds between TCP keepalive probes on a pooled connection</td>
+<td style="text-align: center;"><code>10</code></td>
+<td><code>10</code></td>
+</tr>
+<tr>
+<td><code>DB_KEEPALIVES_COUNT</code></td>
+<td>Unanswered keepalive probes before a pooled connection is considered dead</td>
+<td style="text-align: center;"><code>5</code></td>
+<td><code>5</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="redis">Redis</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>DJANGO_REDIS_URL</code>  <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Redis connection URL for cache (DB 0)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>redis://redis:6379/0</code></td>
+</tr>
+<tr>
+<td><code>DJANGO_REDIS_SESSION_URL</code>  <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Redis connection URL for sessions (DB 1)</td>
+<td style="text-align: center;">Value of <code>DJANGO_REDIS_URL</code></td>
+<td><code>redis://redis:6379/1</code></td>
+</tr>
+<tr>
+<td><code>DJANGO_REDIS_CHECKPOINT_URL</code>  <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Redis connection URL for LangGraph checkpoints. Needs Redis 8 or later and database <code>0</code>, the only one Redis search can index</td>
+<td style="text-align: center;">Value of <code>DJANGO_REDIS_URL</code></td>
+<td><code>redis://redis:6379/0</code></td>
+</tr>
+<tr>
+<td><code>DJANGO_REDIS_CHECKPOINT_TTL_MINUTES</code></td>
+<td>TTL in minutes for LangGraph checkpoint data, the agent's working copy; an expired session resumes from its database archive. Each write expires on its own, so the agent no longer sees the oldest messages of a thread active for longer than this; the archive keeps them</td>
+<td style="text-align: center;"><code>10080</code> (7 days)</td>
+<td><code>1440</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="sentry">Sentry</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SENTRY_DSN</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Sentry DSN</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+<tr>
+<td><code>ENVIRONMENT</code></td>
+<td>Deployment environment name, reported to Sentry as the event environment</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>production</code></td>
+</tr>
+<tr>
+<td><code>SENTRY_DEBUG</code></td>
+<td>Enable Sentry debug mode</td>
+<td style="text-align: center;"><code>False</code></td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td><code>SENTRY_ENABLE_LOGS</code></td>
+<td>Enable Sentry logs</td>
+<td style="text-align: center;"><code>False</code></td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td><code>SENTRY_TRACES_SAMPLE_RATE</code></td>
+<td>Sentry traces sample rate</td>
+<td style="text-align: center;"><code>0.0</code></td>
+<td><code>1.0</code></td>
+</tr>
+<tr>
+<td><code>SENTRY_PROFILES_SAMPLE_RATE</code></td>
+<td>Sentry profiles sample rate</td>
+<td style="text-align: center;"><code>0.0</code></td>
+<td><code>1.0</code></td>
+</tr>
+<tr>
+<td><code>SENTRY_SEND_DEFAULT_PII</code></td>
+<td>Enable Sentry default PII</td>
+<td style="text-align: center;"><code>False</code></td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td><code>NODE_HOSTNAME</code></td>
+<td>Node hostname, reported to Sentry as the event server name</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+<tr>
+<td><code>SERVICE_NAME</code></td>
+<td>Service name, reported to Sentry as the <code>service_name</code> tag</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="logging">Logging</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DJANGO_LOGGING_LEVEL</code></td>
+<td>Django logging level</td>
+<td style="text-align: center;"><code>WARNING</code></td>
+<td><code>DEBUG</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="monitoring-langsmith">Monitoring (LangSmith)</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>LANGSMITH_TRACING</code></td>
+<td>Enable LangSmith tracing</td>
+<td style="text-align: center;"><code>false</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>LANGSMITH_PROJECT</code></td>
+<td>LangSmith project name</td>
+<td style="text-align: center;"><code>default</code></td>
+<td><code>daiv-production</code></td>
+</tr>
+<tr>
+<td><code>LANGSMITH_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>LangSmith API key</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>lsv2_pt_...</code></td>
+</tr>
+<tr>
+<td><code>LANGSMITH_ENDPOINT</code></td>
+<td>LangSmith API endpoint</td>
+<td style="text-align: center;"><code>https://api.smith.langchain.com</code></td>
+<td><code>https://eu.api.smith.langchain.com</code></td>
+</tr>
+</tbody>
+</table>
+<p>The LangSmith variables also accept the <code>LANGCHAIN_</code> prefix, for example <code>LANGCHAIN_TRACING_V2</code> and <code>LANGCHAIN_API_KEY</code>. <code>LANGSMITH_API_KEY</code> also accepts a Docker secret through the <code>_FILE</code> suffix. For setup, see <a href="../monitoring/">Monitoring</a>.</p>
+<h3 id="time-zone">Time zone</h3>
+<p>DAIV runs in the <code>Europe/Lisbon</code> time zone. It is fixed in the settings and is not a variable. A time you give without an offset, such as a schedule's run time or the value of <code>create_api_key --expires-at</code>, is read in that zone. Add an offset, for example <code>+00:00</code>, to give a time in another zone.</p>
+<h3 id="sandbox-client-side">Sandbox (client-side)</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_SANDBOX_URL</code></td>
+<td>URL of the sandbox service</td>
+<td style="text-align: center;"><code>http://sandbox:8000</code></td>
+<td><code>http://sandbox:8000</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SANDBOX_TIMEOUT</code></td>
+<td>Timeout for sandbox requests in seconds, and the longest timeout the agent can give a bash command, whose request waits up to 60 seconds longer</td>
+<td style="text-align: center;"><code>600</code></td>
+<td><code>600</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SANDBOX_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>API key for sandbox requests</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>random-api-key</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SANDBOX_BROWSER_ENABLED</code></td>
+<td>Let the agent use a headless browser in sandbox environments that turn Browser on; see <a href="../../features/browser/">Browser</a></td>
+<td style="text-align: center;"><code>false</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SANDBOX_BROWSER_MEMORY_BYTES</code></td>
+<td>Memory limit of each run's browser, in bytes, separate from the environment's; at least <code>268435456</code> (256 MiB)</td>
+<td style="text-align: center;"><code>1073741824</code></td>
+<td><code>2147483648</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SANDBOX_BROWSER_CPUS</code></td>
+<td>CPU limit of each run's browser, separate from the environment's; at least <code>0.25</code></td>
+<td style="text-align: center;"><code>1.0</code></td>
+<td><code>2</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SANDBOX_COMMAND_POLICY_DISALLOW</code></td>
+<td>JSON array of extra bash command rules to block globally</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>'["curl", "npm publish"]'</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SANDBOX_COMMAND_POLICY_ALLOW</code></td>
+<td>JSON array of bash command rules to permit; has no effect (see <a href="../../features/sandbox/#precedence">Precedence</a>)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>'["my-safe-tool"]'</code></td>
+</tr>
+</tbody>
+</table>
+<p>Both command policy settings take a JSON array. A plain string such as <code>curl wget</code>, or an empty value, fails to parse and DAIV does not start. The outer single quotes in the examples are YAML or shell quoting, not part of the value. For how entries are matched and which rules are built in, see <a href="../../features/sandbox/#global-rules">Sandbox</a>.</p>
+<p>The sandbox service has its own settings; see <a href="#deployment-files">Deployment files</a> and the <a href="https://github.com/srtab/daiv-sandbox">daiv-sandbox</a> repository.</p>
+<h3 id="authentication">Authentication</h3>
+<p>DAIV uses <a href="https://docs.allauth.org/">django-allauth</a> for web authentication. Users sign in with a Git platform account (GitHub or GitLab) or with a passwordless login code sent by email. Email signup is off. For how accounts are created, see <a href="../../getting-started/accounts/#sign-in">Accounts and roles</a>, and for <a href="../../getting-started/accounts/#the-first-admin">who becomes the first admin</a>, the section of that page.</p>
+<p>The OAuth variables below override the matching fields of the <strong>Authentication</strong> group of Site Configuration and lock them; the group also holds an <strong>Enable OAuth login</strong> toggle. To create the OAuth app that gives you the client ID and secret, see <a href="../../getting-started/accounts/#create-the-oauth-app">Create the OAuth app</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_AUTH_LOGIN_ENABLED</code></td>
+<td>Show the social provider button on the login page</td>
+<td style="text-align: center;"><code>false</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AUTH_SIGNUP_OPEN</code></td>
+<td>Allow anyone authenticating via the configured Git platform to self-create an account. When off, only admin-pre-created users can sign in</td>
+<td style="text-align: center;"><code>false</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>ALLAUTH_CLIENT_ID</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>OAuth client ID for the configured Git platform</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>Iv1.abc123</code></td>
+</tr>
+<tr>
+<td><code>ALLAUTH_CLIENT_SECRET</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>OAuth client secret for the configured Git platform</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+<tr>
+<td><code>ALLAUTH_GITLAB_URL</code></td>
+<td>GitLab instance URL (for OAuth redirects to the user's browser)</td>
+<td style="text-align: center;"><code>https://gitlab.com</code></td>
+<td><code>https://gitlab.example.com</code></td>
+</tr>
+<tr>
+<td><code>ALLAUTH_GITLAB_SERVER_URL</code></td>
+<td>GitLab server URL (for server-to-server API calls, if different from <code>ALLAUTH_GITLAB_URL</code>)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>http://gitlab:8929</code></td>
+</tr>
+<tr>
+<td><code>EMAIL_BACKEND</code></td>
+<td>Django email backend for login-by-code emails</td>
+<td style="text-align: center;"><code>django.core.mail.backends.smtp.EmailBackend</code></td>
+<td><code>django.core.mail.backends.console.EmailBackend</code></td>
+</tr>
+<tr>
+<td><code>EMAIL_HOST</code></td>
+<td>SMTP server hostname</td>
+<td style="text-align: center;"><code>localhost</code></td>
+<td><code>smtp.example.com</code></td>
+</tr>
+<tr>
+<td><code>EMAIL_PORT</code></td>
+<td>SMTP server port</td>
+<td style="text-align: center;"><code>25</code></td>
+<td><code>587</code></td>
+</tr>
+<tr>
+<td><code>EMAIL_HOST_USER</code></td>
+<td>SMTP authentication username</td>
+<td style="text-align: center;"><em>(empty)</em></td>
+<td><code>user@example.com</code></td>
+</tr>
+<tr>
+<td><code>EMAIL_HOST_PASSWORD</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>SMTP authentication password</td>
+<td style="text-align: center;"><em>(empty)</em></td>
+<td></td>
+</tr>
+<tr>
+<td><code>EMAIL_USE_TLS</code></td>
+<td>Use TLS for SMTP connection</td>
+<td style="text-align: center;"><code>False</code></td>
+<td><code>True</code></td>
+</tr>
+<tr>
+<td><code>DEFAULT_FROM_EMAIL</code></td>
+<td>Sender address for login-by-code emails</td>
+<td style="text-align: center;"><code>noreply@daiv.dev</code></td>
+<td><code>noreply@example.com</code></td>
+</tr>
+</tbody>
+</table>
+<p>OAuth login needs all three of the <code>DAIV_AUTH_LOGIN_ENABLED</code> toggle, a client ID and a client secret. If you set only one of the client ID and the secret, DAIV logs a warning and does not show the provider button on the login page. The <code>CODEBASE_CLIENT</code> setting decides which provider, GitHub or GitLab, DAIV offers.</p>
+<p>With <code>EMAIL_BACKEND</code> set to <code>django.core.mail.backends.console.EmailBackend</code>, DAIV writes login-code emails to the app's output instead of sending them, which is enough to sign in without an SMTP server.</p>
+<h3 id="rocketchat">Rocket.Chat</h3>
+<p>Enabling the <strong>Rocket Chat</strong> group offers Rocket.Chat as a notification channel that users can opt into.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_ROCKETCHAT_ENABLED</code></td>
+<td>Offer Rocket.Chat as a notification channel for users</td>
+<td style="text-align: center;"><code>false</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>DAIV_ROCKETCHAT_URL</code></td>
+<td>Base URL of your Rocket.Chat instance</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>https://rc.example.com</code></td>
+</tr>
+<tr>
+<td><code>DAIV_ROCKETCHAT_USER_ID</code></td>
+<td>The bot user's <code>_id</code>, sent as the <code>X-User-Id</code> header</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>abc123userid</code></td>
+</tr>
+<tr>
+<td><code>DAIV_ROCKETCHAT_AUTH_TOKEN</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>The bot user's auth token, sent as the <code>X-Auth-Token</code> header</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="telegram">Telegram</h3>
+<p>Enabling Telegram offers it as a notification channel that users can opt into. DAIV derives the bot username and generates the webhook secret itself; see <a href="../site-configuration/#telegram-derived-values">Telegram derived values</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_TELEGRAM_ENABLED</code></td>
+<td>Offer Telegram as a notification channel for users</td>
+<td style="text-align: center;"><code>false</code></td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>DAIV_TELEGRAM_BOT_TOKEN</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Bot token issued by @BotFather, in the form <code>123456:ABC-DEF</code></td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>Two more variables exist, but leave them unset: each pins a value that DAIV otherwise derives.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_TELEGRAM_BOT_USERNAME</code></td>
+<td>Pins the bot username. A value that disagrees with the token breaks the connect link, and nothing corrects it.</td>
+<td style="text-align: center;"><em>(derived)</em></td>
+<td><code>daiv_bot</code></td>
+</tr>
+<tr>
+<td><code>DAIV_TELEGRAM_WEBHOOK_SECRET</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Pins the webhook secret. It must not be empty: a blank value makes the webhook reject every update.</td>
+<td style="text-align: center;"><em>(generated)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="external-url-and-encryption-key">External URL and encryption key</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_EXTERNAL_URL</code></td>
+<td>External URL of the application.</td>
+<td style="text-align: center;"><code>https://127.0.0.1:8000</code></td>
+<td><code>https://daiv.example.com</code></td>
+</tr>
+<tr>
+<td><code>DAIV_ENCRYPTION_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Fernet encryption key for secrets stored in the database. If not set, a key is derived from <code>DJANGO_SECRET_KEY</code> via HKDF.</td>
+<td style="text-align: center;"><em>(derived)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<p>DAIV uses <code>DAIV_EXTERNAL_URL</code> to define webhooks on the Git platform and as the site domain in authentication emails, so the Git platform must be able to reach it.</p>
+<p><code>DAIV_ENCRYPTION_KEY</code> protects the secrets DAIV stores in its database: provider API keys, the Tavily web search API key, the OAuth client secret, the sandbox API key, the Rocket.Chat token, the Telegram bot token and webhook secret, web fetch header values, MCP server headers, and sandbox environment variables and egress secrets. DAIV uses a raw Fernet key directly. Any other value is a passphrase, from which DAIV derives a key with HKDF-SHA256. When the variable is unset, DAIV derives the key from <code>DJANGO_SECRET_KEY</code>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Back up <code>DAIV_ENCRYPTION_KEY</code>, or <code>DJANGO_SECRET_KEY</code> when you leave it unset. If the key is lost or changed, DAIV cannot decrypt the stored secrets, and you must enter them again.</p>
+</div>
+<h3 id="analytics">Analytics</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_UMAMI_WEBSITE_ID</code></td>
+<td><a href="https://umami.is/">Umami</a> website ID. When set, the public homepage and <code>/compare/</code> pages load Umami's tracker for signed-out visitors.</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>0b6bd0c4-5d6c-4f2e-9a43-1d2e3f4a5b6c</code></td>
+</tr>
+<tr>
+<td><code>DAIV_UMAMI_SCRIPT_URL</code></td>
+<td>URL of Umami's tracker script; set it to use a self-hosted Umami.</td>
+<td style="text-align: center;"><code>https://cloud.umami.is/script.js</code></td>
+<td><code>https://stats.example.com/script.js</code></td>
+</tr>
+</tbody>
+</table>
+<p>Analytics is off unless you set <code>DAIV_UMAMI_WEBSITE_ID</code>, so DAIV sends no visitor data by default. When it is set, the tracker uses no cookies, honours the browser's Do Not Track setting, and never loads for signed-in users or on dashboard pages.</p>
+<hr />
+<h2 id="codebase">Codebase</h2>
+<h3 id="git-platform">Git platform</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CODEBASE_CLIENT</code></td>
+<td>Client to use for codebase operations</td>
+<td style="text-align: center;"><code>gitlab</code></td>
+<td><code>gitlab</code> or <code>github</code></td>
+</tr>
+<tr>
+<td><code>CODEBASE_WEBHOOK_SETUP_CRON</code></td>
+<td>Cron expression for periodic webhook setup (GitLab only)</td>
+<td style="text-align: center;"><code>*/5 * * * *</code></td>
+<td><code>*/10 * * * *</code></td>
+</tr>
+<tr>
+<td><code>CODEBASE_REPO_ACCESS_SYNC_CRON</code></td>
+<td>Cron expression for the periodic repository access sync</td>
+<td style="text-align: center;"><code>*/15 * * * *</code></td>
+<td><code>*/10 * * * *</code></td>
+</tr>
+<tr>
+<td><code>CODEBASE_REPO_ACCESS_HARD_TTL_HOURS</code></td>
+<td>Hours a repository's synced access data stays trusted before it is denied (fails closed); tracked per repository</td>
+<td style="text-align: center;"><code>24</code></td>
+<td><code>12</code></td>
+</tr>
+</tbody>
+</table>
+<p>Set <code>CODEBASE_CLIENT</code> to <code>gitlab</code> or <code>github</code>. Only one platform is active at a time.</p>
+<p><code>CODEBASE_REPO_ACCESS_SYNC_CRON</code> sets how often DAIV copies each user's repository membership from the Git platform into its database, with one member-list call per repository. Admins are exempt from repository authorization and always have full access. DAIV tracks freshness per repository: if a repository's sync stops succeeding, for example because the platform token loses access to it, DAIV keeps using the last known access data until <code>CODEBASE_REPO_ACCESS_HARD_TTL_HOURS</code> elapse. After that the repository denies access, while the others keep syncing. See <a href="../../getting-started/accounts/#repository-access">Accounts and roles</a> for the access model.</p>
+<h3 id="gitlab">GitLab</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>CODEBASE_GITLAB_URL</code></td>
+<td>URL of the GitLab instance</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>https://gitlab.com</code></td>
+</tr>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>CODEBASE_GITLAB_AUTH_TOKEN</code>  <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Authentication token for GitLab</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>glpat-xyz</code></td>
+</tr>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>CODEBASE_GITLAB_WEBHOOK_SECRET</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Secret token for GitLab webhook validation. Without it, every GitLab webhook request is rejected with 401</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>random-webhook-secret</code></td>
+</tr>
+<tr>
+<td><code>CODEBASE_GITLAB_PAT_FALLBACK</code></td>
+<td>Use <code>CODEBASE_GITLAB_AUTH_TOKEN</code> for <code>git clone</code> and <code>git push</code> when a per-project clone token can't be created</td>
+<td style="text-align: center;"><code>true</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>CODEBASE_GITLAB_ID_TOKEN_ISSUER</code></td>
+<td>Issuer of the GitLab CI ID tokens that pipelines present to the jobs API as <a href="../../features/jobs-api/#ci-identity-tokens">CI identity tokens</a>: GitLab's external URL. Set it when <code>CODEBASE_GITLAB_URL</code> is another address, such as an internal host name. <em>env-only</em></td>
+<td style="text-align: center;"><code>CODEBASE_GITLAB_URL</code></td>
+<td><code>https://gitlab.example.com</code></td>
+</tr>
+</tbody>
+</table>
+<p><code>CODEBASE_GITLAB_AUTH_TOKEN</code> is a personal access token with the <code>api</code> scope.</p>
+<p>For <code>git clone</code> and <code>git push</code>, DAIV does not put this token in the repository workspace. It creates a short-lived project access token for each repository instead: named <code>daiv-clone</code>, with the <code>write_repository</code> scope and the Developer access level, and valid for 48 to 72 hours. DAIV reuses a repository's token for up to 24 hours, so expect a few <code>daiv-clone</code> bot members on a project at a time. GitLab removes expired ones.</p>
+<p>Creating these tokens needs the token's user to hold at least the Maintainer role on each project and, on GitLab.com, the Premium or Ultimate tier. Self-managed instances accept any tier. When DAIV cannot create a token, it logs a warning and falls back to the personal access token. To keep the personal access token out of the workspace entirely, set <code>CODEBASE_GITLAB_PAT_FALLBACK</code> to <code>false</code>: the run then fails with an error instead of falling back. DAIV remembers a failed token creation and retries it after up to an hour, or 5 minutes after a transient GitLab error, so runs on that project keep failing for that long after you fix the cause. To retry sooner, run <code>docker compose exec app django-admin shell -c "from codebase.clients.gitlab.clone_tokens import invalidate_clone_token; invalidate_clone_token(&lt;project-id&gt;)"</code>.</p>
+<p>The project access token pushes at the Developer level. If a branch protection rule matches the branches DAIV pushes to, for example a wildcard pattern that limits pushes to Maintainers, allow Developers to push on that pattern, or pushes fail.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Revoking a <code>daiv-clone</code> token early makes the next clone of that project fail authentication until DAIV drops the cached token and creates a new one, which happens after about 15 seconds of retries. The cache entry is <code>codebase:gitlab:clone-token:&lt;project-id&gt;</code>.</p>
+</div>
+<h3 id="github">GitHub</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>CODEBASE_GITHUB_URL</code></td>
+<td>URL of the GitHub instance</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>https://github.com</code></td>
+</tr>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>CODEBASE_GITHUB_APP_ID</code></td>
+<td>GitHub App ID</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>123456</code></td>
+</tr>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>CODEBASE_GITHUB_INSTALLATION_ID</code></td>
+<td>GitHub App Installation ID</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>789012</code></td>
+</tr>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>CODEBASE_GITHUB_PRIVATE_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>GitHub App private key (PEM format)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+<tr>
+<td><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13h-6.6l4.7 4.7-1.4 1.4-4.7-4.7V21h-2v-6.7L6.3 19l-1.4-1.4L9.4 13H3v-2h6.6L4.9 6.3l1.4-1.4L11 9.6V3h2v6.4l4.6-4.6L19 6.3 14.3 11H21z"/></svg></span> <code>CODEBASE_GITHUB_WEBHOOK_SECRET</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Secret token for GitHub webhook validation. Without it, every GitHub webhook request is rejected with 401</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>random-webhook-secret</code></td>
+</tr>
+<tr>
+<td><code>CODEBASE_GITHUB_ACTIONS_OIDC_ISSUER</code></td>
+<td>Issuer of the GitHub Actions OIDC tokens that workflows present to the jobs API as <a href="../../features/jobs-api/#ci-identity-tokens">CI identity tokens</a>. Set it when the tokens name another issuer, such as when <code>CODEBASE_GITHUB_URL</code> is an internal address of GitHub Enterprise Server. <em>env-only</em></td>
+<td style="text-align: center;"><code>https://token.actions.&lt;subdomain&gt;.ghe.com</code> when the host of <code>CODEBASE_GITHUB_URL</code> is <code>&lt;subdomain&gt;.ghe.com</code> or <code>api.&lt;subdomain&gt;.ghe.com</code>, else <code>https://&lt;host&gt;/_services/token</code> when that host, <code>&lt;host&gt;</code>, is neither <code>github.com</code> nor <code>api.github.com</code>, else <code>https://token.actions.githubusercontent.com</code></td>
+<td><code>https://github.example.com/_services/token</code></td>
+</tr>
+</tbody>
+</table>
+<p>GitHub uses GitHub App authentication, so you create a GitHub App in your account or organization settings. The private key is a multi-line PEM file; store it as a Docker secret. For GitHub Enterprise Server, set <code>CODEBASE_GITHUB_URL</code> to its URL, for example <code>https://github.example.com</code>; DAIV then accepts CI identity tokens issued by <code>https://&lt;host&gt;/_services/token</code>, where <code>&lt;host&gt;</code> is that URL's host name. For GitHub Enterprise Cloud with data residency (GHE.com), set it to your enterprise's API URL, <code>https://api.&lt;subdomain&gt;.ghe.com</code>; DAIV then accepts CI identity tokens issued by <code>https://token.actions.&lt;subdomain&gt;.ghe.com</code>. For GitHub.com, you can omit <code>CODEBASE_GITHUB_URL</code>.</p>
+<hr />
+<h2 id="llm-providers">LLM providers</h2>
+<p>Configure at least one provider to use the agent. The <a href="../../getting-started/llm-providers/">LLM providers</a> page explains how model specs pick a provider.</p>
+<div class="admonition warning">
+<p class="admonition-title">Provider keys are seed-only</p>
+<p>DAIV reads the provider API key variables once, when it first creates the provider records, and never again. They are not part of the environment, database and default order that other settings follow. Changing or adding a <code>*_API_KEY</code> variable or secret after the provider record exists has no effect: edit the provider under <strong>Configuration</strong> → <strong>Providers</strong> instead, which holds the key and the base URL from then on. A provider created without a key starts disabled.</p>
+</div>
+<p>DAIV reads each key from a Docker secret named after the variable in lowercase, for example <code>openrouter_api_key</code> mounted at <code>/run/secrets/openrouter_api_key</code>, or else from the environment variable. The secret wins when both are set. The OpenRouter base URL is a <strong>Base URL</strong> field of the provider and defaults to <code>https://openrouter.ai/api/v1</code>. <a href="../site-configuration/#providers">Providers</a> describes the fields.</p>
+<h3 id="openrouter-default">OpenRouter (default)</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OPENROUTER_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>OpenRouter API key (seeds the OpenRouter provider record on first run)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="anthropic">Anthropic</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ANTHROPIC_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Anthropic API key (seeds the Anthropic provider record on first run)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="openai">OpenAI</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>OPENAI_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>OpenAI API key (seeds the OpenAI provider record on first run)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="google">Google</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>GOOGLE_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Google API key (seeds the Google provider record on first run)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h2 id="agent-tools">Agent tools</h2>
+<p>These variables configure the tools the agent calls.</p>
+<h3 id="context-file-suggestion">Context file suggestion</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_SUGGEST_CONTEXT_FILE_ENABLED</code></td>
+<td>Enable/disable suggesting an <code>AGENTS.md</code> file on new merge requests</td>
+<td style="text-align: center;"><code>true</code></td>
+<td><code>false</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="web-search">Web search</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_WEB_SEARCH_ENABLED</code></td>
+<td>Enable/disable the <code>web_search</code> tool</td>
+<td style="text-align: center;"><code>true</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_SEARCH_MAX_RESULTS</code></td>
+<td>Maximum number of results to return from web search</td>
+<td style="text-align: center;"><code>5</code></td>
+<td></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_SEARCH_ENGINE</code></td>
+<td>Web search engine to use (<code>duckduckgo</code>, <code>tavily</code>, <code>searxng</code>)</td>
+<td style="text-align: center;"><code>duckduckgo</code></td>
+<td><code>searxng</code></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_SEARCH_API_KEY</code> <span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 17a2 2 0 0 0 2-2 2 2 0 0 0-2-2 2 2 0 0 0-2 2 2 2 0 0 0 2 2m6-9a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2h1V6a5 5 0 0 1 5-5 5 5 0 0 1 5 5v2zm-6-5a3 3 0 0 0-3 3v2h6V6a3 3 0 0 0-3-3"/></svg></span></td>
+<td>Web search API key (required if engine is <code>tavily</code>)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_SEARCH_SEARXNG_URL</code></td>
+<td>Complete SearXNG search endpoint, including <code>/search</code> and any deployment prefix</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>https://search.example.com/search</code></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_SEARCH_SEARXNG_TIMEOUT_SECONDS</code></td>
+<td>SearXNG HTTP timeout in seconds (1–120); does not change other engines</td>
+<td style="text-align: center;"><code>15</code></td>
+<td><code>30</code></td>
+</tr>
+</tbody>
+</table>
+<p>To use SearXNG, see <a href="../site-configuration/#set-up-searxng">Set up SearXNG</a>.</p>
+<h3 id="web-fetch">Web fetch</h3>
+<p>The native <code>web_fetch</code> tool fetches a URL, converts HTML to markdown, and has a small model answer a prompt about the page. A <code>#fragment</code> on an HTML page's URL limits it to the section that anchor names. A page over the maximum content size is rejected with a list of its section anchors.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_WEB_FETCH_ENABLED</code></td>
+<td>Enable/disable the native <code>web_fetch</code> tool</td>
+<td style="text-align: center;"><code>true</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_FETCH_MODEL_NAME</code></td>
+<td>Model used by <code>web_fetch</code> to process page content with the prompt</td>
+<td style="text-align: center;"><code>openrouter:anthropic/claude-haiku-5.5</code></td>
+<td><code>openrouter:openai/gpt-4.1-mini</code></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_FETCH_CACHE_TTL_SECONDS</code></td>
+<td>Cache TTL (seconds) for repeated fetches</td>
+<td style="text-align: center;"><code>900</code></td>
+<td><code>1800</code></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_FETCH_TIMEOUT_SECONDS</code></td>
+<td>HTTP timeout for fetching (seconds)</td>
+<td style="text-align: center;"><code>15</code></td>
+<td><code>30</code></td>
+</tr>
+<tr>
+<td><code>AUTOMATION_WEB_FETCH_PROXY_URL</code></td>
+<td>Optional proxy URL for web fetch HTTP requests (env-only)</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>http://proxy:8080</code></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_FETCH_MAX_CONTENT_CHARS</code></td>
+<td>Max page content size (characters) to analyze in one pass</td>
+<td style="text-align: center;"><code>50000</code></td>
+<td><code>80000</code></td>
+</tr>
+<tr>
+<td><code>DAIV_WEB_FETCH_AUTH_HEADERS</code></td>
+<td>Domain-to-headers mapping for authenticated fetches (JSON). When set, it replaces the <strong>Per-domain auth headers</strong> rows of the <strong>Web Fetch</strong> group, which then show a lock badge</td>
+<td style="text-align: center;"><code>{}</code></td>
+<td><code>{"example.com": {"X-API-Key": "sk-abc"}}</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="artifacts">Artifacts</h3>
+<p>The <code>publish_artifact</code> tool stores files the agent generates (reports, datasets, charts) as run <a href="../../features/sessions/#artifacts">artifacts</a>, served from the dashboard. Files are written to Django's default file storage (<code>MEDIA_ROOT</code>, <code>~/data/media</code> in the containers), which the web and worker containers must share.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_ARTIFACT_MAX_BYTES</code></td>
+<td>Maximum size of one published file, in bytes (at most 64 MiB, the sandbox download limit)</td>
+<td style="text-align: center;"><code>10485760</code> (10 MiB)</td>
+<td><code>52428800</code></td>
+</tr>
+<tr>
+<td><code>DAIV_ARTIFACTS_PER_RUN_MAX</code></td>
+<td>Maximum number of files one run may publish</td>
+<td style="text-align: center;"><code>20</code></td>
+<td><code>50</code></td>
+</tr>
+<tr>
+<td><code>DAIV_TOOL_MEDIA_MAX_BYTES</code></td>
+<td>Maximum size of one image or file kept from a tool result for the transcript, in bytes</td>
+<td style="text-align: center;"><code>10485760</code> (10 MiB)</td>
+<td><code>20971520</code></td>
+</tr>
+<tr>
+<td><code>DAIV_TOOL_MEDIA_PER_RUN_MAX</code></td>
+<td>Maximum number of images and files kept from one run's tool results</td>
+<td style="text-align: center;"><code>100</code></td>
+<td><code>200</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="session-transcript">Session transcript</h3>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_SHOW_RAW_TOOL_DATA</code></td>
+<td>Show each tool call's raw arguments and result in a closed <strong>Raw</strong> section of the call's details in the session transcript (env-only)</td>
+<td style="text-align: center;"><em>(follows <code>DJANGO_DEBUG</code>)</em></td>
+<td><code>true</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="mcp-tools">MCP tools</h3>
+<p>MCP (Model Context Protocol) tools give the agent access to external services. DAIV stores MCP servers as database rows, which you manage at <code>/dashboard/mcp-servers/</code>, and connects to them directly, with no sidecar containers. For user-defined servers, see <a href="../../customization/mcp-tools/">MCP tools</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MCP_TOOL_LOAD_TIMEOUT</code></td>
+<td>Max seconds to wait for a single MCP server to return its tools before skipping it (keeps a broken/slow server from freezing chats and runs)</td>
+<td style="text-align: center;"><code>30</code></td>
+<td><code>10</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="deferred-tools">Deferred tools</h3>
+<p>With deferred tools on, DAIV loads tools outside the always-loaded set on demand through a <code>tool_search</code> tool, instead of binding them to the model up front. Most deployments do not need to change these variables.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DEFERRED_TOOLS_ENABLED</code></td>
+<td>Defer non-essential tools behind <code>tool_search</code> instead of binding them eagerly</td>
+<td style="text-align: center;"><code>true</code></td>
+<td><code>false</code></td>
+</tr>
+<tr>
+<td><code>DEFERRED_TOOLS_TOP_K_DEFAULT</code></td>
+<td>Default number of results returned by a <code>tool_search</code> call</td>
+<td style="text-align: center;"><code>3</code></td>
+<td><code>5</code></td>
+</tr>
+<tr>
+<td><code>DEFERRED_TOOLS_TOP_K_MAX</code></td>
+<td>Maximum number of results <code>tool_search</code> will return per call</td>
+<td style="text-align: center;"><code>10</code></td>
+<td><code>20</code></td>
+</tr>
+<tr>
+<td><code>DEFERRED_TOOLS_FROZEN_TOOLS_MODELS</code></td>
+<td>Prefix-matched model names whose bound tools array is kept frozen (loaded schemas reach them via <code>tool_search</code> results only), preserving the provider prompt cache. Empty list disables freezing.</td>
+<td style="text-align: center;"><code>claude-,anthropic/claude-,qwen/qwen3.8-max,minimax/minimax-m3,google/gemini-3.7-flash</code></td>
+<td><code>claude-</code></td>
+</tr>
+<tr>
+<td><code>DEFERRED_TOOLS_INLINE_TOOLS_MODELS</code></td>
+<td>Prefix-matched model names that get each loaded tool declared mid-conversation, right after the <code>tool_search</code> result that loaded it, through the provider's native mechanism (Anthropic <code>tool_addition</code>, OpenAI Responses <code>additional_tools</code>). The tools array stays frozen, so loading a tool keeps the prompt cache, and the model calls a declared tool. Applies only to models reached through the Anthropic API, or through an OpenAI-typed provider over the Responses API (the provider's Responses API setting is on, or the model is GPT 6, which langchain-openai sends there whenever tools are bound); on the Anthropic API, only to models langchain-anthropic keeps mid-conversation system messages in place for (not Claude Sonnet 5 or Haiku 5.5, for example). Empty list disables it.</td>
+<td style="text-align: center;"><code>claude-,gpt-6-sol,gpt-6-luna,gpt-5.6-luna</code></td>
+<td><code>claude-opus-5</code></td>
+</tr>
+<tr>
+<td><code>DEFERRED_TOOLS_EMBED_SCHEMAS_IN_RESULTS</code></td>
+<td>Embed each loaded tool's full schema in the <code>tool_search</code> result. Emergency valve: when <code>false</code>, results carry summaries only <strong>and freezing and inline definitions are forced off</strong>, so every model falls back to the array-append + summary pre-change behaviour.</td>
+<td style="text-align: center;"><code>true</code></td>
+<td><code>false</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="agents">Agents</h2>
+<p>These variables set the models and behavior of DAIV's agents. A repository can override the models in <code>.daiv.yml</code>; see <a href="../../customization/repository-config/#model-overrides">Model overrides</a>.</p>
+<h3 id="daiv-agent">DAIV agent</h3>
+<p>The main agent handles issue addressing, pull request assistance and all interactive tasks. Its variables use the <code>DAIV_AGENT_</code> prefix.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_AGENT_RECURSION_LIMIT</code></td>
+<td>Maximum recursion depth for agent execution</td>
+<td><code>500</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_MODEL_NAME</code></td>
+<td>Primary model for agent tasks</td>
+<td><code>openrouter:anthropic/claude-sonnet-5.5</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_FALLBACK_MODEL_NAME</code></td>
+<td>Fallback model if the primary model fails</td>
+<td><code>openrouter:openai/gpt-6.1-sol</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_THINKING_LEVEL</code></td>
+<td>Extended thinking level (<code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code>, in any case; empty or <code>off</code> to disable)</td>
+<td><code>medium</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_FALLBACK_THINKING_LEVEL</code></td>
+<td>Thinking level applied when the primary model fails over to the fallback model (same values as <code>DAIV_AGENT_THINKING_LEVEL</code>, set independently of it)</td>
+<td><code>medium</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_MAX_MODEL_NAME</code></td>
+<td>Model used when the <code>daiv-max</code> label is present</td>
+<td><code>openrouter:anthropic/claude-opus-5.5</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_MAX_THINKING_LEVEL</code></td>
+<td>Thinking level for <code>daiv-max</code> tasks (same values as <code>DAIV_AGENT_THINKING_LEVEL</code>)</td>
+<td><code>high</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_SKILL_MODELS</code></td>
+<td>Model and thinking level per skill name, as a JSON object whose values are a model string or <code>{"model", "thinking_level"}</code> (<code>{"code-review": {"thinking_level": "medium"}}</code>), <code>thinking_level</code> being one of <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> or <code>off</code>; see <a href="../../customization/agent-skills/#run-a-skill-on-another-model">Agent skills</a>. An empty entry, or one with neither field set, is unset; an unknown level is dropped and logged, and a malformed value is logged and ignored.</td>
+<td><code>{}</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_SUBAGENT_MODELS</code></td>
+<td>Model and thinking level per subagent name, as a JSON object whose values are a model string or <code>{"model", "thinking_level"}</code> (<code>{"explore": "openrouter:anthropic/claude-haiku-5.5"}</code>), with the same <code>thinking_level</code> values. See <a href="../../features/subagents/#subagent-model-precedence">Subagents</a>. An empty entry, or one with neither field set, is unset; an unknown level is dropped and logged, and a malformed value is logged and ignored. The deprecated <code>DAIV_AGENT_EXPLORE_MODEL_NAME</code> is read as the <code>explore</code> entry when there is none, and DAIV logs an error.</td>
+<td><code>{}</code></td>
+</tr>
+<tr>
+<td><code>DAIV_AGENT_CUSTOM_SKILLS_PATH</code></td>
+<td>Path to custom global skills directory. Set to <code>None</code> to disable.</td>
+<td><code>~/data/skills</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SESSION_LINK_ENABLED</code></td>
+<td>Link back to the DAIV sessions that produced the changes, from the descriptions of merge requests DAIV opens and from a DAIV-Session trailer on every commit. Disable to keep the DAIV URL off the git platform</td>
+<td><code>true</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="model-requests">Model requests</h3>
+<p>These bound every LLM API call, whatever the provider: the main agent, subagents, and the model-backed tasks (titling, memory, commit/PR writer, web fetch). Without them a stalled provider can block a run indefinitely.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_MODEL_REQUEST_TIMEOUT_SECONDS</code></td>
+<td>Per-request timeout for LLM API calls, in seconds. Minimum <code>1</code>.</td>
+<td><code>120</code></td>
+</tr>
+<tr>
+<td><code>DAIV_MODEL_MAX_RETRIES</code></td>
+<td>Retries for a failed LLM API call before the error propagates (<code>0</code> disables retries)</td>
+<td><code>2</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="jobs-api">Jobs API</h3>
+<p>The <a href="../../features/jobs-api/">Jobs API</a> runs the agent from your own code.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_JOBS_THROTTLE_RATE</code></td>
+<td>Rate limit for job submissions per authenticated user. Format: <code>N/sec</code>, <code>N/min</code>, <code>N/hour</code>, or <code>N/day</code>, or the short forms <code>N/s</code>, <code>N/m</code>, <code>N/h</code> and <code>N/d</code></td>
+<td><code>20/hour</code></td>
+</tr>
+<tr>
+<td><code>DAIV_JOBS_CI_IDENTITY_AUDIENCE</code></td>
+<td>The audience (<code>aud</code>) a <a href="../../features/jobs-api/#ci-identity-tokens">CI identity token</a> must carry. <em>env-only</em></td>
+<td><code>DAIV_EXTERNAL_URL</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="diff-to-metadata">Diff to metadata</h3>
+<p>Generates pull request titles, descriptions and commit messages from diffs.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_DIFF_TO_METADATA_MODEL_NAME</code></td>
+<td>Primary model for diff-to-metadata generation</td>
+<td><code>openrouter:google/gemini-3.8-flash</code></td>
+</tr>
+<tr>
+<td><code>DAIV_DIFF_TO_METADATA_FALLBACK_MODEL_NAME</code></td>
+<td>Fallback model if the primary model fails</td>
+<td><code>openrouter:deepseek/deepseek-v4.1-flash</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="titling">Titling</h3>
+<p>Generates short titles for sessions and runs from the user's initial prompt.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_TITLING_MODEL_NAME</code></td>
+<td>Primary model for title generation</td>
+<td><code>openrouter:openai/gpt-6-luna</code></td>
+</tr>
+<tr>
+<td><code>DAIV_TITLING_FALLBACK_MODEL_NAME</code></td>
+<td>Fallback model if the primary model fails</td>
+<td><code>openrouter:anthropic/claude-haiku-5.5</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="memory">Memory</h3>
+<p>Learns from finished runs, consolidates what they teach into a per-repository document, and injects it into future runs.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_MEMORY_ENABLED</code></td>
+<td>Capture learnings from finished runs, consolidate them, and inject them into future runs. A per-repository <code>.daiv.yml</code> flag can still opt an individual repository out</td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>DAIV_MEMORY_EXTRACTION_MODEL_NAME</code></td>
+<td>Cheap model that extracts candidate observations from each finished run's transcript</td>
+<td><code>openrouter:openai/gpt-6-luna</code></td>
+</tr>
+<tr>
+<td><code>DAIV_MEMORY_EXTRACTION_FALLBACK_MODEL_NAME</code></td>
+<td>Fallback model when the extraction model fails</td>
+<td><code>openrouter:anthropic/claude-haiku-5.5</code></td>
+</tr>
+<tr>
+<td><code>DAIV_MEMORY_CONSOLIDATION_MODEL_NAME</code></td>
+<td>Model that rewrites the memory document. Leave empty to reuse the repository's agent model</td>
+<td><em>(none)</em></td>
+</tr>
+<tr>
+<td><code>DAIV_MEMORY_CONSOLIDATION_MIN_PENDING</code></td>
+<td>Consolidate once at least this many pending observations have accumulated (subject to the consolidation interval below)</td>
+<td><code>10</code></td>
+</tr>
+<tr>
+<td><code>DAIV_MEMORY_CONSOLIDATION_MAX_PENDING_AGE_DAYS</code></td>
+<td>Consolidate a repository that is still below the threshold above once its oldest pending observation reaches this age, so low-volume repositories still form memory</td>
+<td><code>7</code></td>
+</tr>
+<tr>
+<td><code>DAIV_MEMORY_CONSOLIDATION_MIN_INTERVAL_HOURS</code></td>
+<td>Minimum hours between consolidations for the same repository</td>
+<td><code>24</code></td>
+</tr>
+<tr>
+<td><code>DAIV_MEMORY_MAX_LINES</code></td>
+<td>Cap on the memory document length in lines; entries beyond it are evicted</td>
+<td><code>200</code></td>
+</tr>
+<tr>
+<td><code>DAIV_MEMORY_MAX_BYTES</code></td>
+<td>Cap on the memory document size in bytes; entries beyond it are evicted</td>
+<td><code>10240</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="run-classifier">Run classifier</h3>
+<p>Classifies the report of each finished scheduled run into an envelope.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_RUN_CLASSIFIER_MODEL_NAME</code></td>
+<td>Model that classifies each finished scheduled run's report into an envelope</td>
+<td><code>openrouter:openai/gpt-6-luna</code></td>
+</tr>
+<tr>
+<td><code>DAIV_RUN_CLASSIFIER_FALLBACK_MODEL_NAME</code></td>
+<td>Fallback model when the classifier model fails</td>
+<td><code>openrouter:anthropic/claude-haiku-5.5</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="pipeline-watch">Pipeline watch</h3>
+<p>Watches the CI of merge requests DAIV publishes and spends a bounded number of agent runs fixing failures; see <a href="../../features/pipeline-watch/">Pipeline watch</a>.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Description</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_PIPELINE_WATCH_ENABLED</code></td>
+<td>Watch CI on merge requests DAIV publishes and try to fix failures</td>
+<td><code>true</code></td>
+</tr>
+<tr>
+<td><code>DAIV_PIPELINE_WATCH_MAX_ATTEMPTS</code></td>
+<td>How many fix attempts to spend on one merge request before handing back (at least 1)</td>
+<td><code>3</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="deployment-files">Deployment files</h2>
+<p>The sample deployment files set the variables below. The <code>DAIV_SANDBOX_*</code> variables configure the <a href="https://github.com/srtab/daiv-sandbox">daiv-sandbox</a> container, not the DAIV app, and Docker reads <code>DAIV_IMAGE_TAG</code> when it starts the stack.</p>
+<table>
+<thead>
+<tr>
+<th>Variable</th>
+<th>Read by</th>
+<th>Description</th>
+<th style="text-align: center;">Default</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>DAIV_SANDBOX_REDIS_URL</code></td>
+<td>Sandbox service</td>
+<td>Redis URL for per-session locking and for removing running sessions that stop receiving requests. Without it, the sandbox disables both and logs a warning</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>redis://redis:6379/3</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SANDBOX_EGRESS_CA_CERT_FILE</code></td>
+<td>Sandbox service</td>
+<td>Path to the egress CA certificate that the sandbox's egress proxy signs with. Set it together with the key file: the sandbox does not start with only one</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>/run/secrets/daiv_sandbox_egress_ca_cert</code></td>
+</tr>
+<tr>
+<td><code>DAIV_SANDBOX_EGRESS_CA_KEY_FILE</code></td>
+<td>Sandbox service</td>
+<td>Path to the egress CA private key. Without both files, the sandbox rejects sessions that need the egress proxy and the run fails</td>
+<td style="text-align: center;"><em>(none)</em></td>
+<td><code>/run/secrets/daiv_sandbox_egress_ca_key</code></td>
+</tr>
+<tr>
+<td><code>DAIV_IMAGE_TAG</code></td>
+<td>Docker</td>
+<td>Tag of the DAIV image that the sample services pull; pin it to roll back to a build</td>
+<td style="text-align: center;"><code>3.0.0</code></td>
+<td><code>sha-5e4f0d0</code></td>
+</tr>
+</tbody>
+</table>
+<p>To create the egress CA and store it as secrets, see <a href="../../getting-started/deployment/">Deployment</a>.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 24, 2026 00:50:26 UTC">November 24, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="May 13, 2025 21:42:40 UTC">May 13, 2025</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

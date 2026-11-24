@@ -1,0 +1,2282 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Run DAIV agents on a cron schedule across one or more repositories for recurring work such as dependency audits and nightly code-quality scans.">
+      
+      
+        <meta name="author" content="Sandro Rodrigues">
+      
+      
+        <link rel="canonical" href="https://docs.daivagent.com/latest/features/scheduled-jobs/">
+      
+      
+        <link rel="prev" href="../jobs-api/">
+      
+      
+        <link rel="next" href="../orchestration/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+  
+    
+      
+        <title>Scheduled jobs - DAIV</title>
+      
+    
+  
+
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+
+  <script defer src="https://cloud.umami.is/script.js" data-website-id="f2d8b948-0c1b-48e7-b0ca-e296f9d48863" data-domains="docs.daivagent.com" data-do-not-track="true"></script>
+
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  <meta name="theme-color" content="#0d1117">
+  <link rel="preload" href="../../assets/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  
+
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#scheduled-jobs" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAIV
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Scheduled jobs
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    DAIV
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts and roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issue-addressing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Issue addressing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pull-request-assistant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pull request assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline-watch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sessions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jobs-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scheduled jobs
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scheduled jobs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#create-a-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a schedule
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Create a schedule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#schedule-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schedule fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frequency-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frequency options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-scheduled-runs-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How scheduled runs start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#time-zone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Time zone
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manage-schedules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manage schedules
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage schedules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a schedule
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-schedule-cant-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a schedule can't run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subscribers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subscribers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scheduled-jobs-and-the-jobs-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scheduled jobs and the jobs API
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schedule-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schedule templates
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Schedule templates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-a-schedule-from-a-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start a schedule from a template
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create-a-schedule-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a schedule template
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-schedule-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a schedule template
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../orchestration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../merge-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Merge metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slash-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slash commands and skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../browser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/rt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Request Tracker triage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Customization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/repository-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/env-variables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#create-a-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a schedule
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Create a schedule">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#schedule-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schedule fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#frequency-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Frequency options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-scheduled-runs-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How scheduled runs start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#time-zone" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Time zone
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manage-schedules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manage schedules
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage schedules">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-schedule" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a schedule
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-a-schedule-cant-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When a schedule can't run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#subscribers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Subscribers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scheduled-jobs-and-the-jobs-api" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scheduled jobs and the jobs API
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#schedule-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Schedule templates
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Schedule templates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-a-schedule-from-a-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start a schedule from a template
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create-a-schedule-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a schedule template
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-schedule-template" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a schedule template
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../issue-addressing/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Features
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/scheduled-jobs.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="scheduled-jobs">Scheduled jobs</h1>
+<p>Scheduled jobs run DAIV agents on a recurring basis, with no CI pipeline or cron script. You give a prompt, one or more repositories and a frequency, and DAIV starts the runs when they are due.</p>
+<p>Use a schedule for recurring work such as a weekly dependency audit, a nightly code-quality scan, closing stale branches every Monday, a periodic summary of recent changes for a changelog draft, or a check for TODO comments or outdated documentation.</p>
+<h2 id="create-a-schedule">Create a schedule</h2>
+<p>You need access to the repositories you want to run against. A schedule runs with its owner's repository permissions, so DAIV must be able to confirm that you have write access to each repository; see <a href="#when-a-schedule-cant-run">When a schedule can't run</a>.</p>
+<ol>
+<li>In the sidebar, select <strong>Manage schedules</strong>, the list icon beside <strong>Scheduled</strong>.</li>
+<li>Select <strong>Create schedule</strong>.</li>
+<li>Enter a <strong>Name</strong>, for example <code>Weekly dep audit</code>.</li>
+<li>In the prompt box, describe what the agent does in each run.</li>
+<li>Select <strong>Add repository</strong> and choose one to 20 repositories. Each entry has its own branch; leave it on the default to start from the repository's default branch.</li>
+<li>Choose a <strong>Frequency</strong>, then fill the field it shows (see <a href="#frequency-options">Frequency options</a>).</li>
+<li>Optionally set the other fields in <a href="#schedule-fields">Schedule fields</a>.</li>
+<li>Select <strong>Create schedule</strong>.</li>
+</ol>
+<p>The schedule is active as soon as you save it. To pause it, see <a href="#manage-schedules">Manage schedules</a>.</p>
+<h3 id="schedule-fields">Schedule fields</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Name</strong></td>
+<td>A short label for the schedule.</td>
+</tr>
+<tr>
+<td>Prompt box</td>
+<td>What the agent does. It has the same form as a <a href="../jobs-api/">jobs API</a> prompt.</td>
+</tr>
+<tr>
+<td>Repositories</td>
+<td>One to 20 repositories, each with its own branch. A merge or pull request a run opens targets that branch, and DAIV assigns it to the schedule's owner when their DAIV account is OAuth-linked to the git platform. Each run fans out into one agent run per repository.</td>
+</tr>
+<tr>
+<td>Agent picker</td>
+<td>The model and thinking level the runs use. The picker starts on the instance's default model, and the schedule stores the model it shows. A run tries that model first, then the repository's <code>models.agent</code> model as a fallback. A schedule created over MCP without <code>agent_model</code> has no stored model and uses the repository's model, else the system default; see <a href="../mcp-endpoint/#schedule_job-parameters"><code>schedule_job</code> parameters</a>.</td>
+</tr>
+<tr>
+<td>Environment picker</td>
+<td>The named <a href="../sandbox/">sandbox</a> environment the runs use. It defaults to <strong>Auto</strong>, which resolves an environment for each repository.</td>
+</tr>
+<tr>
+<td><strong>Frequency</strong></td>
+<td>How often the schedule runs; see <a href="#frequency-options">Frequency options</a>.</td>
+</tr>
+<tr>
+<td><strong>Time</strong></td>
+<td>The time of day for <strong>Daily</strong>, <strong>Weekdays</strong> and <strong>Weekly</strong> schedules.</td>
+</tr>
+<tr>
+<td><strong>Cron Expression</strong></td>
+<td>The five-field cron expression for a <strong>Custom</strong> schedule.</td>
+</tr>
+<tr>
+<td><strong>Date &amp; time</strong></td>
+<td>The moment a <strong>Once</strong> schedule fires.</td>
+</tr>
+<tr>
+<td><strong>Intent</strong></td>
+<td>What the schedule is for: <strong>Watch &amp; find</strong>, <strong>Do &amp; change</strong> or <strong>Report</strong>. The default is <strong>Watch &amp; find</strong>.</td>
+</tr>
+<tr>
+<td><strong>Mute notifications</strong></td>
+<td>Silences all notifications for this schedule's runs, in-app and external. Off by default. The owner still gets the <a href="#when-a-schedule-cant-run">Schedule can't run</a> notice.</td>
+</tr>
+<tr>
+<td><strong>Subscribers</strong></td>
+<td>Other DAIV users who get the finish notifications; see <a href="#subscribers">Subscribers</a>.</td>
+</tr>
+<tr>
+<td><strong>Enabled</strong></td>
+<td>On the edit page only. When off, the schedule does not run until you turn it on again.</td>
+</tr>
+</tbody>
+</table>
+<p>Schedule times are read in the instance's fixed time zone, and a schedule has no time zone of its own; see <a href="#time-zone">Time zone</a>.</p>
+<h2 id="frequency-options">Frequency options</h2>
+<table>
+<thead>
+<tr>
+<th>Frequency</th>
+<th>Cron equivalent</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Hourly</strong></td>
+<td><code>0 * * * *</code></td>
+<td>Runs at the top of every hour.</td>
+</tr>
+<tr>
+<td><strong>Daily</strong></td>
+<td><code>{mm} {HH} * * *</code></td>
+<td>Runs once a day at the time you set.</td>
+</tr>
+<tr>
+<td><strong>Weekdays</strong></td>
+<td><code>{mm} {HH} * * 1-5</code></td>
+<td>Runs Monday through Friday at the time you set.</td>
+</tr>
+<tr>
+<td><strong>Weekly</strong></td>
+<td><code>{mm} {HH} * * 1</code></td>
+<td>Runs every Monday at the time you set.</td>
+</tr>
+<tr>
+<td><strong>Custom</strong></td>
+<td>Your expression</td>
+<td>Any valid five-field cron expression: minute, hour, day of month, month, day of week. For example <code>0 */6 * * *</code> runs every 6 hours, and <code>0 9 1-7 * 1</code> runs on the first Monday of the month.</td>
+</tr>
+<tr>
+<td><strong>Once</strong></td>
+<td>None</td>
+<td>Runs a single time at the <strong>Date &amp; time</strong> you set.</td>
+</tr>
+</tbody>
+</table>
+<p>A <strong>Once</strong> schedule runs one time, then retires: DAIV disables it, gives it no next run, and shows it as a read-only <strong>Fired</strong> card. You cannot re-enable a fired one-off schedule; use <strong>Duplicate</strong> to run it again (see <a href="#manage-schedules">Manage schedules</a>).</p>
+<h2 id="how-scheduled-runs-start">How scheduled runs start</h2>
+<p>Every minute, DAIV checks for enabled schedules that are due. For each one it:</p>
+<ol>
+<li>Starts one agent run per target repository, through the same task backend as the <a href="../jobs-api/">jobs API</a>, and records the batch ID.</li>
+<li>Records the run time and adds one to the run count.</li>
+<li>Works out the next run time from the schedule's frequency. A <strong>Once</strong> schedule retires instead.</li>
+</ol>
+<p>If a schedule fails to start, DAIV still moves its next run time forward, so it does not fire again every minute. If even that recovery fails, DAIV disables the schedule. Either way, DAIV records the failure on the schedule and tells the owner; see <a href="#when-a-schedule-cant-run">When a schedule can't run</a>.</p>
+<p>A schedule never starts twice when a check overruns the minute, and one schedule's failure does not stop the others. A schedule whose owner is inactive is skipped. After downtime, the times a schedule missed collapse into a single run, and DAIV then moves to the next time after now.</p>
+<p>A scheduled run cannot ask you a question, because nobody is there to answer. The agent does not get the ask-the-user tool.</p>
+<h2 id="time-zone">Time zone</h2>
+<p>DAIV reads schedule times in the <code>Europe/Lisbon</code> time zone, and a schedule has no time zone of its own. A daily schedule set to 09:00 fires at 09:00 <code>Europe/Lisbon</code> all year, across daylight saving changes. The zone is fixed in the settings; see <a href="../../reference/env-variables/#time-zone">Time zone</a>.</p>
+<h2 id="manage-schedules">Manage schedules</h2>
+<p>On the <strong>Scheduled Jobs</strong> page, each schedule has an actions menu:</p>
+<ul>
+<li><strong>Pause</strong> or <strong>Resume</strong> the schedule, without opening the edit page.</li>
+<li><strong>Run now</strong> to start a batch immediately instead of waiting for the next scheduled time. You land on the resulting session, or on the <a href="../sessions/">Sessions</a> list filtered to the batch when it spans several repositories.</li>
+<li><strong>Duplicate</strong> the schedule to create a new one pre-filled from it. It is the only way to run a fired one-off schedule again.</li>
+<li><strong>Delete</strong> the schedule; see <a href="#delete-a-schedule">Delete a schedule</a>.</li>
+</ul>
+<p>A fired one-off schedule offers only <strong>Duplicate</strong> and <strong>Delete</strong>. To change a schedule, including its <strong>Enabled</strong> setting, select its card to open the edit page.</p>
+<p>Each schedule card shows its name, its status (<strong>Active</strong>, <strong>Failing</strong>, <strong>Paused</strong> or <strong>Fired</strong>), its frequency, its target repository (or "<em>N</em> repositories" when it has several), its next and last run times, its run count and its owner's avatar. Selecting the run count opens the <strong>Sessions</strong> list filtered to that schedule's sessions.</p>
+<p>Non-admin users see only their own schedules. Admins see everyone's, and the owner avatar on each card shows whose it is.</p>
+<h3 id="delete-a-schedule">Delete a schedule</h3>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Deleting a schedule removes it permanently and cannot be undone. A run that is already running completes, but DAIV starts no new runs. The sessions the schedule produced remain, but its subscribers lose access to them.</p>
+</div>
+<ol>
+<li>In the schedule's actions menu, select <strong>Delete</strong>, or select <strong>Delete schedule</strong> on its edit page.</li>
+<li>On the confirmation page, select <strong>Delete schedule</strong>.</li>
+</ol>
+<h2 id="when-a-schedule-cant-run">When a schedule can't run</h2>
+<p>A scheduled run can fail to start. Most often, DAIV could not confirm that the schedule's owner has write access to one of its repositories, because schedules run with their owner's repository permissions. It can also be an unexpected error, including every repository in the batch failing to start. When that happens:</p>
+<ul>
+<li>The schedule card shows <strong>Failing</strong> with the reason, and the edit page explains how to fix it. A paused schedule reads <strong>Paused</strong> but keeps the reason.</li>
+<li>The owner gets one <strong>Schedule can't run</strong> <a href="../notifications/">notification</a> per failing streak, even when the schedule is muted. Subscribers get none, since they cannot fix the owner's access.</li>
+<li>A recurring schedule keeps trying at each scheduled time. A one-off schedule retires; give it a new date and time and enable it to try again.</li>
+</ul>
+<p>The failing state clears at the next scheduled run that starts, or when you change the schedule's repositories. <strong>Run now</strong> does not clear it.</p>
+<h2 id="subscribers">Subscribers</h2>
+<p>A schedule's owner can add other DAIV users as subscribers, who get the schedule's finish notifications. A subscriber:</p>
+<ul>
+<li>Receives the same notifications as the owner on notify-worthy outcomes, unless the schedule is muted. Muting silences the owner and every subscriber alike, and there is no per-subscriber setting. The outcomes are found issues, needs attention, needs input and failed.</li>
+<li>Gets read-only access to the sessions the schedule produces: the session detail, transcript and run timeline.</li>
+<li>Does not see the schedule in their own list, and cannot edit, pause, run or delete it.</li>
+</ul>
+<p>Only the owner or an admin can change a schedule's subscribers.</p>
+<p>To add a subscriber:</p>
+<ol>
+<li>Open the schedule's form and find <strong>Subscribers</strong>.</li>
+<li>Select <strong>Add subscriber</strong> and search for a user by username, email or name.</li>
+<li>Select a result to add the user.</li>
+<li>Select <strong>Save changes</strong>.</li>
+</ol>
+<p>To remove a subscriber, select the × on their chip in <strong>Subscribers</strong>, then select <strong>Save changes</strong>. A subscriber cannot unsubscribe themselves; ask the owner or an admin.</p>
+<h2 id="scheduled-jobs-and-the-jobs-api">Scheduled jobs and the jobs API</h2>
+<p>Scheduled jobs and the <a href="../jobs-api/">jobs API</a> start the same kind of agent run. They differ in what starts it:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Jobs API</th>
+<th>Scheduled jobs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Trigger</strong></td>
+<td>An HTTP request</td>
+<td>The schedule, on its own</td>
+</tr>
+<tr>
+<td><strong>Authentication</strong></td>
+<td>API key</td>
+<td>Dashboard sign-in</td>
+</tr>
+<tr>
+<td><strong>Management</strong></td>
+<td>Programmatic</td>
+<td>Web UI</td>
+</tr>
+<tr>
+<td><strong>Use</strong></td>
+<td>A one-off or script-driven run</td>
+<td>A recurring run</td>
+</tr>
+</tbody>
+</table>
+<p>To create schedules from a script, call the <a href="../mcp-endpoint/#schedule_job-parameters"><code>schedule_job</code> tool of the MCP endpoint</a>, or trigger runs from an external scheduler, such as a GitLab CI scheduled pipeline or system cron, through the jobs API.</p>
+<h2 id="schedule-templates">Schedule templates</h2>
+<p>A schedule template is a reusable starting point for a schedule. It carries the same settings as a schedule (prompt, default repositories, frequency, time or cron expression, agent model and thinking level, intent and mute setting), plus an optional description that helps people choose. A template has no sandbox environment and no <strong>Date &amp; time</strong>. When you start a schedule from a template, DAIV copies the template's values into the schedule form, and you can change any of them before you save. Editing or deleting a template never changes the schedules made from it.</p>
+<h3 id="start-a-schedule-from-a-template">Start a schedule from a template</h3>
+<p>You need at least one template; an admin creates them. Then:</p>
+<ol>
+<li>Open the template gallery from the <strong>Schedules</strong> page, with <strong>From template</strong> or, on an empty list, <strong>Start from template</strong>. In the create form, use <strong>Browse templates</strong>.</li>
+<li>Search for a template. Each card shows its name, frequency, default repositories and description, and you can expand it for the full detail.</li>
+<li>Select <strong>Use</strong> on the template you want. If the create form has unsaved changes, DAIV asks <code>Discard your current changes and apply this template?</code> so you do not lose work.</li>
+<li>Adjust the pre-filled fields, then select <strong>Create schedule</strong>.</li>
+</ol>
+<h3 id="create-a-schedule-template">Create a schedule template</h3>
+<p>Creating templates needs the admin role.</p>
+<ol>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Schedule templates</strong>.</li>
+<li>Select <strong>New template</strong>.</li>
+<li>Fill in the <strong>Name</strong> and an optional <strong>Description</strong>, then the same settings as a schedule. Repositories are optional: leave them empty to let people choose when they create the schedule.</li>
+<li>Select <strong>Create template</strong>.</li>
+</ol>
+<h3 id="delete-a-schedule-template">Delete a schedule template</h3>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>Deleting a template removes it from the gallery and cannot be undone. Schedules made from it are unchanged.</p>
+</div>
+<p>Open the template and select <strong>Delete template</strong>, then confirm with <strong>Delete template</strong>.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 14:00:55 UTC">November 12, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="April 7, 2026 10:42:35 UTC">April 7, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

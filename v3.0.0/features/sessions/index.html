@@ -1,0 +1,2989 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Every DAIV agent execution is recorded as a session: chat with the agent live, start background runs, and review transcripts, timelines and usage.">
+      
+      
+        <meta name="author" content="Sandro Rodrigues">
+      
+      
+        <link rel="canonical" href="https://docs.daivagent.com/latest/features/sessions/">
+      
+      
+        <link rel="prev" href="../memory/">
+      
+      
+        <link rel="next" href="../jobs-api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+  
+    
+      
+        <title>Sessions - DAIV</title>
+      
+    
+  
+
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+
+  <script defer src="https://cloud.umami.is/script.js" data-website-id="f2d8b948-0c1b-48e7-b0ca-e296f9d48863" data-domains="docs.daivagent.com" data-do-not-track="true"></script>
+
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  <meta name="theme-color" content="#0d1117">
+  <link rel="preload" href="../../assets/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  
+
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sessions" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAIV
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Sessions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    DAIV
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts and roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../issue-addressing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Issue addressing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pull-request-assistant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pull request assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../pipeline-watch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#who-can-see-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can see a session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sessions-and-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sessions and runs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sessions and runs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#session-origins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session origins
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-app-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The app sidebar
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#home" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Home
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#insights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Insights
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sessions-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sessions list
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sessions list">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#filter-the-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Filter the list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#group-and-sort-the-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group and sort the list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#archived-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archived sessions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Archived sessions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#archive-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archive a session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unarchive-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unarchive a session
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session detail
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Session detail">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The sidebar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#images-and-files-in-tool-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Images and files in tool results
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Artifacts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#artifact-viewers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifact viewers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#revise-an-artifact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Revise an artifact
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-a-chat-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start a chat session
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Start a chat session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-a-chat-over-several-repositories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start a chat over several repositories
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chat-workspace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat workspace
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chat workspace">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model-thinking-level-and-sandbox-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model, thinking level and sandbox environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expired-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expired sessions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#answer-a-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Answer a question
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-a-background-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start a background run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Start a background run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#background-run-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background run fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retry-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retry a run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-session-inbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The session inbox
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linking-back-to-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linking back to sessions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../jobs-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../scheduled-jobs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scheduled jobs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../orchestration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../merge-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Merge metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../slash-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slash commands and skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../browser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/rt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Request Tracker triage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Customization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/repository-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/env-variables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#who-can-see-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who can see a session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sessions-and-runs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sessions and runs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sessions and runs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#session-origins" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session origins
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-app-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The app sidebar
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#home" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Home
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#insights" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Insights
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sessions-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sessions list
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sessions list">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#filter-the-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Filter the list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#group-and-sort-the-list" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Group and sort the list
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#archived-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archived sessions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Archived sessions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#archive-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Archive a session
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#unarchive-a-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unarchive a session
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-detail" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session detail
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Session detail">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-sidebar" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The sidebar
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#images-and-files-in-tool-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Images and files in tool results
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifacts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Artifacts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#artifact-viewers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Artifact viewers
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#revise-an-artifact" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Revise an artifact
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-a-chat-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start a chat session
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Start a chat session">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#start-a-chat-over-several-repositories" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start a chat over several repositories
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#chat-workspace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat workspace
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Chat workspace">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#model-thinking-level-and-sandbox-environment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model, thinking level and sandbox environment
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#expired-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expired sessions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#answer-a-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Answer a question
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#start-a-background-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Start a background run
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Start a background run">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#background-run-fields" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Background run fields
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retry-a-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retry a run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-session-inbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The session inbox
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#linking-back-to-sessions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linking back to sessions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../issue-addressing/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Features
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/srtab/daiv/edit/main/docs/features/sessions.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="sessions">Sessions</h1>
+<p>DAIV records every agent execution in a <strong>session</strong>: one persistent conversation with the agent, tied to a repository and ref. Every way you can trigger DAIV (webhooks, the jobs API, the MCP endpoint, scheduled jobs, or a chat you type yourself) produces a session, and every time the agent runs in that session adds a <strong>run</strong> to it.</p>
+<p>Your own sessions are listed in the <a href="#the-app-sidebar">app sidebar</a>. The search icon beside its <strong>Sessions</strong> heading opens the full list (<code>/dashboard/sessions/</code>), with every session you can see. A session's page holds its transcript, its run timeline, and its timing and usage.</p>
+<h2 id="who-can-see-a-session">Who can see a session</h2>
+<p>Admins see every session on every repository. Other users see their own sessions, sessions on repositories they can read on the Git platform, the sessions started by a GitLab or GitHub account they signed in to DAIV with (matched by the account's id, not its username), and the sessions of <a href="../scheduled-jobs/">scheduled jobs</a> they subscribe to. The same scoping applies to a session's page, its live updates and its retries.</p>
+<h2 id="sessions-and-runs">Sessions and runs</h2>
+<p>A session is the conversation. It has a repository, a ref, an origin (how it was first triggered), a title, and an optional link to an issue, a merge request, a schedule or a user.</p>
+<p>A run is one agent execution inside a session. Retries, chat turns and API submissions that continue the session each add a run to the same session.</p>
+<p>A run starts as <strong>Queued</strong> (waiting for the session's current run to end) or <strong>Pending</strong>, then becomes <strong>Running</strong>, and ends as <strong>Done</strong>, <strong>Needs input</strong> or <strong>Failed</strong>.</p>
+<p>A run's record, with its token usage and cost, stays after DAIV deletes its full result: <a href="../jobs-api/#poll-job-status">Poll job status</a> describes what a finished run's <code>result</code> holds by then.</p>
+<p>A chat is a session whose origin is <strong>Chat</strong>, and each message you send is a run. A webhook event on an issue or merge request creates a session tied to it, and the single agent invocation is its first run.</p>
+<p>A session can also span several repositories. A <a href="../jobs-api/#multi-repository-sessions">jobs API</a> or MCP request with <code>shared_session</code> opens one session over up to 5 repositories, the first being the main one. The agent edits them together, each changed repository gets its own merge request, and the session page lists every repository and merge request. Only admins and users who can read all of its repositories can see such a session.</p>
+<h3 id="session-origins">Session origins</h3>
+<p>Each session carries the origin that created it:</p>
+<table>
+<thead>
+<tr>
+<th>Origin</th>
+<th>Source</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Chat</strong></td>
+<td>The dashboard chat</td>
+<td>You type a prompt and read the reply as it streams</td>
+</tr>
+<tr>
+<td><strong>API Run</strong></td>
+<td><a href="../jobs-api/">Jobs API</a> <code>POST /api/jobs</code></td>
+<td>A CI pipeline or script submits a prompt</td>
+</tr>
+<tr>
+<td><strong>MCP Run</strong></td>
+<td><a href="../mcp-endpoint/">MCP endpoint</a> <code>submit_job</code> tool</td>
+<td>Claude Code or Cursor delegates a task</td>
+</tr>
+<tr>
+<td><strong>Scheduled Run</strong></td>
+<td><a href="../scheduled-jobs/">Scheduled jobs</a> dispatch</td>
+<td>A weekly dependency audit fires on Monday</td>
+</tr>
+<tr>
+<td><strong>Background Run</strong></td>
+<td>The dashboard's <a href="#start-a-background-run">background run</a> form</td>
+<td>You start a run from the dashboard</td>
+</tr>
+<tr>
+<td><strong>Issue Webhook</strong></td>
+<td>A GitLab or GitHub issue event</td>
+<td>An issue is labelled <code>daiv</code></td>
+</tr>
+<tr>
+<td><strong>MR/PR Webhook</strong></td>
+<td>A GitLab or GitHub merge request event</td>
+<td>A reviewer mentions <code>@daiv</code> on a merge request</td>
+</tr>
+<tr>
+<td><strong>Pipeline Webhook</strong></td>
+<td>A CI result that DAIV's <a href="../pipeline-watch/">pipeline watch</a> acts on</td>
+<td>DAIV starts a run to fix a failed pipeline on a merge request it published</td>
+</tr>
+<tr>
+<td><strong>Delegated Run</strong></td>
+<td>A coordinator's <code>delegate_jobs</code> call (<a href="../orchestration/">orchestration</a>), including a leg follow-up that continues the session</td>
+<td>One repository's part of a multi-repository change</td>
+</tr>
+<tr>
+<td><strong>Delegation Resume</strong></td>
+<td>The run that resumes a coordinator once its delegated batch has finished (<a href="../orchestration/">orchestration</a>)</td>
+<td>The coordinator checks every leg's outcome and reports</td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-app-sidebar">The app sidebar</h2>
+<p>The sidebar lists your sessions, so any of them is one click away from every page:</p>
+<ul>
+<li><strong>Sessions</strong>: your own sessions, most recently active first, 8 at a time. <strong>Show more</strong> adds 8, up to 80; past that it opens the sessions list. A pulsing dot marks a running session, a diamond one waiting for your input, and a red edge one that failed; other sessions have no mark. An icon on the right shows that the session has a merge request: green while it is open, grey once merged, red if closed. Hover a row to see when the session was last active and to show its <strong>⋯</strong> menu (on a touch screen <strong>⋯</strong> is always there): open the merge request, copy the session's link, open it in a new tab, or archive it. The session you are viewing is always in the list. Sessions a schedule started are listed under their schedule instead. Beside the heading, the search icon (shortcut <code>/</code>) opens the sessions list with its search box focused, and <strong>+</strong> starts a chat.</li>
+<li><strong>Scheduled</strong>: up to 10 schedules you own or subscribe to that are enabled or ran in the last 14 days, each with its next run. Expand one for its 3 latest runs: one row per run of the schedule, with the worst status across its repositories and, past one, how many repositories it ran on. A run on one repository opens its session; a wider one opens the sessions it started. <strong>All runs</strong> lists every session of the schedule, and the list icon beside the heading opens the schedules page. A schedule whose latest run failed or is waiting for input starts expanded; otherwise this browser remembers whether you expanded it.</li>
+<li><strong>Settings</strong>, the cog beside your account, slides in the pages you set up once (<strong>Sandbox environments</strong>, <strong>MCP servers</strong> and <strong>Memory</strong>, under <strong>Agent setup</strong>, and for admins <strong>Users</strong>, <strong>Configuration</strong>, <strong>Schedule templates</strong>, <strong>Skills</strong> and <strong>Global MCP servers</strong>, under <strong>Admin</strong>) along with the documentation links. Nothing changes on the page until you pick one. <strong>Back</strong> (or Escape) slides your sessions back in.</li>
+</ul>
+<p>The lists update as runs start and finish, without a reload. Where the sidebar narrows to icons, <strong>+</strong> starts a chat, the magnifier opens the session search, and <strong>Sessions</strong> and <strong>Scheduled</strong> open their pages.</p>
+<p>To see more of long titles, drag the sidebar's right edge to widen it, or focus the edge and use the arrow keys; double-click the edge to reset it. This browser remembers the width. The sidebar never takes so much room that the page beside it gets cramped, so on smaller windows it widens less.</p>
+<h2 id="home">Home</h2>
+<p><strong>Home</strong> (<code>/dashboard/</code>) opens with <strong>Needs you</strong>: what is waiting on you, up to 8 items. Questions come first, then failures (<strong>Failed</strong>, <strong>CI still failing</strong>, <strong>Can't run</strong>), then <strong>Found issues</strong>, then <strong>Needs attention</strong>; newest first within each.</p>
+<ul>
+<li><strong>Needs input</strong>: your session's latest run asked you a question. The item leaves when you answer.</li>
+<li><strong>Failed</strong>: your session's latest run failed. The item leaves once a newer run starts in the session (<strong>Retry</strong> starts one), once you run the same prompt on the same repository again, or 14 days after the failure. The session stays in <strong>Sessions</strong>. A run you cancelled does not count.</li>
+<li><strong>CI still failing</strong>: DAIV's CI watch on a merge request gave up. The item shows for 7 days.</li>
+<li><strong>Can't run</strong>: one of your schedules cannot start its runs. The item leaves when the schedule starts a run again or you pause it.</li>
+<li><strong>Found issues</strong> and <strong>Needs attention</strong>: your session's latest run was classified that way. The item shows for 7 days, because a fix made outside DAIV leaves no trace DAIV can see.</li>
+</ul>
+<p>A session counts once, as the first of these it matches: a question in a session whose CI watch gave up shows as <strong>Needs input</strong>. A session with no activity for 90 days leaves the list.</p>
+<p>Below <strong>Needs you</strong>, Home shows <strong>Your week</strong>: what the runs in your own sessions came to over the last 7 days. A column per day is stacked by outcome (<strong>Changed code</strong>, <strong>Done, no changes</strong>, <strong>Needed you</strong>, <strong>Failed</strong>), and the section lists the merge requests those runs worked on and where you started work from. A day's column opens your sessions that ran that day. Your recent sessions are in the <a href="#the-app-sidebar">app sidebar</a>.</p>
+<p>Last comes <strong>Ways to use DAIV</strong>: how to start work from your Git platform (issue labels, mentions and slash commands), from your editor (this instance's MCP URL), and right here (<strong>New chat</strong> and <strong>New background run</strong>). Fold it away with <strong>Hide</strong>; this browser remembers. A user who has not started a run yet sees only <strong>Needs you</strong> and <strong>Ways to use DAIV</strong>.</p>
+<p>Team statistics are on <strong>Insights</strong>, linked as <strong>Team insights</strong> at the top of Home.</p>
+<h2 id="insights">Insights</h2>
+<p><strong>Insights</strong> has two tabs. <strong>Activity</strong> (<code>/dashboard/insights/</code>) shows how DAIV is used across the repositories you can see, and <strong>Spend</strong> shows what it spent; <a href="../spend/">Spend</a> describes that tab. On <strong>Activity</strong>, choose a period: <strong>Today</strong>, <strong>7 days</strong> (the default), <strong>30 days</strong>, <strong>90 days</strong> or <strong>All time</strong>.</p>
+<ul>
+<li><strong>Agent activity</strong>: runs, success rate, runs that changed code and average duration, each compared with the period of the same length immediately before, up to the same time of day (the page names both periods).</li>
+<li><strong>Runs over time</strong>: a column per day (per week for 30 and 90 days, per month for all time), stacked by outcome: changed code, done without changes, needs input, failed. A column opens the sessions active in its days. The chart is hidden for <strong>Today</strong>.</li>
+<li><strong>Sessions by origin</strong>: each origin's sessions this period and the period before, the change, and a small bar per day. Every count for this period opens the session list it counts. The previous period and the bars count sessions with a run in those days, so later activity does not move them.</li>
+<li><strong>Code velocity</strong>: see <a href="../merge-metrics/">merge metrics</a>.</li>
+</ul>
+<h2 id="sessions-list">Sessions list</h2>
+<p><strong>Sessions</strong> lists sessions, most recently active first. Each row shows:</p>
+<ul>
+<li>A status dot while the latest run is <strong>Running</strong> (it pulses) or <strong>Needs input</strong> (a diamond). A failed latest run marks the row with a red edge. Other states have no mark.</li>
+<li>The title, generated from the first prompt or the issue or merge request subject, and beside it the merge request when there is one.</li>
+<li>Under the title, the repository and the branch.</li>
+<li>An icon for the session's <a href="#session-origins">origin</a>.</li>
+<li>The latest run's model and the session's run spend, then how long ago the session was last active, such as <code>5m</code>, <code>3h</code>, <code>13d</code> or <code>3w</code>, and the owner. Hover over the model for its provider, over the time for the date and time, and over the owner for their name. The run's duration is on the session's page. Run spend is the priced cost of the session's runs, the figure its <strong>Spend</strong> section totals; background spend is left out.</li>
+</ul>
+<p>An API or MCP job that continues a busy session does not start at once. It joins the session's next run for its branch, shown as <strong>Queued</strong>, which starts when the current run ends (<a href="#the-session-inbox">The session inbox</a> describes how).</p>
+<p>The list shows your own sessions (<strong>Mine</strong>) or everyone's you can see (<strong>Everyone</strong>). A link that carries a repository, merge request, schedule, batch or spend filter opens on <strong>Everyone</strong>.</p>
+<h3 id="filter-the-list">Filter the list</h3>
+<p>Search matches a session's title or repository. <strong>Filter</strong> (or the <code>F</code> key) opens the list of filters; pick one to see its values, and pick a value to apply it. Type in the box at the top of the menu to find a filter. <strong>Repository</strong>, <strong>Spent by</strong>, <strong>Model</strong> and <strong>Provider</strong> list their 50 most recently used values; type to find any other.</p>
+<table>
+<thead>
+<tr>
+<th>Filter</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Status</strong></td>
+<td><strong>Needs input</strong>, <strong>Failed</strong>, <strong>Running</strong>, <strong>Queued</strong>, <strong>Pending</strong> or <strong>Done</strong>, by the session's latest run</td>
+</tr>
+<tr>
+<td><strong>Type</strong></td>
+<td>One <a href="#session-origins">origin</a></td>
+</tr>
+<tr>
+<td><strong>Active</strong></td>
+<td>When the session was last active: <strong>Today</strong>, <strong>Last 2 days</strong>, <strong>Last 7 days</strong>, <strong>Last 30 days</strong>, or a <strong>Custom range</strong> of two dates</td>
+</tr>
+<tr>
+<td><strong>Repository</strong></td>
+<td>One repository of the sessions in <strong>Mine</strong> or <strong>Everyone</strong>; clearing it clears the merge request too</td>
+</tr>
+<tr>
+<td><strong>Spent by</strong>, <strong>Model</strong>, <strong>Provider</strong></td>
+<td>Sessions with spend by that person, on that model or through that provider. The choices are those in the spend records you can see. These filters show only when you can see spend</td>
+</tr>
+</tbody>
+</table>
+<p>Each filter you apply shows as a chip under the toolbar, with the count on the <strong>Filter</strong> button. Select a chip to change its value, or its clear button to remove it; <strong>Clear all</strong> clears every chip, the search and a <strong>From Spend</strong> line, and keeps <strong>Mine</strong> or <strong>Everyone</strong>, the sort and the grouping.</p>
+<p>Five more chips come only from links:</p>
+<table>
+<thead>
+<tr>
+<th>Chip</th>
+<th>Where the link comes from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Merge request</strong></td>
+<td>The <strong>view sessions</strong> link in a merge request description, or a repository card's menu; always paired with a repository, since merge request numbers are per project</td>
+</tr>
+<tr>
+<td><strong>Ran on</strong></td>
+<td>A day's column in <strong>Your week</strong> on <strong>Home</strong> or in <strong>Runs over time</strong> on <strong>Insights</strong></td>
+</tr>
+<tr>
+<td><strong>Schedule</strong></td>
+<td>The run count on a scheduled job</td>
+</tr>
+<tr>
+<td><strong>Batch</strong></td>
+<td>A multi-repository submission: one prompt sent to several repositories shares a batch</td>
+</tr>
+<tr>
+<td><strong>Including archived</strong></td>
+<td>A link that must show sessions whatever their state: the <strong>view sessions</strong> link in a merge request description, <strong>Other sessions on !N</strong> in a repository card's menu, a day in <strong>Your week</strong> on <strong>Home</strong> and its link to more merge requests, and a column in <strong>Runs over time</strong> or a count in <strong>Sessions by origin</strong> on <strong>Insights</strong>. The list then includes <a href="#archived-sessions">archived sessions</a></td>
+</tr>
+</tbody>
+</table>
+<p>A row or chart column on the <a href="../spend/">Spend</a> page opens the list with spend filters. A person, a model or a provider shows as its chip. A spend period, a repository, a trigger type or a background task reads as one <strong>From Spend</strong> line above the list, whose button clears them all. Together they match the sessions with one spend record that fits them all, so the list holds exactly the sessions behind the figure that linked there.</p>
+<p>Filters combine, and they are in the URL, so you can bookmark or share a filtered list.</p>
+<h3 id="group-and-sort-the-list">Group and sort the list</h3>
+<p><strong>Display</strong> sets how the list is laid out:</p>
+<ul>
+<li><strong>Group by</strong>: <strong>Date</strong> (the default) puts sessions under the day they were last active, <strong>Status</strong> puts them under their latest run's status with a count of each, the states that need you first (<strong>Needs input</strong>, <strong>Running</strong>, <strong>Pending</strong>, <strong>Queued</strong>, <strong>Failed</strong>, <strong>Done</strong>, then sessions with no run), and <strong>None</strong> shows one list. Sorted by cost, the list has no date groups.</li>
+<li><strong>Sort by</strong>: <strong>Most recent</strong> activity, or <strong>Cost</strong>, the session's run spend, costliest first, with sessions that have no priced spend last. With a spend period from the <a href="../spend/">Spend</a> page, the cost counts only the spend in that period.</li>
+<li><strong>Show archived</strong> swaps the list for the <a href="#archived-sessions">archived sessions</a>, and an <strong>Archived sessions</strong> chip says so.</li>
+</ul>
+<p>Sessions with a run in flight (<strong>Queued</strong>, <strong>Pending</strong> or <strong>Running</strong>) update their status dot and red edge in place, without a reload. Grouped by status, a session moves to its new group when its status changes.</p>
+<h3 id="archived-sessions">Archived sessions</h3>
+<p>An archived session is archived for everyone, not only for the person who archived it. It leaves <strong>Sessions</strong>, the app sidebar and <strong>Needs you</strong> on <strong>Home</strong>, and it takes no follow-ups until someone unarchives it.</p>
+<p>A filtered list that hides archived sessions says how many match: select <strong>Show archived</strong> under the list to see them.</p>
+<p>Links that open the list with the <strong>Including archived</strong> chip are listed in <a href="#filter-the-list">Filter the list</a>. <strong>Your week</strong> and <strong>Insights</strong> count archived sessions too.</p>
+<p>DAIV archives a session when its merge request merges. It archives every session that carries the merge request's number, ran on it or owns it: the session that opened it, its review and comment sessions, and the issue sessions that published it. DAIV holds a session back while it has live work:</p>
+<ul>
+<li>A session that owns another open merge request stays listed, and DAIV archives it when that merge request merges.</li>
+<li>A session with a run in progress or a waiting request that would start a run is archived when that work ends.</li>
+<li>A session that delegated work is archived once its legs have no run in progress and no open merge request.</li>
+</ul>
+<p>Closing a merge request without merging does not archive the sessions on it. DAIV handles each merge once: a session you unarchive stays unarchived if the platform sends the same merge again.</p>
+<p>An archived session refuses new work:</p>
+<ul>
+<li>A chat message and a job that continues it with <code>thread_id</code> are refused, with a message that says to unarchive the session first.</li>
+<li>A leg follow-up for it is refused, and one already waiting stops with <em>not run: its session was archived</em>; see <a href="../orchestration/#following-up-a-leg">Following up a leg</a>.</li>
+<li>A label or mention on its issue, a mention on its merge request, or a mention on a merge request it owns starts nothing. DAIV replies with a link to the session, once per mention and at most once a day for a label.</li>
+<li>Requests already waiting in its <a href="#the-session-inbox">inbox</a>, and a CI failure or finished delegated batch that arrives, wait there until someone unarchives the session.</li>
+</ul>
+<h4 id="archive-a-session">Archive a session</h4>
+<p>You need to be able to run agents on the session's repository. Archiving hides the session for everyone else, so check that nobody needs it first.</p>
+<ol>
+<li>Open the session and select <strong>⋯</strong> → <strong>Archive</strong>, or in the sidebar, select the session's <strong>⋯</strong> → <strong>Archive</strong>.</li>
+<li>In <strong>Archive this session?</strong>, select <strong>Archive</strong>.</li>
+</ol>
+<h4 id="unarchive-a-session">Unarchive a session</h4>
+<p>You need the same access. The session comes back for everyone.</p>
+<ol>
+<li>Open the archived session.</li>
+<li>Select <strong>Unarchive</strong> beside <strong>This session is archived.</strong>, or <strong>⋯</strong> → <strong>Unarchive</strong>.</li>
+</ol>
+<h2 id="session-detail">Session detail</h2>
+<p>Select a session to open its page (<code>/dashboard/sessions/&lt;thread_id&gt;/</code>), which holds:</p>
+<ul>
+<li><strong>Header</strong>: the session's title (rename it with the pencil, when you can run agents on the repository), its status, and a <strong>⋯</strong> menu with <strong>Copy session link</strong>, the linked issue and, when you can run agents on the repository, <strong>Archive</strong> or <strong>Unarchive</strong> (<a href="#archived-sessions">archived sessions</a>).</li>
+<li><strong>Transcript</strong>: the conversation, streaming live while a run is active, whatever started it (chat, job, webhook or schedule). Reopening the page rejoins the stream: a fresh load replays the run from its start, and an automatic reconnect replays only what you missed.</li>
+<li><strong>Up next</strong>: at the end of the conversation, what the session does next, in order. It lists each run still to start, as whom, with the requests that start it, then the updates the next run is told (<a href="#the-session-inbox">The session inbox</a> describes them). A CI failure or finished delegated batch that DAIV does not act on says why, such as <code>not fixing: out of attempts</code>. A request DAIV could not handle shows in the conversation as a <code>not handled</code> line with the reason. A run DAIV started itself opens with the message it received, and <strong>Show request</strong> expands the full prompt the run got.</li>
+<li><strong>Sidebar</strong>: repositories and merge requests, CI, the environment, usage and outputs.</li>
+</ul>
+<p>The page updates in place whenever the session changes: a run starting or ending, a message joining <strong>Up next</strong>, a CI result. A page open in another tab, or watched by someone else, streams a chat turn you send. Without Redis (<code>DJANGO_REDIS_URL</code> unset), the page cannot hear about changes, so it checks every few seconds while a run is in flight.</p>
+<p>Every run in the transcript has a link target, <code>&lt;session URL&gt;#run-&lt;run id&gt;</code>, that opens the session scrolled to that run. This includes the runs of a session whose transcript has <a href="#expired-sessions">expired</a>. Each row of the <strong>Artifacts</strong> list and the artifact viewer's header use it.</p>
+<h3 id="the-sidebar">The sidebar</h3>
+<p>From 1100px wide the sidebar is always open. Below that it is a sheet, which a summary button in the header opens. The button shows the main repository, <code>+N</code> for the others, the merge request (<code>!iid</code>, or a count) and a CI dot. The sheet opens on <strong>Overview</strong>, scrolled to the repositories with that section unfolded.</p>
+<p>The sidebar has two tabs, and your browser remembers the tab and which sections you folded:</p>
+<ul>
+<li><strong>Overview</strong>: foldable sections, each with a one-line summary beside its name while folded.<ul>
+<li><strong>Repositories</strong> (<strong>Repository</strong> for a lone one): a card per repository.</li>
+<li><strong>Environment</strong>: the <strong>Sandbox</strong> and the <strong>Model</strong>.</li>
+<li><strong>Context</strong> and <strong>Spend</strong>: how full the model's context window is, and what the session has cost.</li>
+<li><strong>Outputs</strong>: the artifacts the session published and the screenshots the agent took for you, once there are any.</li>
+</ul>
+</li>
+<li><strong>Info</strong>: status, who started the session, its owner, the number of runs, when it was created and its <strong>Session ID</strong> (with a copy button). On a session that delegated work, it also lists the <strong>Delegated jobs</strong> of each batch (<a href="../orchestration/#seeing-the-batch">Seeing the batch</a> describes them).</li>
+</ul>
+<p>A repository card shows:</p>
+<ul>
+<li>The repository, tagged <strong>Main</strong> when the session spans several.</li>
+<li>The branch.</li>
+<li>The merge request, with its title and a <strong>Draft</strong> badge.</li>
+<li>The merge request's CI status, with <strong>What DAIV found</strong> when a run explained a failure.</li>
+<li>The lines added and removed, and the number of files changed.</li>
+</ul>
+<p>A repository where the agent ran but changed nothing shows as a quiet card marked <code>no changes</code>. A repository DAIV could not publish shows the reason on its card.</p>
+<p>Once a repository has a merge request, the card's <strong>⋯</strong> menu offers:</p>
+<ul>
+<li><strong>Open on GitLab</strong> (or <strong>GitHub</strong>) and <strong>Copy link</strong>.</li>
+<li><strong>Other sessions on !iid</strong>, on the main repository's card: the <a href="#filter-the-list">sessions list</a> filtered to that merge request.</li>
+<li><strong>Fix CI failures</strong>, for the people who can run agents on the repository: turns the <a href="../pipeline-watch/#turn-the-watch-on-or-off-for-a-merge-request">CI watch</a> on or off for that merge request.</li>
+</ul>
+<p>When the agent commits changes, DAIV creates or updates a merge request on the session's ref, and the repository card links to it and flags drafts. A repository card shows an open merge request that already exists for the ref even before the agent runs.</p>
+<h3 id="images-and-files-in-tool-results">Images and files in tool results</h3>
+<p>When a tool hands the agent an image or a file (a screenshot from the agent's <a href="../browser/">browser</a> or an MCP browser tool, or an image, PDF, audio or video file the agent opened with <code>read_file</code>), the tool's row in the transcript shows it under <strong>Attached</strong> when you open the row, both while the run streams and after a reload.</p>
+<ul>
+<li>Images show as thumbnails that open full size in a new tab. Up to three of them also show on the row while it is closed, with a count of the rest.</li>
+<li>PDFs, audio and video show as a chip with their size, which downloads the file.</li>
+<li>An image an MCP server only gives as a link to another site shows as a link, so viewing the transcript loads nothing from that site.</li>
+</ul>
+<p>A screenshot the agent's browser takes for you, because you asked to see the page or the agent's reply points to it as evidence, also shows under the reply once the run finishes, with <strong>Open</strong> and <strong>Download</strong>, and in the session's <strong>Outputs</strong> as <strong>Screenshot 1</strong>, <strong>Screenshot 2</strong> and so on. The agent's other screenshots, which it takes to check the page itself, stay on their rows. These screenshots show only in DAIV: a reply the agent posts as a GitLab or GitHub comment does not include them.</p>
+<p>Anyone who can see the session can open these files, as they can read the rest of its transcript: its owner, people who can read its repository, and admins. That includes screenshots from MCP servers a person connected with their own account, so a screenshot of a page they were signed in to is visible to everyone who can see the session.</p>
+<p>DAIV keeps these files with the run in its file storage under <code>MEDIA_ROOT</code> for as long as it keeps the run. DAIV does not delete runs on its own, and deleting a run deletes its files, but the session's saved agent state still holds each file as the tool returned it. DAIV keeps PNG, JPEG, GIF and WebP images, PDFs, audio and video, within the size and per-run limits that <a href="../../reference/env-variables/#artifacts">Artifacts</a> lists. A file it did not keep shows the reason instead, such as <code>Too large to keep</code>, and runs from before DAIV kept these files show <code>Not saved</code>. The agent always gets the full tool result, whether or not the file was kept.</p>
+<p>When the run's model cannot read images in tool results, as its provider profile says, the image is still kept for the transcript, and the agent gets a note in its place: that it cannot view the image, and, for a browser screenshot, to read the page snapshot instead.</p>
+<h2 id="artifacts">Artifacts</h2>
+<p>A run's final message is a paragraph of text, and the agent's workspace is discarded when the run ends. A task whose deliverable is a document (a dependency audit, a code-quality report, a changelog draft, a chart) needs somewhere else to put it. That place is an <strong>artifact</strong>.</p>
+<p>The agent has a <code>publish_artifact</code> tool: it writes the file to its scratchpad (<code>/workspace/tmp/...</code>), publishes it, and gets back a URL that it includes in its final response. DAIV copies the file out of the sandbox into its own storage and attaches it to the run, so it stays available after the sandbox is gone and nothing is committed to the repository.</p>
+<p>Published files appear in the transcript, in the turn that published them. Adjacent <code>publish_artifact</code> calls in one turn group into a single <strong>Artifacts</strong> card with one row per file. Each row shows the title (linking to the viewer, <code>/dashboard/sessions/&lt;thread_id&gt;/artifacts/&lt;id&gt;/</code>, in a new tab), a kind pill, the file size, and a download icon. A publish still in progress shows <code>Publishing</code>, and a publish that failed shows its path and the error message in red, in the same card as the files that did publish. Reloading renders the same rows, though publishes from consecutive model steps can land in separate cards. A session with no saved transcript still lists its artifacts on its page, one card per run, below the expired notice.</p>
+<p>The limits on a file's size and on the files per run, and the storage that the <code>app</code> and <code>worker</code> containers must share, are on <a href="../../reference/env-variables/#artifacts">Artifacts</a> and in the <a href="../../getting-started/deployment/">deployment guide</a>. Deleting a run deletes its artifacts and their files.</p>
+<p>Select <strong>Artifacts</strong> in the sidebar (<code>/dashboard/artifacts/</code>) for every artifact you can see across all sessions: those of your own sessions and of sessions on repositories you can read (admins see them all). The list is newest first, grouped by date (<strong>Today</strong>, <strong>Yesterday</strong>, <strong>Previous 7 days</strong>, <strong>Previous 30 days</strong>, then by month), 25 per page. Search by title or filename, and filter by <strong>Kind</strong> (<strong>All kinds</strong>, <strong>Markdown</strong>, <strong>HTML</strong>, <strong>Image</strong>, <strong>Text</strong> or <strong>File</strong>) and <strong>Repository</strong>. Each row links to the viewer, back to the session and run that produced it, and to a download.</p>
+<p>The <a href="../jobs-api/#poll-job-status">jobs API</a> and <a href="../mcp-endpoint/">MCP</a> job-status responses list artifacts too, with absolute viewer and download URLs, so a CI pipeline or an editor assistant can hand the report to a person.</p>
+<h3 id="artifact-viewers">Artifact viewers</h3>
+<p>The viewer depends on the file type:</p>
+<table>
+<thead>
+<tr>
+<th>File type</th>
+<th>Viewer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Markdown (<code>.md</code>)</td>
+<td>Rendered on the server and sanitized, inside DAIV; <strong>Copy source</strong> copies the raw Markdown</td>
+</tr>
+<tr>
+<td>HTML (<code>.html</code>)</td>
+<td>Rendered in a sandboxed frame; <strong>Full screen</strong> expands the frame</td>
+</tr>
+<tr>
+<td>Images (<code>.png</code>, <code>.svg</code>, <code>.jpg</code>, <code>.gif</code>, <code>.webp</code>)</td>
+<td>Shown inline on a checkerboard, so transparency shows; select the image to open it at full size</td>
+</tr>
+<tr>
+<td>Text, CSV, JSON, XML, YAML, logs</td>
+<td>Shown as preformatted text; <strong>Copy source</strong> copies it</td>
+</tr>
+<tr>
+<td>Anything else (<code>.pdf</code>, archives)</td>
+<td>Download only</td>
+</tr>
+</tbody>
+</table>
+<p>An HTML artifact's inline CSS and scripts run, in an opaque origin with no access to DAIV cookies, storage or pages. Fetch and XHR requests and form posts are blocked, and scripts, styles, images and fonts can still load over HTTPS.</p>
+<p>Markdown and text files over 1 MiB are not previewed, and the viewer offers the download instead.</p>
+<p>The viewer's header shows the artifact's kind, its repository, when it was published and last updated, and a link back to the run that produced it. <strong>Open raw</strong> serves the file as is, under the same sandbox policy, so opening an HTML report in its own tab is as safe as the embedded frame. Whoever can open the session can open its artifacts, and the viewer's breadcrumb links back to the <strong>Artifacts</strong> list.</p>
+<h2 id="revise-an-artifact">Revise an artifact</h2>
+<p>Ask the agent to change a report it already published, and it replaces the file instead of publishing a new artifact: the artifact keeps its URL. You need a session that holds the artifact: the agent reads and revises only the artifacts of the session it runs in, never those of another session.</p>
+<ol>
+<li>In the session that published the report, send a message that says what to change, such as "add a section on licenses" or "make the table sortable". To point the agent at a specific artifact, paste its URL into the message.</li>
+<li>Wait for the run to end. The agent edits the file and publishes it again with the artifact's id. If the file is no longer in its workspace because an earlier run published it, the agent copies it back first with <code>fetch_artifact</code>.</li>
+<li>Open the artifact from the transcript. The URL is unchanged, the viewer's header shows when the artifact was last updated, and the transcript rows for it show the current title, type and size, marked <strong>Updated</strong>.</li>
+</ol>
+<p>A revised artifact stays on the run that first published it, on the dashboard and in the per-run cards of a session with no transcript. The jobs API and MCP job-status responses list it under that run and under every run that revised it. DAIV keeps only the newest version, and a revision does not count towards the per-run file limit.</p>
+<h2 id="start-a-chat-session">Start a chat session</h2>
+<p>A chat is the interactive workspace where you work with the agent turn by turn. You need access to at least one repository that DAIV serves.</p>
+<ol>
+<li>In the sidebar, select <strong>New chat</strong>, the <strong>+</strong> beside <strong>Sessions</strong> (<code>/dashboard/sessions/new/chat/</code>).</li>
+<li>In the <strong>Workspace</strong> card, select <strong>Add repository</strong>, and pick the repository the session works on. The ref defaults to the repository's default branch.</li>
+<li>To work from another branch, select the branch button on the repository's row, and pick the branch.</li>
+<li>Optional: in <strong>Environment</strong>, pick the <a href="../sandbox-environments/">sandbox environment</a> the agent's commands run in. It stays on <strong>Auto</strong>, resolved for the main repository, until you pick one.</li>
+<li>Optional: pick the agent model and thinking effort with the model picker in the message row, next to <strong>Send</strong>.</li>
+<li>Type your first message and send it. The send button stays disabled until a repository is selected.</li>
+</ol>
+<p>The session now has its own URL (<code>/dashboard/sessions/&lt;thread_id&gt;/</code>), which you can bookmark or share with teammates who have access. The repositories, their refs, the model, the thinking level and the sandbox environment are fixed from your first message for the life of the session. For what the workspace shows as the agent works, see <a href="#chat-workspace">Chat workspace</a>. To use a different repository, branch, model or environment, start a new session.</p>
+<p>The ref is the branch the work is based on. When the agent opens a merge request, that ref is its target branch, and if the remote has deleted the branch by the time the agent publishes, the request targets the default branch instead. DAIV assigns the new merge request to you when your DAIV account is linked to the Git platform through OAuth login. If the ref already has an open merge request, the workspace shows it.</p>
+<h3 id="start-a-chat-over-several-repositories">Start a chat over several repositories</h3>
+<p>Use this for work that spans repositories, such as a backend change and the client that consumes it. The <strong>Workspace</strong> card takes up to 5 repositories, each listed once, on any branch.</p>
+<ol>
+<li>In the <strong>Workspace</strong> card, add the first repository as in <a href="#start-a-chat-session">Start a chat session</a>. This is the main repository.</li>
+<li>Select <strong>Add repository</strong> again, and pick another repository.</li>
+<li>Select the branch button on a row to pick its ref.</li>
+<li>Repeat steps 2 and 3 for each other repository.</li>
+<li>Optional: to change the main repository, select <strong>Make main</strong> on another row. Removing the main row promotes the next one.</li>
+<li>Send your first message.</li>
+</ol>
+<p>Once there is more than one repository, the main one is tagged <strong>Main</strong>. Its <code>.daiv.yml</code>, sandbox environment, skills and memory drive the session. In <strong>Environment</strong>, <code>Auto · &lt;environment&gt;</code> shows the environment resolved for the main repository while the field is on <strong>Auto</strong>.</p>
+<p>The list is fixed after your first message: later turns reuse it, as in the <a href="../jobs-api/#multi-repository-sessions">jobs API</a>. Every repository the agent changes gets its own merge request, as <a href="../jobs-api/#merge-requests">Merge requests</a> describes.</p>
+<h2 id="chat-workspace">Chat workspace</h2>
+<p>As the agent works, the workspace shows:</p>
+<ul>
+<li><strong>Assistant text</strong>: replies render as Markdown.</li>
+<li><strong>Steps</strong>: consecutive steps (thinking and tool calls) collapse into one line that summarizes what they did, such as <code>read 3 files · ran 2 commands</code>, with any failures. Open it to list the steps, and open a step for its details.</li>
+<li><strong>Finished runs</strong>: when a run ends, its steps fold behind one <strong>Worked for 3m 12s · 14 steps</strong> line. The answer, its artifacts and any question the agent asked stay visible below it, and an answered question collapses to one quiet line.</li>
+<li><strong>Progress</strong>: when the agent plans with a todo list, a strip behind the message box names the step the run is on, and opens into the list.</li>
+<li><strong>Files changed</strong>: the same strip lists the files the agent created or changed, with the lines added and removed. Select a file to jump to the tool call that touched it.</li>
+</ul>
+<p>Only one run can be in flight per session at a time. While a run streams, select <strong>Stop</strong> to cancel it on the server. If DAIV has not started answering yet, <strong>Stop</strong> takes your message back: it leaves the conversation, the agent never sees it, and its text returns to the message box. Refreshing the page or losing the connection does not stop the run, because reopening the session rejoins the live stream. <strong>Stop</strong> is offered to the session's owner, on chat runs and on the runs a job or the session's inbox started. A run that a webhook started on an issue or merge request that no session owns streams without it.</p>
+<p>A message you send while the session is busy is not refused. It shows as <strong>Pending</strong> and waits for the session's next run, which starts as soon as the current one ends and answers it together with anything else that arrived meanwhile. The page follows that run when it starts. <a href="#the-session-inbox">The session inbox</a> describes the rule.</p>
+<h3 id="model-thinking-level-and-sandbox-environment">Model, thinking level and sandbox environment</h3>
+<p>Each session pins three choices, set before your first message and fixed afterwards:</p>
+<table>
+<thead>
+<tr>
+<th>Choice</th>
+<th>What it controls</th>
+<th>Default</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Agent model</td>
+<td>Which configured model the agent runs on</td>
+<td>The default an admin configured for the site</td>
+</tr>
+<tr>
+<td>Thinking level</td>
+<td>Reasoning effort, from minimal to extra high, set with the <strong>Effort</strong> control in the model picker</td>
+<td>The default an admin configured, if any</td>
+</tr>
+<tr>
+<td>Sandbox environment</td>
+<td>The <a href="../sandbox-environments/">sandbox environment</a> the agent's commands run in</td>
+<td><strong>Auto</strong>, resolved for the main repository</td>
+</tr>
+</tbody>
+</table>
+<h2 id="expired-sessions">Expired sessions</h2>
+<p>The agent's working state expires after the time set by <code>DJANGO_REDIS_CHECKPOINT_TTL_MINUTES</code> (<a href="../../reference/env-variables/#redis">Redis</a> lists its default). DAIV saves a copy of each session's conversation when a run ends, so an expired session keeps its transcript and your next message picks up where it left off: DAIV restores the conversation from that copy before the run. If DAIV cannot restore the saved conversation, the run fails instead of starting without it. DAIV keeps saved conversations for as long as their session exists, and nothing prunes them automatically.</p>
+<p>A session with no saved transcript, such as one whose state expired before DAIV saved it, shows <code>This session's state has expired. Start a new session to continue.</code> Select <strong>New session</strong> to start a fresh one.</p>
+<h2 id="answer-a-question">Answer a question</h2>
+<p>When a request is ambiguous, or a decision is yours to make, the agent stops and asks instead of guessing. The run ends in the <strong>Needs input</strong> status, and the last turn shows a card with 1 to 4 questions. Each question offers option buttons and a free-text field. This also happens in webhook and job sessions: the same card shows wherever a run ended on a question.</p>
+<ol>
+<li>Open the session. A session that needs you also appears under <strong>Needs you</strong> on <strong>Home</strong>.</li>
+<li>For each question, select an option. A question marked <code>Pick any that apply.</code> takes several, and selecting an option again clears it.</li>
+<li>If no option fits, or the question has none, type your own answer in the free-text field.</li>
+<li>Select <strong>Answer</strong>.</li>
+</ol>
+<p>DAIV sends all your answers as one message, one line per question, and a question you left blank is sent as <code>No preference</code>. The agent starts a new run on the same session that picks up where it left off. You can also type a reply in the message box instead of using the card.</p>
+<p>To decline the whole card, select <strong>Skip</strong> in step 4. The agent carries on with reasonable defaults, states the assumptions it made, and does not ask the same questions again.</p>
+<p>The card is interactive only on the session's last turn, and only while no run is in flight. Once answered, it stays visible but inert: the options are disabled, the free-text field and the buttons are hidden, the options your answer picked stay highlighted, even after a reload, and your answer shows as the next message.</p>
+<p>For job runs (a dashboard submission, the <a href="../jobs-api/">jobs API</a> or <a href="../mcp-endpoint/">MCP</a>) and <a href="../scheduled-jobs/">scheduled</a> runs, DAIV also sends a <a href="../notifications/">notification</a> that lists the questions. Chat runs do not notify, and webhook runs rely on the question comment on the issue or merge request, which mentions you.</p>
+<h2 id="start-a-background-run">Start a background run</h2>
+<p>A background run hands a task to the agent without a chat: you describe the task, DAIV runs it, and you are notified when it ends. You need access to at least one repository that DAIV serves.</p>
+<ol>
+<li>Go to the start screen of a background run, by any of these routes:<ul>
+<li>On <strong>Sessions</strong>, select <strong>New</strong>, then the <strong>Background run</strong> card.</li>
+<li>On <strong>Home</strong>, select <strong>New background run</strong>.</li>
+</ul>
+</li>
+<li>In the message box of <strong>Start a run</strong>, describe what the agent should do.</li>
+<li>Select <strong>Choose repository</strong> and pick one or more repositories. The ref defaults to the repository's default branch, and you can pick another with the branch button on its row.</li>
+<li>Optional: set the <a href="#background-run-fields">fields below the message box</a>.</li>
+<li>Select <strong>Start run</strong>.</li>
+</ol>
+<p>You land on the <strong>Sessions</strong> list filtered to the run's batch, where each repository's new session has its own row. Runs started this way have the <strong>Background Run</strong> origin.</p>
+<h3 id="background-run-fields">Background run fields</h3>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Prompt</td>
+<td>What you want the agent to do</td>
+</tr>
+<tr>
+<td>Repositories</td>
+<td>1 to 20 repositories. One prompt across several repositories creates a <a href="#filter-the-list">batch</a>: each repository runs as an independent session</td>
+</tr>
+<tr>
+<td>Ref</td>
+<td>The branch each run reads from, and the target of any merge request it opens. Defaults to the repository's default branch</td>
+</tr>
+<tr>
+<td>Sandbox environment</td>
+<td>The <a href="../sandbox-environments/">sandbox environment</a> the run executes in. <strong>Auto</strong> lets DAIV choose</td>
+</tr>
+<tr>
+<td>Agent model and <strong>Effort</strong></td>
+<td>The model and thinking level for this run, from the agent picker under the message box. Leave them on <strong>default</strong> to use the repository's defaults</td>
+</tr>
+<tr>
+<td><strong>MCP servers</strong></td>
+<td>The MCP servers the run can use</td>
+</tr>
+</tbody>
+</table>
+<p>DAIV notifies you on outcomes that need you: found issues, needs attention, needs input and failed. To silence a run, pass <code>muted</code> through the <a href="../jobs-api/">jobs API</a> or the <a href="../mcp-endpoint/">MCP endpoint</a>. For a scheduled run, use the schedule's <strong>Mute notifications</strong> setting.</p>
+<h2 id="retry-a-run">Retry a run</h2>
+<p>When a session's latest run fails, its failure marker in the transcript has a <strong>Retry</strong> button.</p>
+<p>You can retry when all of these hold:</p>
+<ul>
+<li>You own the session, can run agents on its repository, and the session is not archived.</li>
+<li>The failed run is the newest one, and no run is working or queued.</li>
+<li>The run was a chat turn, or an API, MCP, UI or scheduled run. A webhook run, a run delegated by another session, or a <a href="../jobs-api/#run-a-job-on-a-merge-request">job on a merge request</a> reports back through its own flow and does not offer <strong>Retry</strong>.</li>
+</ul>
+<p>To retry:</p>
+<ol>
+<li>Open the session whose latest run failed.</li>
+<li>In the transcript, select <strong>Retry</strong> on the failure marker.</li>
+</ol>
+<p><strong>Retry</strong> sends your next message in the same session: <code>The previous run failed. Please try again.</code> when the run got far enough to be in the conversation, or the run's own prompt again when it failed before that.</p>
+<p>A run that was stopped (by you, by the session that delegated it, or by an interruption) shows a grey marker without <strong>Retry</strong>. Send a message to carry on.</p>
+<h2 id="the-session-inbox">The session inbox</h2>
+<p>Everything that asks an existing session to act arrives in its inbox:</p>
+<ul>
+<li>A CI result on a merge request the session published.</li>
+<li>A mention or a comment on that merge request.</li>
+<li>A chat message sent while the session was busy.</li>
+<li>A follow-up job.</li>
+<li>A delegated batch finishing.</li>
+<li>A coordinator's <strong>Leg follow-up</strong>, which asks a delegated session to continue its work.</li>
+</ul>
+<p>Each one either <strong>wakes</strong> the agent or is only <strong>remembered</strong>:</p>
+<ul>
+<li><strong>Waking</strong>: a person's request (a chat message, a mention, a follow-up job) and a leg follow-up always wake the agent. A CI failure wakes it only on a commit DAIV pushed, once per commit, while attempts are left (<a href="../pipeline-watch/">Pipeline watch</a> describes them). A finished delegated batch wakes it to carry on.</li>
+<li><strong>Remembered</strong>: a CI pass, a pipeline that needs a person, a push someone else made to the branch, a merge or close, and a comment that does not mention DAIV. These start no run. They appear in the session's timeline as compact rows between runs, and the next run on the session gets them as context, so the agent knows the branch moved before it pushes.</li>
+</ul>
+<p>How the inbox groups requests into runs:</p>
+<ul>
+<li><strong>One run per person and branch</strong>: one run handles everything one person is waiting for on the session's branch. A message you sent to your session and a CI failure that arrived during the same run are answered together, in one run, when the current one ends.</li>
+<li><strong>Slash commands run alone</strong>: a built-in slash command such as <code>/help</code> runs on its own, after what you sent before it and before what you sent after it, because DAIV answers a command only when it is the whole request.</li>
+<li><strong>Leg follow-ups run alone</strong>: a leg follow-up runs on its own, as a <strong>Delegated Run</strong> that answers only its coordinator, with what the session remembered as context. DAIV never retries it, and it does not run when the session's merge request was merged or closed meanwhile, or the session was archived (<a href="../orchestration/#following-up-a-leg">Following up a leg</a> describes it).</li>
+<li><strong>Different people, different runs</strong>: requests from different people wait for runs of their own, one after another, so one person's request never runs with another's access or tools.</li>
+<li><strong>Which branch</strong>: a message you sent while the session was busy, a follow-up job sent without a branch and a finished delegated batch follow the branch the current run publishes to. A mention or a CI result stays with its merge request's branch, and a run on another of the session's merge requests updates that merge request.</li>
+<li><strong>Warm sandbox</strong>: a run that a warm sandbox started, on a branch someone pushed to, brings its checkout up to the remote first, unless it holds commits it has not published, and tells the agent it did.</li>
+</ul>
+<p>A run acts as the person whose request woke it:</p>
+<ul>
+<li>A mention by a teammate runs as the DAIV account they signed in to with that GitLab or GitHub account, with its personal MCP servers, not the session owner's. A commenter who never signed in to DAIV with that platform account, or whose DAIV account is deactivated, gets no personal tools, even when a DAIV user shares their username or email.</li>
+<li>Before it starts, a run checks that the person it acts as may still run on the repository, except for a mention, which is checked where it is made. If that person may not, only their own requests fail.</li>
+<li>A session that an issue or merge request comment starts is owned by the DAIV account linked to the comment author's GitLab or GitHub account. Until that account is linked, it has no owner, and once it is linked, its sessions and runs, the merge requests those sessions own and its requests still waiting pass to that user.</li>
+<li>A run that DAIV woke for a CI failure acts as the session's owner. A run that resumes a finished delegated batch acts as the user who delegated it, muted when their run was.</li>
+</ul>
+<p>DAIV stops waking a session on its own after 3 runs in a row that nobody asked for, and tells the owner. It still remembers CI failures and finished delegated batches. Sending a message or mentioning DAIV picks the session up again.</p>
+<h2 id="linking-back-to-sessions">Linking back to sessions</h2>
+<p>This applies to every session origin, wherever the agent commits.</p>
+<p>When DAIV opens a merge request, its description carries a <strong>view sessions</strong> link. The link opens the <strong>Sessions</strong> list filtered to that request, so it covers every session that worked on it, the one that opened it and each later one that addressed a review comment, and it keeps working as sessions are added. A session that produced several requests cannot tell which one the reader came from, so the link then opens the producing session's transcript instead, and so it does before any request is known.</p>
+<p>Every commit DAIV makes also carries the producing session as a git trailer:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>DAIV-Session: https://daiv.example.com/dashboard/sessions/&lt;thread_id&gt;/
+</code></pre></div></td></tr></table></div>
+<p>Unlike the description, the trailer is per commit and append-only. It survives a rewritten description, reaches requests that DAIV only adopts (whose description it leaves untouched), and travels with the commit when it is squashed or cherry-picked. It joins any trailer block the commit message already ends with, so <code>Co-authored-by</code> and <code>Closes</code> keep working.</p>
+<p>An admin turns both off for the whole instance under <strong>Configuration</strong> → <strong>Agent</strong> → <strong>Link sessions from merge requests</strong>, or for one repository with <code>session_link: false</code> in <code>.daiv.yml</code> (<a href="../../customization/repository-config/">Repository configuration</a> lists it).</p>
+<h2 id="related-pages">Related pages</h2>
+<div class="grid cards">
+<ul>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.152.682a2.25 2.25 0 0 1 2.269 0l.007.004 6.957 4.276a2.28 2.28 0 0 1 1.126 1.964v7.516c0 .81-.432 1.56-1.133 1.968l-.002.001-11.964 7.037-.004.003c-.706.41-1.578.41-2.284 0l-.026-.015-6.503-4.502a2.27 2.27 0 0 1-1.096-1.943V9.438c0-.392.1-.77.284-1.1l.003-.006.014-.026c.197-.342.48-.627.82-.827h.002L13.152.681Zm.757 1.295h-.001L2.648 8.616l6.248 4.247a.78.78 0 0 0 .758-.01h.001l11.633-6.804-6.629-4.074a.75.75 0 0 0-.75.003ZM8.517 14.33a2.3 2.3 0 0 1-.393-.18l-.023-.014-6.102-4.147v7.003c0 .275.145.528.379.664l.025.014 6.114 4.232zM18 9.709l-3.25 1.9v7.548L18 17.245Zm-7.59 4.438-.002.002a2.3 2.3 0 0 1-.391.18v7.612l3.233-1.902v-7.552Zm9.09-5.316v7.532l2.124-1.25a.78.78 0 0 0 .387-.671V7.363Z"/></svg></span> <strong>Sandbox environments</strong></p>
+<hr />
+<p>Configure the named environments the agent's commands run in, and how Auto resolution picks one.</p>
+<p><a href="../sandbox-environments/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Sandbox environments</a></p>
+</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12.5 7.25a.75.75 0 0 0-1.5 0v5.5c0 .27.144.518.378.651l3.5 2a.75.75 0 0 0 .744-1.302L12.5 12.315z"/><path d="M12 1c6.075 0 11 4.925 11 11s-4.925 11-11 11S1 18.075 1 12 5.925 1 12 1M2.5 12a9.5 9.5 0 0 0 9.5 9.5 9.5 9.5 0 0 0 9.5-9.5A9.5 9.5 0 0 0 12 2.5 9.5 9.5 0 0 0 2.5 12"/></svg></span> <strong>Scheduled jobs</strong></p>
+<hr />
+<p>Recurring agent runs, each dispatch creating a session per repository.</p>
+<p><a href="../scheduled-jobs/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Scheduled jobs</a></p>
+</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.25 12a.75.75 0 0 1-.22.53l-2.75 2.75a.75.75 0 0 1-1.06-1.06L7.44 12 5.22 9.78a.75.75 0 1 1 1.06-1.06l2.75 2.75c.141.14.22.331.22.53m2 2a.75.75 0 0 0 0 1.5h5a.75.75 0 0 0 0-1.5z"/><path d="M0 4.75C0 3.784.784 3 1.75 3h20.5c.966 0 1.75.784 1.75 1.75v14.5A1.75 1.75 0 0 1 22.25 21H1.75A1.75 1.75 0 0 1 0 19.25Zm1.75-.25a.25.25 0 0 0-.25.25v14.5c0 .138.112.25.25.25h20.5a.25.25 0 0 0 .25-.25V4.75a.25.25 0 0 0-.25-.25Z"/></svg></span> <strong>Jobs API</strong></p>
+<hr />
+<p>Submit runs programmatically; each job creates or continues a session.</p>
+<p><a href="../jobs-api/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Jobs API</a></p>
+</li>
+<li>
+<p><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 1c3.681 0 7 2.565 7 6v4.539c0 .642.189 1.269.545 1.803l2.2 3.298A1.517 1.517 0 0 1 20.482 19H15.5a3.5 3.5 0 1 1-7 0H3.519a1.518 1.518 0 0 1-1.265-2.359l2.2-3.299A3.25 3.25 0 0 0 5 11.539V7c0-3.435 3.318-6 7-6M6.5 7v4.539a4.75 4.75 0 0 1-.797 2.635l-2.2 3.298-.003.01.001.007.004.006.006.004.007.001h16.964l.007-.001.006-.004.004-.006.001-.006-.003-.01-2.199-3.299a4.75 4.75 0 0 1-.798-2.635V7c0-2.364-2.383-4.5-5.5-4.5S6.5 4.636 6.5 7M14 19h-4a2 2 0 1 0 4 0"/></svg></span> <strong>Notifications</strong></p>
+<hr />
+<p>Know the moment a run finishes, in the app, by email, in Rocket.Chat or on Telegram.</p>
+<p><a href="../notifications/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Notifications</a></p>
+</li>
+</ul>
+</div>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 22, 2026 23:52:14 UTC">November 22, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="July 10, 2026 16:47:27 UTC">July 10, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,132 @@
+# Subagents
+
+DAIV's main agent can delegate work to subagents. Each subagent is specialized for one kind of task: one explores the codebase quickly, another handles complex multi-step work. The main agent decides when to delegate, based on the task.
+
+To see the subagents available in a repository, run [`/agents`](https://docs.daivagent.com/latest/features/slash-commands/#agents). It works in the dashboard chat and on any issue or merge or pull request. The list holds every available subagent: the two built-in subagents below, the code-review detectors, and any custom subagents the repository defines.
+
+## Built-in subagents
+
+### General-purpose
+
+The general-purpose subagent researches complex questions, searches for code, and carries out multi-step tasks. It has the main agent's tools:
+
+- Filesystem operations (read, search, edit)
+- Git platform tools (GitLab or GitHub)
+- Web search and fetch, when enabled
+- Sandbox command execution, when the run has a [sandbox](https://docs.daivagent.com/latest/features/sandbox/index.md)
+- Task tracking
+- The MCP tools the main agent has
+
+The main agent delegates to it when a task needs several rounds of searching and reasoning, for example investigating a bug across several files or researching how an external library works before making changes.
+
+### Explore
+
+The explore subagent is a fast, read-only agent for navigating a codebase. Its tools list directories, read files, find files by glob pattern (for example `src/components/**/*.tsx`), and search code for keywords and regular expressions. It cannot modify files, run commands, or reach external resources, which keeps it fast and safe for quick lookups.
+
+The main agent delegates to it to locate files, understand code structure, or gather context before deciding. The main agent gives it a thoroughness level: `quick`, `medium` or `very thorough`. Explore runs on `openrouter:anthropic/claude-haiku-5.5` at the run's thinking level, unless a [configured model or level](#subagent-model-precedence) replaces them.
+
+### Code-review detectors
+
+The `/code-review` skill delegates to read-only detector subagents: `cr-correctness`, `cr-security`, `cr-performance`, `cr-structure`, `cr-tests` and `cr-custom-rules`. See [Subagent model precedence](#subagent-model-precedence) for the model and thinking level they run on.
+
+## How delegation works
+
+The main agent chooses a subagent from the task:
+
+- To find a file or understand code structure, it uses the explore subagent.
+- To research, run commands, or do multi-step work, it uses the general-purpose subagent.
+- To make code changes directly, it does the work itself.
+
+Each subagent runs in its own isolated context. It does not see the main conversation and cannot exchange messages with the main agent. It works on its own and returns a single final report, which the main agent uses to continue the task.
+
+## Add a custom subagent
+
+A custom subagent is a Markdown file in the repository. You need write access to the repository.
+
+1. In the repository root, create the directory `.agents/subagents/` if it does not exist.
+1. In it, create one `.md` file for the subagent. The file name is free: the subagent's name comes from the file's `name` field.
+1. Start the file with YAML frontmatter that sets `name` and `description`.
+1. Optional: set `model` in the frontmatter to run the subagent on a model of your choice.
+1. After the frontmatter, write the subagent's system prompt in Markdown.
+1. Commit the file to the repository.
+1. On the next run, send `/agents` to check that the subagent is listed.
+
+```
+my-repository/
+├── .agents/
+│   └── subagents/
+│       ├── database-migration.md
+│       └── data-analyst.md
+└── src/
+```
+
+A subagent file looks like this:
+
+```
+---
+name: database-migration
+description: Specialized agent for planning and reviewing database migrations. Use when the task involves schema changes, data migrations, or ORM model modifications.
+model: openrouter:anthropic/claude-sonnet-5.5
+---
+
+You are a database migration specialist. When given a task:
+
+1. Review the current schema by reading model files
+2. Identify all affected tables and relationships
+3. Plan the migration steps in order
+4. Check for data loss risks
+5. Suggest rollback strategies
+```
+
+A custom subagent has the same tools as the built-in [general-purpose subagent](#general-purpose).
+
+## Custom subagent file format
+
+DAIV reads the `.md` files directly inside `.agents/subagents/`, not those in subdirectories. It skips a file that breaks the rules below and logs a warning, and the subagent does not appear in `/agents`.
+
+| Part             | Required | Description                                                                                                                                                                                                                                                                                                   |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`           | Yes      | The subagent's unique name, which the main agent uses to delegate. It cannot be `general-purpose`, `explore`, or a code-review detector's name such as `cr-security`: DAIV skips a file that uses one.                                                                                                        |
+| `description`    | Yes      | What the subagent does. The main agent reads it to decide when to delegate, so make it specific and include trigger phrases.                                                                                                                                                                                  |
+| `model`          | No       | The model to run on, as `provider:model-name`, for example `openrouter:anthropic/claude-haiku-5.5`. Without it, the subagent runs on the main agent's model. A [configured model](#subagent-model-precedence) takes precedence. If DAIV cannot build the model and none is configured, it skips the subagent. |
+| `thinking_level` | No       | The thinking level to run at: `minimal`, `low`, `medium`, `high`, `xhigh` or `off`. Without it, the subagent runs at the main agent's level. A [configured level](#subagent-model-precedence) takes precedence. DAIV drops an unknown value, logs a warning, and keeps the rest of the file.                  |
+| Body             | Yes      | The Markdown after the frontmatter becomes the subagent's system prompt. An empty body makes DAIV skip the file.                                                                                                                                                                                              |
+
+DAIV ignores any other frontmatter key.
+
+## Write a subagent description
+
+The `description` is how the main agent decides whether to delegate to your subagent. Include specific trigger phrases:
+
+```
+# Good: specific triggers the agent can match
+description: >
+  Specialized agent for API endpoint design and implementation.
+  Use when the task involves creating new REST endpoints, modifying
+  API responses, or designing request/response schemas.
+
+# Bad: too vague
+description: Helps with API stuff.
+```
+
+## Subagent model precedence
+
+Operators can run any subagent on a chosen model and at a chosen thinking level by name, without editing its file: the general-purpose and explore subagents, each code-review detector, and custom subagents. A custom subagent's file lives in the repository, so the dashboard does not list it. Set its entry in `.daiv.yml`, or for every repository in `DAIV_AGENT_SUBAGENT_MODELS`.
+
+A subagent's model and its thinking level each come from the first of these that sets the field, so the two can come from different steps:
+
+1. Its entry under `models.subagents` in the repository's `.daiv.yml` (see [Skill and subagent models](https://docs.daivagent.com/latest/customization/repository-config/#skill-and-subagent-models)).
+1. Its entry in the dashboard or in `DAIV_AGENT_SUBAGENT_MODELS`. For the general-purpose and explore subagents, it is under **Configuration** → **Agent** → **Subagent models**. For the detectors, it is on the **Models** tab of the `code-review` skill's page. Each row there has a model picker and effort dots, including **Off**.
+1. The `model` and `thinking_level` that its file or detector charter declares. Explore declares `openrouter:anthropic/claude-haiku-5.5` and no level.
+1. For a code-review detector only, the model and thinking level of the `code-review` skill.
+1. The main agent's model and thinking level.
+
+The detectors inherit the `code-review` skill's model and level, so setting them on the skill moves every detector. No other subagent inherits a skill's model or level. A thinking level set at any step beats the run's, `daiv-max`'s included, and a model that the user picks for the run does not override an entry. A configured model falls back to the main agent's fallback models, which keep the site's fallback thinking level.
+
+When an entry names a provider that is unknown, disabled or missing its API key, the subagent runs on its file's `model` (for a detector, then the `code-review` skill's model), else on the main agent's model, so it is never left out of the run. DAIV logs the failure at ERROR. When a call on the configured model fails, for example because the provider does not know the model name, the main agent's fallback models serve it, as for any other model.
+
+## Related pages
+
+- [Agent tools](https://docs.daivagent.com/latest/reference/agent-architecture/index.md): the tools the main agent has, and when each is on
+- [Agent skills](https://docs.daivagent.com/latest/customization/agent-skills/index.md): author the reusable instruction packages the main agent loads from `.agents/skills/`
+- [Slash commands and skills](https://docs.daivagent.com/latest/features/slash-commands/index.md): run `/agents` to list every subagent available in a repository

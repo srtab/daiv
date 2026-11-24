@@ -1,0 +1,222 @@
+# Repository configuration
+
+A `.daiv.yml` file in the root of a repository's default branch changes how DAIV behaves in that repository: who can trigger it, which features run, and which models it uses. A repository without the file uses the defaults on this page and the site-wide settings.
+
+## Full example
+
+```
+# Repository settings
+default_branch: main
+context_file_name: "AGENTS.md"
+suggest_context_file: true
+session_link: true
+
+# Access control
+allowed_usernames:
+  - alice
+  - bob
+
+# Files whose diff content the commit and merge request writer does not see
+omit_content_patterns:
+  - "*.min.js"
+  - "*.svg"
+  - "*.lock"
+
+# Feature toggles
+issue_addressing:
+  enabled: true
+
+pull_request_assistant:
+  enabled: true
+
+slash_commands:
+  enabled: true
+
+pipeline_watch:
+  enabled: true
+  max_attempts: 3
+
+orchestration:
+  enabled: false
+
+memory:
+  enabled: true
+
+# Model overrides
+models:
+  agent:
+    model: "openrouter:anthropic/claude-sonnet-5.5"
+    fallback_model: "openrouter:openai/gpt-6.1-sol"
+    thinking_level: "medium"
+  diff_to_metadata:
+    model: "openrouter:anthropic/claude-sonnet-5.5"
+    fallback_model: "openrouter:openai/gpt-6.1-sol"
+  skills:
+    code-review: "openrouter:anthropic/claude-sonnet-5.5"
+  subagents:
+    cr-security: "openrouter:anthropic/claude-opus-5.5"
+```
+
+## How DAIV reads the file
+
+DAIV always reads `.daiv.yml` from the platform's default branch, whatever the `default_branch` option says. It caches the file for 1 hour per repository, and a push to the default branch clears the cache, so a change you merge takes effect after that push. If the file is missing, DAIV uses the defaults. If DAIV cannot parse the file or one of its values, it logs an error and uses the defaults for the whole file. Model entries under `models.skills` and `models.subagents` are the exception: DAIV checks them when a run uses them, so a typo there never drops the rest of the file.
+
+## Repository settings
+
+| Option                 | Type          | Default            | Description                                                                                                                                                                                                                                                                   |
+| ---------------------- | ------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `default_branch`       | `str \| null` | Repository default | Base branch for merge requests.                                                                                                                                                                                                                                               |
+| `context_file_name`    | `str \| null` | `"AGENTS.md"`      | Name of the [AGENTS.md](https://agents.md/) guidance file. Set to `null` to disable.                                                                                                                                                                                          |
+| `suggest_context_file` | `bool`        | `true`             | Suggest creating the context file when DAIV opens a merge request and the file is missing. See [AGENTS.md suggestion](https://docs.daivagent.com/latest/features/issue-addressing/#agentsmd-suggestion).                                                                      |
+| `session_link`         | `bool`        | `true`             | Link back to the DAIV sessions that produced the changes, from the description of merge requests DAIV opens and from a `DAIV-Session` trailer on every commit. See [Linking back to sessions](https://docs.daivagent.com/latest/features/sessions/#linking-back-to-sessions). |
+
+The context file tells DAIV about your repository's structure, conventions and constraints. Generate one with the `/init` skill; see [Slash commands and skills](https://docs.daivagent.com/latest/features/slash-commands/#init). For branch names and commit messages, see [Set branch and commit conventions](https://docs.daivagent.com/latest/customization/agent-skills/#set-branch-and-commit-conventions).
+
+`suggest_context_file` and `session_link` also have site-wide switches in [Site configuration](https://docs.daivagent.com/latest/reference/site-configuration/index.md). DAIV applies them only when both the repository and the site allow them, so `true` here cannot turn on a feature the site turned off.
+
+## Access control
+
+Access control restricts which users can interact with DAIV on this repository. It matters most on public repositories, where you want to stop arbitrary users from triggering DAIV.
+
+| Option              | Type        | Default | Description                                                                 |
+| ------------------- | ----------- | ------- | --------------------------------------------------------------------------- |
+| `allowed_usernames` | `list[str]` | `[]`    | Usernames allowed to interact with DAIV. When empty, all users are allowed. |
+
+```
+allowed_usernames:
+  - alice
+  - bob
+  - charlie
+```
+
+When the list is empty or omitted, all users can interact with DAIV. When it lists users, only they can trigger DAIV through issues, comments and merge request reviews. Username matching is case-insensitive.
+
+Warning
+
+The allowlist decides who can **trigger** DAIV, not who it reads. On a merge request a DAIV session owns, a comment that doesn't mention DAIV is remembered from anyone and shown to that session's next run as context (see [Pull request assistant](https://docs.daivagent.com/latest/features/pull-request-assistant/#a-merge-request-daiv-published)). On a public repository, treat those comments as untrusted input.
+
+## Omitted diff content
+
+`omit_content_patterns` lists files whose changes stay in the diff, but whose content DAIV replaces with a placeholder before the diff reaches the model that writes commit messages and merge request descriptions. It keeps large generated files out of that model's input.
+
+| Option                  | Type        | Default                                                        | Description                                                                                               |
+| ----------------------- | ----------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `omit_content_patterns` | `list[str]` | `["*package-lock.json", "*pnpm-lock.yaml", "*.lock", "*.svg"]` | Path patterns whose diff content is left out of generated commit messages and merge request descriptions. |
+
+Patterns follow [fnmatch](https://docs.python.org/3/library/fnmatch.html) syntax and match against the file's path in the repository.
+
+## Feature toggles
+
+All features are on by default. To turn one off, set its `enabled` option to `false`:
+
+```
+issue_addressing:
+  enabled: false
+
+pull_request_assistant:
+  enabled: false
+
+slash_commands:
+  enabled: false
+```
+
+| Section                  | Option         | Default   | Description                                                                                                                                                                                             |
+| ------------------------ | -------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `issue_addressing`       | `enabled`      | `true`    | [Issue addressing](https://docs.daivagent.com/latest/features/issue-addressing/index.md)                                                                                                                |
+| `pull_request_assistant` | `enabled`      | `true`    | [Pull request assistant](https://docs.daivagent.com/latest/features/pull-request-assistant/index.md)                                                                                                    |
+| `slash_commands`         | `enabled`      | `true`    | [Slash commands and skills](https://docs.daivagent.com/latest/features/slash-commands/index.md)                                                                                                         |
+| `pipeline_watch`         | `enabled`      | `true`    | [Pipeline watch](https://docs.daivagent.com/latest/features/pipeline-watch/index.md): set it to `false` to stop DAIV watching CI on the merge requests it publishes.                                    |
+| `pipeline_watch`         | `max_attempts` | site-wide | [Pipeline watch](https://docs.daivagent.com/latest/features/pipeline-watch/index.md): the maximum number of fix attempts before DAIV hands the merge request back. DAIV caps it at the site-wide limit. |
+| `orchestration`          | `enabled`      | `true`    | [Orchestration](https://docs.daivagent.com/latest/features/orchestration/index.md): let the agent delegate sub-jobs to other repositories, or to new sessions on this one.                              |
+| `memory`                 | `enabled`      | `true`    | Repository memory: capture observations from finished runs, consolidate them, and add them to the system prompt of later runs. Set it to `false` to opt this repository out.                            |
+
+`pipeline_watch.enabled` and `memory.enabled` apply only while the matching site-wide setting is on too: **Pipeline Watch** and **Memory** in [Site configuration](https://docs.daivagent.com/latest/reference/site-configuration/index.md). The other toggles apply to the repository alone.
+
+## Model overrides
+
+A repository can use different models from the site's, for example smaller models on simple projects and larger ones on complex projects. A model is written as a model spec such as `openrouter:anthropic/claude-sonnet-5.5`; see [LLM providers](https://docs.daivagent.com/latest/getting-started/llm-providers/index.md).
+
+The model for a run comes from the first source in this list that sets one, highest priority first:
+
+1. **A model picked for the run**, in the agent picker or as `agent_model` through the API and MCP.
+1. **The `daiv-max` issue label**, described in [Issue addressing](https://docs.daivagent.com/latest/features/issue-addressing/#max-mode). Max mode uses the site's max thinking level, not `thinking_level`.
+1. **The `models` section of `.daiv.yml`.**
+1. **Site settings**: environment variables or the Site Configuration page.
+
+DAIV tries the model from the highest source that sets one first. The `models.agent` model and fallback follow it, or the site's models where the file sets none.
+
+### Agent
+
+The main DAIV agent handles issue addressing, pull request assistance and all interactive tasks.
+
+| Option                        | Type                                                          | Default      | Description                               |
+| ----------------------------- | ------------------------------------------------------------- | ------------ | ----------------------------------------- |
+| `models.agent.model`          | `str`                                                         | site setting | Primary model.                            |
+| `models.agent.fallback_model` | `str`                                                         | site setting | Fallback if the primary model fails.      |
+| `models.agent.thinking_level` | `"minimal" \| "low" \| "medium" \| "high" \| "xhigh" \| null` | site setting | Thinking depth. Set to `null` to disable. |
+
+A model picked for a single run is tried first, with the model and fallback above after it, and a thinking level picked for a run beats `thinking_level`.
+
+### Diff to metadata
+
+The diff to metadata agent generates pull request titles, descriptions and commit messages from diffs.
+
+| Option                                   | Type  | Default      | Description                          |
+| ---------------------------------------- | ----- | ------------ | ------------------------------------ |
+| `models.diff_to_metadata.model`          | `str` | site setting | Primary model.                       |
+| `models.diff_to_metadata.fallback_model` | `str` | site setting | Fallback if the primary model fails. |
+
+### Skill and subagent models
+
+Run a skill or a subagent on a chosen model, at a chosen thinking level, in this repository, by name. An entry overrides the site's entry for the same name field by field: an entry that sets only a model keeps the site entry's level, and the other way round. Every other site entry still applies. Site entries are set in the dashboard: a skill's on the **Models** tab of its page, which also holds the code-review detectors', and the general-purpose and explore subagents' under **Configuration** → **Agent** → **Subagent models**. Each of those rows has a model picker and effort dots, including **Off**, and an empty row shows what it inherits.
+
+| Option                    | Type                                     | Default    | Description                                                                                        |
+| ------------------------- | ---------------------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
+| `models.skills.<name>`    | `str \| {model, thinking_level} \| null` | site entry | Model and thinking level for the skill's model calls, from its invocation until your next message. |
+| `models.subagents.<name>` | `str \| {model, thinking_level} \| null` | site entry | Model and thinking level for every call the subagent makes.                                        |
+
+An entry is a string, which sets the model only, or a mapping with either or both of `model` and `thinking_level`. `thinking_level` is one of `minimal`, `low`, `medium`, `high`, `xhigh` or `off`, in any letter case. `off` turns thinking off and stops the level from being inherited from a later step; an unset level inherits.
+
+```
+models:
+  skills:
+    code-review: {thinking_level: medium}
+    plan: null   # unset: the site entry, if any, applies
+  subagents:
+    cr-security: {thinking_level: xhigh}
+    cr-correctness: {model: "openrouter:anthropic/claude-opus-5.5", thinking_level: high}
+    cr-tests: {thinking_level: off}
+    my-repo-subagent: "openrouter:z-ai/glm-5.2"   # a string sets the model only
+```
+
+Replace `<name>` with the name of a skill or subagent. For a given name, the model and the thinking level each resolve in this order, first step that sets the field wins, and a model from one step combines with a level from another:
+
+- **A skill:**
+  1. this repository's entry;
+  1. the site's entry (the skill page's **Models** tab);
+  1. `metadata.model` and `metadata.thinking_level` in a built-in or global skill file (a repository skill's metadata is ignored);
+  1. the run's model and thinking level.
+- **A code-review detector** (`cr-*`):
+  1. this repository's entry;
+  1. the site's entry;
+  1. `model` and `thinking_level` in the detector's charter;
+  1. the `code-review` skill's model and thinking level, resolved as above;
+  1. the run's model and thinking level.
+- **The explore subagent:**
+  1. this repository's entry;
+  1. the site's entry;
+  1. its built-in model, `openrouter:anthropic/claude-haiku-5.5` (a model only);
+  1. the run's thinking level, and the run's model when Haiku cannot be built.
+- **The general-purpose subagent:**
+  1. this repository's entry;
+  1. the site's entry;
+  1. the run's model and thinking level.
+- **A custom subagent:**
+  1. this repository's entry;
+  1. the site's entry;
+  1. `model` and `thinking_level` in its file;
+  1. the run's model and thinking level.
+
+A model picked for the run, `daiv-max`, or an exact model passed to the jobs API does not override a configured model. A thinking level set at any step beats the run's level, `daiv-max`'s included. The fallback models keep the site's fallback thinking level.
+
+DAIV checks the values when a run uses them, not when the file loads, so a typo never drops the rest of `.daiv.yml`. An unknown `thinking_level` is dropped and logged as an error, and the rest of the entry still applies; so is a key other than `model` and `thinking_level`, such as a misspelled `thinking`. A model that can't be used falls back to the model the file declares (for a detector, then the `code-review` skill's model), else the run's model, not to the site entry, and DAIV logs the failure as an error. Names that match no skill or subagent are ignored. See [Agent skills](https://docs.daivagent.com/latest/customization/agent-skills/#run-a-skill-on-another-model) and [Subagents](https://docs.daivagent.com/latest/features/subagents/#subagent-model-precedence).

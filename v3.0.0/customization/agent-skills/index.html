@@ -1,0 +1,2574 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Create custom agent skills for DAIV: SKILL.md directories with specialized instructions and workflows that the agent follows when they are triggered.">
+      
+      
+        <meta name="author" content="Sandro Rodrigues">
+      
+      
+        <link rel="canonical" href="https://docs.daivagent.com/latest/customization/agent-skills/">
+      
+      
+        <link rel="prev" href="../repository-config/">
+      
+      
+        <link rel="next" href="../mcp-tools/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+  
+    
+      
+        <title>Agent skills - DAIV</title>
+      
+    
+  
+
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+
+  <script defer src="https://cloud.umami.is/script.js" data-website-id="f2d8b948-0c1b-48e7-b0ca-e296f9d48863" data-domains="docs.daivagent.com" data-do-not-track="true"></script>
+
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  <meta name="theme-color" content="#0d1117">
+  <link rel="preload" href="../../assets/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  
+
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agent-skills" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAIV
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Agent skills
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    DAIV
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/platform-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/accounts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts and roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/llm-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/issue-addressing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Issue addressing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/pull-request-assistant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pull request assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/pipeline-watch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sessions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/jobs-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/scheduled-jobs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scheduled jobs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/orchestration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/mcp-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/merge-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Merge metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/slash-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slash commands and skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/browser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/rt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Request Tracker triage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Customization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../repository-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent skills
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-skills-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How skills work
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#override-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Override priority
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skill-security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill security
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#create-a-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a skill
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Create a skill">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skillmd-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SKILL.md format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write-a-good-description" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write a good description
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write-specific-instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write specific instructions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bundle-supporting-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundle supporting files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-changelog-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: changelog skill
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-branch-and-commit-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set branch and commit conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-global-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom global skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Custom global skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mount-a-directory-of-global-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mount a directory of global skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upload-a-global-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upload a global skill
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Upload a global skill">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#zip-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZIP requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manage-global-skills-in-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manage global skills in the dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage global skills in the dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-custom-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a custom skill
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-a-skill-on-another-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run a skill on another model
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/env-variables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#how-skills-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How skills work
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Directory structure
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#override-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Override priority
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#skill-security" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Skill security
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#create-a-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a skill
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Create a skill">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#skillmd-format" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SKILL.md format
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write-a-good-description" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write a good description
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#write-specific-instructions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Write specific instructions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bundle-supporting-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Bundle supporting files
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#example-changelog-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Example: changelog skill
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#set-branch-and-commit-conventions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Set branch and commit conventions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-global-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom global skills
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Custom global skills">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mount-a-directory-of-global-skills" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mount a directory of global skills
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upload-a-global-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Upload a global skill
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Upload a global skill">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#zip-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ZIP requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#manage-global-skills-in-the-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manage global skills in the dashboard
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage global skills in the dashboard">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-custom-skill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a custom skill
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#run-a-skill-on-another-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run a skill on another model
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../repository-config/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Customization
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/srtab/daiv/edit/main/docs/customization/agent-skills.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="agent-skills">Agent skills</h1>
+<p>Skills are modular capabilities that extend DAIV's agent with specialized knowledge and workflows. Each skill is a directory containing a <code>SKILL.md</code> file with instructions the agent follows when the skill is triggered.</p>
+<p>DAIV ships with <a href="../../features/slash-commands/#built-in-skills">built-in skills</a>. You can also write your own, for one repository or for all of them.</p>
+<h2 id="how-skills-work">How skills work</h2>
+<p>Skills use a <strong>progressive disclosure</strong> pattern:</p>
+<ol>
+<li><strong>At startup</strong>, DAIV reads the <code>name</code> and <code>description</code> from each skill's YAML frontmatter (about 100 tokens per skill).</li>
+<li><strong>When triggered</strong>, DAIV reads the full <code>SKILL.md</code> content and follows its instructions.</li>
+<li><strong>As needed</strong>, the agent reads the supporting files bundled with the skill (scripts, templates, configs).</li>
+</ol>
+<p>This keeps context usage minimal until a skill is needed.</p>
+<h2 id="directory-structure">Directory structure</h2>
+<p>Skills can live in any of these directories at the repository root:</p>
+<ul>
+<li><code>.agents/skills/</code></li>
+<li><code>.claude/skills/</code></li>
+<li><code>.cursor/skills/</code></li>
+</ul>
+<p>DAIV scans all three. When more than one holds a skill with the same name, <code>.agents/skills/</code> wins over <code>.claude/skills/</code>, which wins over <code>.cursor/skills/</code>.</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
+<span class="normal"><a href="#__codelineno-0-2">2</a></span>
+<span class="normal"><a href="#__codelineno-0-3">3</a></span>
+<span class="normal"><a href="#__codelineno-0-4">4</a></span>
+<span class="normal"><a href="#__codelineno-0-5">5</a></span>
+<span class="normal"><a href="#__codelineno-0-6">6</a></span>
+<span class="normal"><a href="#__codelineno-0-7">7</a></span>
+<span class="normal"><a href="#__codelineno-0-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>my-repository/
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a>├── .agents/
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a>│   └── skills/
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a>│       └── my-custom-skill/
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a>│           ├── SKILL.md           # Required
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a>│           └── scripts/
+<a id="__codelineno-0-7" name="__codelineno-0-7"></a>│               └── helper.py      # Optional supporting files
+<a id="__codelineno-0-8" name="__codelineno-0-8"></a>└── src/
+</code></pre></div></td></tr></table></div>
+<p>DAIV does not copy built-in skills into your repository, and writes nothing to <code>.agents/skills/</code>. It loads them from its own global skills location (<code>/workspace/skills</code> inside the agent), a separate source next to the per-repository directories.</p>
+<h2 id="override-priority">Override priority</h2>
+<p>DAIV resolves a skill name in this order, highest priority first:</p>
+<ol>
+<li><strong>Per-repository skills</strong>, committed in the repository's <code>.agents/skills/</code>, <code>.claude/skills/</code> or <code>.cursor/skills/</code>.</li>
+<li><strong>Custom global skills</strong>, <a href="#custom-global-skills">mounted from the host or uploaded in the dashboard</a>.</li>
+<li><strong>Built-in skills</strong>, shipped with DAIV.</li>
+</ol>
+<p>A custom global skill overrides the built-in skill of the same name, and a per-repository skill overrides both. To override a built-in skill in one repository, commit a skill with the same name to that repository.</p>
+<p>The agent's system prompt lists the global source as <code>Global Skills</code>, and marks the last source, <code>.agents/skills</code>, <code>(higher priority)</code>.</p>
+<h2 id="skill-security">Skill security</h2>
+<div class="admonition warning">
+<p class="admonition-title">Use skills from trusted sources only</p>
+<p>Skills give the agent instructions and access to scripts. Use only skills you wrote or got from a source you trust.</p>
+</div>
+<p>Before you commit or upload a skill:</p>
+<ul>
+<li>Audit every file in it.</li>
+<li>Review its scripts carefully, because the agent can run any executable code in a skill.</li>
+<li>Check its external references, because a skill that fetches data from external URLs adds risk.</li>
+</ul>
+<h2 id="create-a-skill">Create a skill</h2>
+<p>To add a skill to one repository, create a directory for it and commit it. You need write access to the repository.</p>
+<ol>
+<li>In <code>.agents/skills/</code> at the repository root, create a directory named after the skill, with lowercase letters, digits and hyphens only (for example <code>changelog</code>).</li>
+<li>In that directory, create <code>SKILL.md</code>.</li>
+<li>Add the YAML frontmatter with a <code>name</code> that matches the directory name and a <code>description</code>.</li>
+<li>Below the frontmatter, write the instructions the agent follows.</li>
+<li>Optional: add supporting files next to <code>SKILL.md</code>, such as scripts or templates.</li>
+<li>Commit the directory to the repository.</li>
+</ol>
+<p>DAIV loads the skill in runs on a branch that contains it. To have the agent walk you through these steps instead, run <code>@daiv /skill-creator</code> (see <a href="../../features/slash-commands/#skill-creator"><code>/skill-creator</code></a>).</p>
+<h3 id="skillmd-format">SKILL.md format</h3>
+<p>Every skill requires a <code>SKILL.md</code> file with YAML frontmatter:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-1-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-1-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-1-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-1-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-1-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-1-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-1-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-1-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-1-10">10</a></span>
+<span class="normal"><a href="#__codelineno-1-11">11</a></span>
+<span class="normal"><a href="#__codelineno-1-12">12</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>---
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a>name: my-skill
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="gu">description: Brief description of what this skill does and when the agent should use it</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="gu">---</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5"></a>
+<a id="__codelineno-1-6" name="__codelineno-1-6"></a><span class="gh"># My Skill</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8"></a><span class="gu">## Instructions</span>
+<a id="__codelineno-1-9" name="__codelineno-1-9"></a>
+<a id="__codelineno-1-10" name="__codelineno-1-10"></a><span class="k">1.</span> First, do this
+<a id="__codelineno-1-11" name="__codelineno-1-11"></a><span class="k">2.</span> Then, do that
+<a id="__codelineno-1-12" name="__codelineno-1-12"></a><span class="k">3.</span> Finally, verify the result
+</code></pre></div></td></tr></table></div>
+<p>Required fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Constraints</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>name</code></td>
+<td>Max 64 chars, lowercase alphanumeric and hyphens, must match the directory name</td>
+<td>Unique identifier for the skill. This is what users type after <code>/</code>.</td>
+</tr>
+<tr>
+<td><code>description</code></td>
+<td>Max 1024 chars</td>
+<td>What the skill does <strong>and when to use it</strong>. The agent matches user requests against this text, so include trigger phrases.</td>
+</tr>
+</tbody>
+</table>
+<p>Optional fields:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>license</code></td>
+<td>License name or reference to a bundled license file</td>
+</tr>
+<tr>
+<td><code>compatibility</code></td>
+<td>Environment requirements (max 500 chars)</td>
+</tr>
+<tr>
+<td><code>metadata</code></td>
+<td>Arbitrary key-value pairs for additional properties</td>
+</tr>
+<tr>
+<td><code>allowed-tools</code></td>
+<td>Space-delimited list of tool names the skill recommends using</td>
+</tr>
+</tbody>
+</table>
+<h3 id="write-a-good-description">Write a good description</h3>
+<p>The <code>description</code> field is how the agent decides whether to use your skill. Include specific trigger phrases:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span>
+<span class="normal"><a href="#__codelineno-2-3">3</a></span>
+<span class="normal"><a href="#__codelineno-2-4">4</a></span>
+<span class="normal"><a href="#__codelineno-2-5">5</a></span>
+<span class="normal"><a href="#__codelineno-2-6">6</a></span>
+<span class="normal"><a href="#__codelineno-2-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="c1"># Good: includes trigger phrases the agent can match</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="w">  </span><span class="no">Diagnose and fix CI/CD pipeline failures. Use when the user mentions</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="w">  </span><span class="no">"pipeline is failing", "CI broken", "fix the build", or "debug the tests".</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5"></a>
+<a id="__codelineno-2-6" name="__codelineno-2-6"></a><span class="c1"># Bad: too vague for the agent to match</span>
+<a id="__codelineno-2-7" name="__codelineno-2-7"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Helps with CI/CD issues.</span>
+</code></pre></div></td></tr></table></div>
+<h3 id="write-specific-instructions">Write specific instructions</h3>
+<p>Tell the agent exactly what steps to follow:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
+<span class="normal"><a href="#__codelineno-3-2">2</a></span>
+<span class="normal"><a href="#__codelineno-3-3">3</a></span>
+<span class="normal"><a href="#__codelineno-3-4">4</a></span>
+<span class="normal"><a href="#__codelineno-3-5">5</a></span>
+<span class="normal"><a href="#__codelineno-3-6">6</a></span>
+<span class="normal"><a href="#__codelineno-3-7">7</a></span>
+<span class="normal"><a href="#__codelineno-3-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="gu">## Instructions</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a>
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a><span class="k">1.</span> Fetch the merge request diff using the platform tools
+<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="k">2.</span> For each changed file, check for:
+<a id="__codelineno-3-5" name="__codelineno-3-5"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Missing error handling
+<a id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Unvalidated inputs
+<a id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="w">   </span><span class="k">-</span><span class="w"> </span>Hardcoded credentials
+<a id="__codelineno-3-8" name="__codelineno-3-8"></a><span class="k">3.</span> Report findings grouped by severity (High / Medium / Low)
+</code></pre></div></td></tr></table></div>
+<h3 id="bundle-supporting-files">Bundle supporting files</h3>
+<p>Skills can include helper scripts, templates and reference documents. Reference them by paths relative to the skill directory:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
+<span class="normal"><a href="#__codelineno-4-2">2</a></span>
+<span class="normal"><a href="#__codelineno-4-3">3</a></span>
+<span class="normal"><a href="#__codelineno-4-4">4</a></span>
+<span class="normal"><a href="#__codelineno-4-5">5</a></span>
+<span class="normal"><a href="#__codelineno-4-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>my-skill/
+<a id="__codelineno-4-2" name="__codelineno-4-2"></a>├── SKILL.md
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a>├── scripts/
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a>│   └── validate.py
+<a id="__codelineno-4-5" name="__codelineno-4-5"></a>└── templates/
+<a id="__codelineno-4-6" name="__codelineno-4-6"></a>    └── report.md
+</code></pre></div></td></tr></table></div>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
+<span class="normal"><a href="#__codelineno-5-2">2</a></span>
+<span class="normal"><a href="#__codelineno-5-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="gu">## Resources</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a><span class="k">-</span><span class="w"> </span>Run <span class="sb">`scripts/validate.py`</span> to check prerequisites
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a><span class="k">-</span><span class="w"> </span>Use <span class="sb">`templates/report.md`</span> as the output format
+</code></pre></div></td></tr></table></div>
+<h2 id="example-changelog-skill">Example: changelog skill</h2>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-6-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-6-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-6-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-6-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-6-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-6-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-6-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-6-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-6-10">10</a></span>
+<span class="normal"><a href="#__codelineno-6-11">11</a></span>
+<span class="normal"><a href="#__codelineno-6-12">12</a></span>
+<span class="normal"><a href="#__codelineno-6-13">13</a></span>
+<span class="normal"><a href="#__codelineno-6-14">14</a></span>
+<span class="normal"><a href="#__codelineno-6-15">15</a></span>
+<span class="normal"><a href="#__codelineno-6-16">16</a></span>
+<span class="normal"><a href="#__codelineno-6-17">17</a></span>
+<span class="normal"><a href="#__codelineno-6-18">18</a></span>
+<span class="normal"><a href="#__codelineno-6-19">19</a></span>
+<span class="normal"><a href="#__codelineno-6-20">20</a></span>
+<span class="normal"><a href="#__codelineno-6-21">21</a></span>
+<span class="normal"><a href="#__codelineno-6-22">22</a></span>
+<span class="normal"><a href="#__codelineno-6-23">23</a></span>
+<span class="normal"><a href="#__codelineno-6-24">24</a></span>
+<span class="normal"><a href="#__codelineno-6-25">25</a></span>
+<span class="normal"><a href="#__codelineno-6-26">26</a></span>
+<span class="normal"><a href="#__codelineno-6-27">27</a></span>
+<span class="normal"><a href="#__codelineno-6-28">28</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>---
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a>name: changelog
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a>description: &gt;
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a>  Update the CHANGELOG.md file when changes are made. Use when the user
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a>  asks to "update the changelog", "add a changelog entry", or after
+<a id="__codelineno-6-6" name="__codelineno-6-6"></a><span class="gu">  completing a feature implementation.</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="gu">---</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8"></a>
+<a id="__codelineno-6-9" name="__codelineno-6-9"></a><span class="gh"># Changelog Maintenance</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10"></a>
+<a id="__codelineno-6-11" name="__codelineno-6-11"></a><span class="gu">## Instructions</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12"></a>
+<a id="__codelineno-6-13" name="__codelineno-6-13"></a><span class="k">1.</span> Read <span class="sb">`CHANGELOG.md`</span> from the repository root
+<a id="__codelineno-6-14" name="__codelineno-6-14"></a><span class="k">2.</span> Determine the change type: Added, Changed, Fixed, Removed
+<a id="__codelineno-6-15" name="__codelineno-6-15"></a><span class="k">3.</span> Add an entry under the <span class="sb">`## Unreleased`</span> section
+<a id="__codelineno-6-16" name="__codelineno-6-16"></a><span class="k">4.</span> Follow the existing format and style in the file
+<a id="__codelineno-6-17" name="__codelineno-6-17"></a><span class="k">5.</span> Keep entries concise: one line per change
+<a id="__codelineno-6-18" name="__codelineno-6-18"></a>
+<a id="__codelineno-6-19" name="__codelineno-6-19"></a><span class="gu">## Format</span>
+<a id="__codelineno-6-20" name="__codelineno-6-20"></a>
+<a id="__codelineno-6-21" name="__codelineno-6-21"></a>Use [<span class="nt">Common Changelog</span>](<span class="na">https://common-changelog.org/</span>) format:
+<a id="__codelineno-6-22" name="__codelineno-6-22"></a>
+<a id="__codelineno-6-23" name="__codelineno-6-23"></a><span class="sb">```markdown</span>
+<a id="__codelineno-6-24" name="__codelineno-6-24"></a><span class="gu">## Unreleased</span>
+<a id="__codelineno-6-25" name="__codelineno-6-25"></a>
+<a id="__codelineno-6-26" name="__codelineno-6-26"></a><span class="gu">### Added</span>
+<a id="__codelineno-6-27" name="__codelineno-6-27"></a><span class="k">-</span><span class="w"> </span>New feature description
+<a id="__codelineno-6-28" name="__codelineno-6-28"></a><span class="sb">```</span>
+</code></pre></div></td></tr></table></div>
+<h2 id="set-branch-and-commit-conventions">Set branch and commit conventions</h2>
+<p>DAIV generates the branch names and commit messages for its changes. To make it follow your conventions, describe them in the repository's context file: <code>AGENTS.md</code>, or the file that <code>context_file_name</code> names in <a href="../repository-config/#repository-settings"><code>.daiv.yml</code></a>. <code>.daiv.yml</code> has no option for the conventions themselves.</p>
+<ol>
+<li>Open the context file in the repository root.</li>
+<li>Add a section for each convention you want DAIV to follow.</li>
+<li>Commit the file.</li>
+</ol>
+<p>For example:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Markdown</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
+<span class="normal"><a href="#__codelineno-7-2">2</a></span>
+<span class="normal"><a href="#__codelineno-7-3">3</a></span>
+<span class="normal"><a href="#__codelineno-7-4">4</a></span>
+<span class="normal"><a href="#__codelineno-7-5">5</a></span>
+<span class="normal"><a href="#__codelineno-7-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="gu">## Branch naming</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a>Use: pr/&lt;issue-id&gt;-&lt;kebab-summary&gt;
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a>
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="gu">## Commit messages</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5"></a>Use: (&lt;ISSUE-ID&gt;) &lt;type&gt;: &lt;summary&gt;
+<a id="__codelineno-7-6" name="__codelineno-7-6"></a>Where &lt;type&gt; is one of: feat, fix, chore, docs, refactor, test
+</code></pre></div></td></tr></table></div>
+<p>The angle-bracket parts belong to the convention: DAIV fills in the issue ID, type and summary for each change.</p>
+<p>Without a convention, DAIV names branches <code>&lt;type&gt;/&lt;short-kebab-summary&gt;</code> and writes commit subjects in the Conventional Commits style, <code>&lt;type&gt;: &lt;short summary&gt;</code>, with a type of feat, fix, chore, docs, refactor or test.</p>
+<h2 id="custom-global-skills">Custom global skills</h2>
+<p>A custom global skill is available in <strong>all repositories</strong>, unlike a per-repository skill. It has the same format as a built-in skill, a directory containing a <code>SKILL.md</code> file, and DAIV loads it from a directory on the host. You put skills there in one of two ways:</p>
+<ul>
+<li><a href="#mount-a-directory-of-global-skills">Mount a directory</a> of skills into the containers.</li>
+<li><a href="#upload-a-global-skill">Upload a ZIP archive</a> in the dashboard, as an admin.</li>
+</ul>
+<p>Both use the same directory, <code>DAIV_AGENT_CUSTOM_SKILLS_PATH</code>, once it is mounted into the <code>app</code> container and into every container that runs the agent, so you can use both. A mounted skill appears in runs but not on the <strong>Skills</strong> page, which lists only uploaded skills.</p>
+<p>DAIV materializes the skills at each agent invocation, so a new skill or a new file takes effect on the next task without a container restart. DAIV does not pick up an edit to a file it has already loaded, so replace the skill by upload, or recreate the containers that run the agent after editing a mounted file. A plain restart is not enough, because the cache lives in the container's <code>/tmp</code>. With Docker Compose, run <code>docker compose up -d --force-recreate worker worker-interactive</code>. With Docker Swarm, run <code>docker service update --force &lt;stack&gt;_worker</code> and <code>docker service update --force &lt;stack&gt;_worker-interactive</code>, replacing <code>&lt;stack&gt;</code> with your stack name.</p>
+<h3 id="mount-a-directory-of-global-skills">Mount a directory of global skills</h3>
+<ol>
+<li>
+<p>On the host, create a directory with your skills, one subdirectory per skill:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Text Only</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span>
+<span class="normal"><a href="#__codelineno-8-2">2</a></span>
+<span class="normal"><a href="#__codelineno-8-3">3</a></span>
+<span class="normal"><a href="#__codelineno-8-4">4</a></span>
+<span class="normal"><a href="#__codelineno-8-5">5</a></span>
+<span class="normal"><a href="#__codelineno-8-6">6</a></span>
+<span class="normal"><a href="#__codelineno-8-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>custom-skills/
+<a id="__codelineno-8-2" name="__codelineno-8-2"></a>├── my-workflow/
+<a id="__codelineno-8-3" name="__codelineno-8-3"></a>│   ├── SKILL.md
+<a id="__codelineno-8-4" name="__codelineno-8-4"></a>│   └── scripts/
+<a id="__codelineno-8-5" name="__codelineno-8-5"></a>│       └── helper.py
+<a id="__codelineno-8-6" name="__codelineno-8-6"></a>└── team-review/
+<a id="__codelineno-8-7" name="__codelineno-8-7"></a>    └── SKILL.md
+</code></pre></div></td></tr></table></div>
+</li>
+<li>
+<p>In your <code>docker-compose.yml</code> or <code>stack.yml</code>, mount the directory at <code>/home/daiv/data/skills</code> into <code>app</code>, which receives dashboard uploads and needs it read-write, and into <code>worker</code> and <code>worker-interactive</code>, which run the agent and can mount it read-only:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1">1</a></span>
+<span class="normal"><a href="#__codelineno-9-2">2</a></span>
+<span class="normal"><a href="#__codelineno-9-3">3</a></span>
+<span class="normal"><a href="#__codelineno-9-4">4</a></span>
+<span class="normal"><a href="#__codelineno-9-5">5</a></span>
+<span class="normal"><a href="#__codelineno-9-6">6</a></span>
+<span class="normal"><a href="#__codelineno-9-7">7</a></span>
+<span class="normal"><a href="#__codelineno-9-8">8</a></span>
+<span class="normal"><a href="#__codelineno-9-9">9</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a><span class="nt">app</span><span class="p">:</span>
+<a id="__codelineno-9-2" name="__codelineno-9-2"></a><span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-9-3" name="__codelineno-9-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./custom-skills:/home/daiv/data/skills</span>
+<a id="__codelineno-9-4" name="__codelineno-9-4"></a><span class="nt">worker</span><span class="p">:</span>
+<a id="__codelineno-9-5" name="__codelineno-9-5"></a><span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-9-6" name="__codelineno-9-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./custom-skills:/home/daiv/data/skills:ro</span>
+<a id="__codelineno-9-7" name="__codelineno-9-7"></a><span class="nt">worker-interactive</span><span class="p">:</span>
+<a id="__codelineno-9-8" name="__codelineno-9-8"></a><span class="w">  </span><span class="nt">volumes</span><span class="p">:</span>
+<a id="__codelineno-9-9" name="__codelineno-9-9"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./custom-skills:/home/daiv/data/skills:ro</span>
+</code></pre></div></td></tr></table></div>
+</li>
+<li>
+<p>Recreate the three containers.</p>
+</li>
+</ol>
+<p>A service-level <code>volumes:</code> replaces the list it inherits, so keep each service's existing <code>media-volume</code> line (see <a href="../../getting-started/deployment/">Deployment</a>). To mount the directory elsewhere, set <code>DAIV_AGENT_CUSTOM_SKILLS_PATH</code> (see <a href="../../reference/env-variables/#daiv-agent">Environment variables</a>).</p>
+<h3 id="upload-a-global-skill">Upload a global skill</h3>
+<div class="admonition warning">
+<p class="admonition-title">An upload replaces a skill of the same name</p>
+<p>If a custom skill with the same name exists, uploading replaces it for every repository. DAIV moves the old version to <code>.trash/</code> under <code>DAIV_AGENT_CUSTOM_SKILLS_PATH</code> and removes it on the next upload or delete after 24 hours.</p>
+</div>
+<p>You need an admin account and a ZIP archive that meets the <a href="#zip-requirements">ZIP requirements</a>.</p>
+<ol>
+<li>In the sidebar, select <strong>Settings</strong> → <strong>Skills</strong>.</li>
+<li>Select <strong>Upload skill</strong>.</li>
+<li>Under <strong>Skill zip</strong>, choose the ZIP archive.</li>
+<li>Select <strong>Upload</strong>.</li>
+<li>If DAIV shows <strong>Replace existing skill</strong>, choose the ZIP archive again and select <strong>Replace</strong>.</li>
+</ol>
+<p>The skill appears under <strong>Custom skills</strong>. DAIV records which admin uploaded it.</p>
+<h4 id="zip-requirements">ZIP requirements</h4>
+<p>DAIV validates the archive before it stores it:</p>
+<table>
+<thead>
+<tr>
+<th>Constraint</th>
+<th>Limit</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Top-level directory</td>
+<td>Exactly one, named after the skill (a valid slug: lowercase alphanumeric and hyphens, max 63 chars)</td>
+</tr>
+<tr>
+<td><code>SKILL.md</code></td>
+<td>Required at <code>&lt;skill-name&gt;/SKILL.md</code>, with <code>name</code> (matching the directory) and <code>description</code> in its frontmatter</td>
+</tr>
+<tr>
+<td>Compressed size</td>
+<td>5 MiB max</td>
+</tr>
+<tr>
+<td>Unpacked size</td>
+<td>25 MiB max</td>
+</tr>
+<tr>
+<td>File count</td>
+<td>200 max</td>
+</tr>
+<tr>
+<td>Path depth</td>
+<td>8 levels max</td>
+</tr>
+<tr>
+<td>Per-file size</td>
+<td>1 MiB max</td>
+</tr>
+<tr>
+<td>Allowed file types</td>
+<td><code>.md</code>, <code>.py</code>, <code>.json</code>, <code>.yaml</code>, <code>.yml</code>, <code>.txt</code>, <code>.sh</code>, <code>.toml</code>, <code>.png</code>, <code>.jpg</code>, <code>.jpeg</code>, <code>.svg</code>, <code>.gif</code></td>
+</tr>
+</tbody>
+</table>
+<p>DAIV rejects symlinks, absolute paths, <code>..</code> path traversal and hidden path segments. It drops <code>__pycache__</code>, <code>.pyc</code>, <code>.git</code> and <code>.gitignore</code> entries silently.</p>
+<h3 id="manage-global-skills-in-the-dashboard">Manage global skills in the dashboard</h3>
+<p>The <strong>Skills</strong> page needs an admin account. <strong>Custom skills</strong> lists the skills uploaded in the dashboard, and <strong>Built-in skills</strong> lists the ones DAIV ships. Each card shows the skill's invocation count and, when its entry names one, its model. A custom skill whose name matches a built-in skill shadows it, and its card carries an <strong>Overrides built-in</strong> warning icon. A skill that you only mounted loads in runs but has no card or page, so it cannot be downloaded or deleted here.</p>
+<p>Select a skill to open its page, which has four tabs:</p>
+<ul>
+<li><strong>SKILL.md</strong>: the skill's instructions.</li>
+<li><strong>Files</strong>: the files in the skill.</li>
+<li><strong>Models</strong>: the model and thinking level the skill runs on (see <a href="#run-a-skill-on-another-model">Run a skill on another model</a>).</li>
+<li><strong>Usage</strong>: the invocations over the last 30 days, and the latest runs that invoked the skill, each linking to its run in its session.</li>
+</ul>
+<p>To download a custom skill's original ZIP archive, select <strong>Download zip</strong> on its card menu or its page.</p>
+<h4 id="delete-a-custom-skill">Delete a custom skill</h4>
+<div class="admonition warning">
+<p class="admonition-title">Deleting removes the skill from every repository</p>
+<p>DAIV moves the skill to a recycle bin for 24 hours before it removes it permanently. Download the ZIP archive first if you may need it. A custom skill that shadowed a built-in skill stops doing so: the built-in skill applies again.</p>
+</div>
+<p>You cannot delete a built-in skill.</p>
+<ol>
+<li>On the <strong>Skills</strong> page, find the skill under <strong>Custom skills</strong>.</li>
+<li>Open its card menu and select <strong>Delete</strong>.</li>
+<li>Select <strong>Delete skill</strong>.</li>
+</ol>
+<h2 id="run-a-skill-on-another-model">Run a skill on another model</h2>
+<p>Once the agent invokes a skill, its model calls run on the skill's model and thinking level until your next message. The model and the level each come from the first of these that sets the field: the skill's <code>models.skills</code> entry in the repository's <code>.daiv.yml</code>, its entry on the <strong>Models</strong> tab or in <code>DAIV_AGENT_SKILL_MODELS</code>, the skill file's <code>metadata.model</code> and <code>metadata.thinking_level</code>, then the run's. A skill with only a level runs the run's model at that level. <a href="../repository-config/#skill-and-subagent-models">Skill and subagent models</a> gives the order and the entry format.</p>
+<p>The <strong>Models</strong> tab changes a skill's model and thinking level for every repository, built-in skills included, without copying or editing the skill file. On <code>/code-review</code> it also sets the model and level of each detector the skill ships, and a detector without its own setting inherits the skill's (see <a href="../../features/subagents/#subagent-model-precedence">Subagent model precedence</a>). A skill that exists only in repositories, or that you only mounted, has no page: give it a model or thinking level with <code>DAIV_AGENT_SKILL_MODELS</code>, or with a <code>models.skills</code> entry in each repository's <code>.daiv.yml</code>.</p>
+<p>A built-in or global skill file can name its own model in <code>metadata.model</code>, as a model spec (<code>provider-slug:model</code>, as in <a href="../../features/subagents/">subagents</a>), and its thinking level in <code>metadata.thinking_level</code>: one of <code>minimal</code>, <code>low</code>, <code>medium</code>, <code>high</code>, <code>xhigh</code> or <code>off</code>. <code>off</code> turns thinking off.</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">YAML</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1">1</a></span>
+<span class="normal"><a href="#__codelineno-10-2">2</a></span>
+<span class="normal"><a href="#__codelineno-10-3">3</a></span>
+<span class="normal"><a href="#__codelineno-10-4">4</a></span>
+<span class="normal"><a href="#__codelineno-10-5">5</a></span>
+<span class="normal"><a href="#__codelineno-10-6">6</a></span>
+<span class="normal"><a href="#__codelineno-10-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a><span class="nn">---</span>
+<a id="__codelineno-10-2" name="__codelineno-10-2"></a><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">changelog</span>
+<a id="__codelineno-10-3" name="__codelineno-10-3"></a><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Update CHANGELOG.md for the current changes.</span>
+<a id="__codelineno-10-4" name="__codelineno-10-4"></a><span class="nt">metadata</span><span class="p">:</span>
+<a id="__codelineno-10-5" name="__codelineno-10-5"></a><span class="w">  </span><span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openrouter:anthropic/claude-haiku-5.5</span>
+<a id="__codelineno-10-6" name="__codelineno-10-6"></a><span class="w">  </span><span class="nt">thinking_level</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">low</span>
+<a id="__codelineno-10-7" name="__codelineno-10-7"></a><span class="nn">---</span>
+</code></pre></div></td></tr></table></div>
+<p>DAIV ignores a repository skill's <code>metadata.model</code> and <code>metadata.thinking_level</code>, because the file comes from the branch the run works on, which the author of a merge request controls.</p>
+<p>A thinking level set at any step beats the run's, <code>daiv-max</code>'s included. The run's model serves any model call whose conversation no longer fits the skill model's context window. When the skill's model fails a call, the run's model serves that call and the rest of the skill's invocation, at the run's thinking level, before the run's fallback models. If the agent invokes the skill again later in the run, DAIV skips the model that failed and runs the next model in line at the skill's thinking level. Switching models starts a fresh prompt cache on each side, so a cheaper skill model pays off only for skills that do substantial work.</p>
+<p>When a configured entry names a provider that is unknown, disabled or missing its API key, the skill runs on its <code>metadata.model</code>, else the run's model, and DAIV logs the failure at ERROR. A <code>metadata.model</code> that DAIV can't use keeps the run's model, logged the same way. DAIV drops an unknown thinking level and logs it as an error, and the rest of the entry still applies.</p>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 13, 2026 20:23:11 UTC">November 13, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="March 13, 2026 18:39:53 UTC">March 13, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

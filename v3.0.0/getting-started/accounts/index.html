@@ -1,0 +1,2370 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="How sign-in works in the DAIV dashboard: admin and member roles, Git platform OAuth, one-time email codes or passkeys, the first admin, and managing users.">
+      
+      
+        <meta name="author" content="Sandro Rodrigues">
+      
+      
+        <link rel="canonical" href="https://docs.daivagent.com/latest/getting-started/accounts/">
+      
+      
+        <link rel="prev" href="../platform-setup/">
+      
+      
+        <link rel="next" href="../llm-providers/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.1">
+    
+    
+  
+    
+      
+        <title>Accounts and roles - DAIV</title>
+      
+    
+  
+
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+  
+
+
+  
+
+  <script defer src="https://cloud.umami.is/script.js" data-website-id="f2d8b948-0c1b-48e7-b0ca-e296f9d48863" data-domains="docs.daivagent.com" data-do-not-track="true"></script>
+
+  
+    <script>"undefined"!=typeof __md_analytics&&__md_analytics()</script>
+  
+
+    
+    
+  <meta name="theme-color" content="#0d1117">
+  <link rel="preload" href="../../assets/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+  
+
+  </head>
+  
+  
+    
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#accounts-and-roles" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="DAIV" class="md-header__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            DAIV
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Accounts and roles
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+    
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="DAIV" class="md-nav__button md-logo" aria-label="DAIV" data-md-component="logo">
+      
+  <img src="../../assets/mark.svg" alt="logo">
+
+    </a>
+    DAIV
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/srtab/daiv" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quickstart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quickstart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../deployment/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Deployment
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../platform-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Platform setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts and roles
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Accounts and roles
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Roles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repository-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repository access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sign-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sign in">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sign-in-with-an-email-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in with an email code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sign-in-with-github-or-gitlab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in with GitHub or GitLab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sign-in-with-a-passkey" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in with a passkey
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create-the-oauth-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create the OAuth app
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-first-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The first admin
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The first admin">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#make-the-first-oauth-sign-in-the-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Make the first OAuth sign-in the admin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create-the-first-admin-from-a-shell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create the first admin from a shell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manage-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manage users
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage users">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#create-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#edit-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Edit a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deactivate-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deactivate a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#account-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Account pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../llm-providers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    LLM providers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Features
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Features
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/issue-addressing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Issue addressing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/pull-request-assistant/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pull request assistant
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/pipeline-watch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pipeline watch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/memory/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sessions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sessions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/jobs-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Jobs API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/scheduled-jobs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scheduled jobs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/orchestration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Orchestration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/mcp-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/notifications/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Notifications
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/merge-metrics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Merge metrics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/spend/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Spend
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/slash-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Slash commands and skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/subagents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Subagents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/sandbox-environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sandbox environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../features/browser/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Browser
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Integrations
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Integrations
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../integrations/rt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Request Tracker triage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Customization
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Customization
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/repository-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Repository configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/agent-skills/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent skills
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../customization/mcp-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/env-variables/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environment variables
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/site-configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Site configuration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/agent-architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/monitoring/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Monitoring
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/management-commands/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Management commands
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/benchmarks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Benchmarks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../community/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Community
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#roles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Roles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repository-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repository access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sign-in" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Sign in">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sign-in-with-an-email-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in with an email code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sign-in-with-github-or-gitlab" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in with GitHub or GitLab
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sign-in-with-a-passkey" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sign in with a passkey
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create-the-oauth-app" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create the OAuth app
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-first-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The first admin
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The first admin">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#make-the-first-oauth-sign-in-the-admin" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Make the first OAuth sign-in the admin
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#create-the-first-admin-from-a-shell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create the first admin from a shell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#manage-users" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Manage users
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Manage users">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#create-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Create a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#edit-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Edit a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deactivate-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deactivate a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#delete-a-user" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Delete a user
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#account-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Account pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-pages" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related pages
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      <li class="md-path__item">
+        <a href="../quickstart/" class="md-path__link">
+          
+  <span class="md-ellipsis">
+    Getting Started
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/srtab/daiv/edit/main/docs/getting-started/accounts.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="accounts-and-roles">Accounts and roles</h1>
+<p>DAIV's web dashboard requires you to sign in. Every signed-in user has one of two roles, <strong>admin</strong> or <strong>member</strong>, which decide what they can see and change. Members manage their own work: agent runs, chats, schedules and API keys. Admins also manage the deployment: users, site configuration, schedule templates, skills, and global MCP servers and sandbox environments.</p>
+<p>DAIV does not offer email-and-password signup. Signup through your Git platform is off by default: an admin turns it on with <strong>Open social signup</strong>, described in <a href="../../reference/site-configuration/#turn-on-oauth-login">Turn on OAuth login</a>. Otherwise an admin creates each user, who then signs in with a one-time email code, a passkey, or the Git platform account when OAuth login is on.</p>
+<h2 id="roles">Roles</h2>
+<p>DAIV has two roles. New users are members.</p>
+<table>
+<thead>
+<tr>
+<th>Capability</th>
+<th>Member</th>
+<th>Admin</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Start and view agent runs and chats</td>
+<td>On the repositories they can access (see <a href="#repository-access">Repository access</a>)</td>
+<td>On every repository</td>
+</tr>
+<tr>
+<td>Create and view <a href="../../features/scheduled-jobs/">scheduled jobs</a></td>
+<td>Their own, on repositories they can write to</td>
+<td>Everyone's, on every repository</td>
+</tr>
+<tr>
+<td>Create API keys</td>
+<td>Their own</td>
+<td>Their own</td>
+</tr>
+<tr>
+<td>Revoke API keys</td>
+<td>Their own</td>
+<td>Any user's key</td>
+</tr>
+<tr>
+<td>Manage notification channels</td>
+<td>Their own</td>
+<td>Their own</td>
+</tr>
+<tr>
+<td><strong>Users</strong>: create, edit and delete users</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Configuration</strong>: edit the site configuration</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Schedule templates</strong>: create, edit and delete them</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Skills</strong>: open the skills dashboard</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Global MCP servers</strong>: manage the servers every user gets</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Create and change global sandbox environments</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>Consolidate a repository's memory on demand</td>
+<td>No</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<p>The admin-only pages are under <strong>Admin</strong> in the sidebar's <strong>Settings</strong> menu, the cog beside your account.</p>
+<h2 id="repository-access">Repository access</h2>
+<p>A member sees and acts on a repository only when they have access to it on the connected Git platform, GitLab or GitHub. DAIV mirrors each user's repository membership from the platform and checks it before it shows or runs anything on a repository. There is no separate DAIV-side permission to manage. Admins skip these checks, but they too can start runs only on repositories DAIV can work on: the ones the sync lists, where its GitLab user is a Maintainer or its GitHub App is installed. Until the first sync has run, admins can start runs on any repository.</p>
+<p>DAIV checks two tiers, matched to the platform's own roles:</p>
+<table>
+<thead>
+<tr>
+<th>Tier</th>
+<th>Required platform role</th>
+<th>Gates</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Read</strong></td>
+<td>GitLab Reporter or above, GitHub read (or higher) collaborator</td>
+<td>Repository and branch pickers, the <a href="../../features/memory/">memory dashboard</a>, and the MCP <code>list_repositories</code> tool.</td>
+</tr>
+<tr>
+<td><strong>Write</strong></td>
+<td>GitLab Developer or above, GitHub write (or higher) collaborator</td>
+<td>Starting an agent run or chat, and creating or running a <a href="../../features/scheduled-jobs/">scheduled job</a>, from the dashboard, the Jobs API or MCP.</td>
+</tr>
+</tbody>
+</table>
+<p>A repository a user cannot read never appears in a listing. A repository they can read but not write to appears, and DAIV rejects their run, chat and schedule attempts with a "not accessible" message.</p>
+<p>DAIV learns what a user can access on the platform only after that user signs in with their Git platform account once, and matches the platform account to the DAIV user by email. A user an admin created, who has only ever signed in with an email code, has no repository access until they sign in with GitLab or GitHub once.</p>
+<p>A periodic sync copies repository membership from the platform, so a permission change on the platform takes effect at the next sync, not immediately. <a href="../../reference/env-variables/#git-platform">Git platform</a> gives the sync schedule and how long DAIV keeps trusting access data after a sync fails.</p>
+<h2 id="sign-in">Sign in</h2>
+<p>The login page is at <code>/accounts/login/</code>. A user signs in with any of these methods:</p>
+<ul>
+<li><strong>Email code.</strong> Works without further setup, as long as DAIV can send email.</li>
+<li><strong>Git platform account.</strong> Works once an admin has turned on OAuth login.</li>
+<li><strong>Passkey.</strong> Works once the user has added one.</li>
+</ul>
+<h3 id="sign-in-with-an-email-code">Sign in with an email code</h3>
+<p>DAIV emails a one-time code that signs a user in without a password. Admin-created users and the first admin use this method.</p>
+<ol>
+<li>On the login page, enter your email address and select <strong>Continue with email</strong>.</li>
+<li>Read the code in the email DAIV sends. The code expires after 5 minutes and accepts 3 attempts.</li>
+<li>Enter the code and select <strong>Verify &amp; sign in</strong>.</li>
+</ol>
+<p>Without an SMTP server, set <code>EMAIL_BACKEND</code> to <code>django.core.mail.backends.console.EmailBackend</code> and read the code from the app's log with <code>docker compose logs app</code>. <a href="../../reference/env-variables/#authentication">Environment variables</a> lists the email settings.</p>
+<h3 id="sign-in-with-github-or-gitlab">Sign in with GitHub or GitLab</h3>
+<p>DAIV offers the platform it is connected to, <strong>GitHub</strong> or <strong>GitLab</strong> including a self-managed GitLab, and never both at once. On the login page, select <strong>Continue with GitHub</strong> or <strong>Continue with GitLab</strong>.</p>
+<p>With <strong>Open social signup</strong> off, create each permitted user under <strong>Admin</strong> → <strong>Users</strong> with the email address their Git platform account confirms. For GitLab, DAIV checks the profile's <code>confirmed_at</code> to verify that this primary email address is confirmed before it looks up an existing account. Matching ignores case and keeps the existing user's role. If GitLab sends no confirmation or an invalid one, DAIV does not link the account by email. An account already linked to a platform user ID stays linked when the platform email changes.</p>
+<p>DAIV checks again, before it saves a new account, that signup is open. A pending signup form cannot create a second user by replacing an email address that already exists.</p>
+<p>To turn on Git platform sign-in, <a href="#create-the-oauth-app">create the OAuth app</a>, then follow <a href="../../reference/site-configuration/#turn-on-oauth-login">Turn on OAuth login</a>.</p>
+<h3 id="sign-in-with-a-passkey">Sign in with a passkey</h3>
+<p>A passkey is Touch ID, Face ID, Windows Hello or a security key. After a user signs in, they add one under <strong>Passkeys</strong> in the account menu at the bottom of the sidebar. On the login page they then select <strong>Sign in with a passkey</strong>. Email sign-in stays available, so a lost passkey does not lock the user out.</p>
+<h3 id="create-the-oauth-app">Create the OAuth app</h3>
+<p>Create an OAuth app on your Git platform to get the client ID and client secret that DAIV needs for OAuth login. You need an account that can create the app on that platform, and the URL DAIV is served from (<code>DAIV_EXTERNAL_URL</code>), for example <code>https://daiv.example.com</code>.</p>
+<p>To create the app on GitHub:</p>
+<ol>
+<li>Open <a href="https://github.com/settings/developers">github.com/settings/developers</a>.</li>
+<li>Select <strong>OAuth Apps</strong> → <strong>New OAuth App</strong>.</li>
+<li>In <strong>Application name</strong>, enter a name, for example <code>DAIV</code>.</li>
+<li>In <strong>Homepage URL</strong>, enter your DAIV URL, for example <code>https://daiv.example.com</code>.</li>
+<li>In <strong>Authorization callback URL</strong>, enter your DAIV URL followed by <code>/accounts/github/login/callback/</code>, for example <code>https://daiv.example.com/accounts/github/login/callback/</code>.</li>
+<li>Select <strong>Register application</strong>.</li>
+<li>Copy the <strong>Client ID</strong>.</li>
+<li>Select <strong>Generate a new client secret</strong>, and copy the secret.</li>
+</ol>
+<p>To create the app on GitLab:</p>
+<ol>
+<li>Open <strong>Admin Area</strong> → <strong>Applications</strong> or <strong>User Settings</strong> → <strong>Applications</strong>.</li>
+<li>Add a new application.</li>
+<li>In <strong>Name</strong>, enter a name, for example <code>DAIV</code>.</li>
+<li>In <strong>Redirect URI</strong>, enter your DAIV URL followed by <code>/accounts/gitlab/login/callback/</code>, for example <code>https://daiv.example.com/accounts/gitlab/login/callback/</code>.</li>
+<li>Under <strong>Scopes</strong>, select <code>read_user</code>.</li>
+<li>Select <strong>Save application</strong>.</li>
+<li>Copy the <strong>Application ID</strong> and the <strong>Secret</strong>.</li>
+</ol>
+<p>Enter the client ID and secret under <strong>Configuration</strong> → <strong>Authentication</strong>, where DAIV calls the secret <strong>Auth Client Secret</strong>: <a href="../../reference/site-configuration/#turn-on-oauth-login">Turn on OAuth login</a> gives the steps, and <a href="../../reference/env-variables/#authentication">Authentication</a> lists the variables that override the same fields and lock them.</p>
+<h2 id="the-first-admin">The first admin</h2>
+<p>A new DAIV install has no users, so it has no admin. Two paths create the first one: the first Git platform sign-in, and a command in a shell.</p>
+<h3 id="make-the-first-oauth-sign-in-the-admin">Make the first OAuth sign-in the admin</h3>
+<p>With OAuth login on and no user in DAIV, the first person who signs in with the Git platform account gets an account even when <strong>Open social signup</strong> is off, and DAIV makes them an admin. DAIV makes a new account an admin whenever the install has no admin, not whenever it has no user. If two people sign in at the same moment, both become admins rather than neither.</p>
+<h3 id="create-the-first-admin-from-a-shell">Create the first admin from a shell</h3>
+<p>Use this path when OAuth login is off. The <a href="../../reference/management-commands/#bootstrap_admin"><code>bootstrap_admin</code></a> command refuses to run if an admin already exists, or if a user with that email already exists: promote that user from <strong>Users</strong> instead.</p>
+<ol>
+<li>
+<p>Run the command, replacing <code>admin@example.com</code> with the admin's email address:</p>
+<div class="highlight"><table class="highlighttable"><tr><th colspan="2" class="filename"><span class="filename">Bash</span></th></tr><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>docker<span class="w"> </span>compose<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>app<span class="w"> </span>django-admin<span class="w"> </span>bootstrap_admin<span class="w"> </span>admin@example.com
+</code></pre></div></td></tr></table></div>
+</li>
+<li>
+<p><a href="#sign-in-with-an-email-code">Sign in with an email code</a> as that address.</p>
+</li>
+</ol>
+<p><a href="../deployment/">Deployment</a> covers the first-run setup, including email.</p>
+<h2 id="manage-users">Manage users</h2>
+<p>Admins manage users under <strong>Admin</strong> → <strong>Users</strong>, at <code>/accounts/users/</code>. The list searches by name or email address and filters by role.</p>
+<h3 id="create-a-user">Create a user</h3>
+<ol>
+<li>Under <strong>Admin</strong> → <strong>Users</strong>, select <strong>Create user</strong>.</li>
+<li>In <strong>Name</strong>, <strong>Email</strong> and <strong>Role</strong>, enter the user's details.</li>
+<li>Select <strong>Create user</strong>.</li>
+</ol>
+<p>DAIV emails the user a welcome message with a sign-in link. The new account has no password: the user signs in with an email code, a passkey, or the Git platform account.</p>
+<h3 id="edit-a-user">Edit a user</h3>
+<ol>
+<li>Under <strong>Admin</strong> → <strong>Users</strong>, select the user.</li>
+<li>Change <strong>Name</strong>, <strong>Email</strong>, <strong>Role</strong> or <strong>Active</strong>. Change <strong>Role</strong> to promote a member to admin or demote an admin to member.</li>
+<li>Select <strong>Save changes</strong>.</li>
+</ol>
+<p>DAIV keeps at least one active admin. You cannot deactivate your own account, and you cannot demote or delete the last active admin: promote another user first.</p>
+<h3 id="deactivate-a-user">Deactivate a user</h3>
+<p>Deactivate a user when you may want to restore their access later.</p>
+<ol>
+<li>Under <strong>Admin</strong> → <strong>Users</strong>, select the user.</li>
+<li>Clear <strong>Active</strong>.</li>
+<li>Select <strong>Save changes</strong>.</li>
+</ol>
+<p>An inactive user cannot sign in, and their API keys and MCP tokens stop working at once, not at the next sync. DAIV keeps their history and the runs they own.</p>
+<h3 id="delete-a-user">Delete a user</h3>
+<p>Delete a user only when you will never restore their access. Deactivating keeps their history and ownership of runs: see <a href="#deactivate-a-user">Deactivate a user</a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">Deleting a user cannot be undone</p>
+<p>Deleting removes the user's account, their API keys and the data associated with them. Their <a href="../../features/spend/">spend records</a> stay, under the name they had, so past totals do not change. You cannot delete your own account.</p>
+</div>
+<ol>
+<li>Under <strong>Admin</strong> → <strong>Users</strong>, select the user.</li>
+<li>Select <strong>Delete user</strong>.</li>
+<li>On the confirmation page, select <strong>Delete user</strong>.</li>
+</ol>
+<h2 id="account-pages">Account pages</h2>
+<p>Every signed-in user, member or admin, has these pages. All but <strong>Home</strong> open from the account menu at the bottom of the sidebar.</p>
+<table>
+<thead>
+<tr>
+<th>Page</th>
+<th>Route</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Home</strong></td>
+<td><code>/dashboard/</code></td>
+<td>Your landing page after sign-in, with a link to <strong>Team insights</strong>.</td>
+</tr>
+<tr>
+<td><strong>API keys</strong></td>
+<td><code>/accounts/api-keys/</code></td>
+<td>Create and revoke personal API keys for programmatic access.</td>
+</tr>
+<tr>
+<td><strong>Notification channels</strong></td>
+<td><code>/accounts/channels/</code></td>
+<td>Choose how DAIV notifies you about your agent runs. <a href="../../features/notifications/">Notifications</a> lists the channels.</td>
+</tr>
+<tr>
+<td><strong>Passkeys</strong></td>
+<td><code>/accounts/mfa/</code></td>
+<td>Add and remove the passkeys you sign in with.</td>
+</tr>
+</tbody>
+</table>
+<p>API keys authenticate calls to the <a href="../../features/jobs-api/">Jobs API</a> and the <a href="../../features/mcp-endpoint/">MCP endpoint</a>. A member sees only their own keys, and an admin sees every user's keys in the list.</p>
+<h2 id="related-pages">Related pages</h2>
+<div class="grid cards">
+<ul>
+<li>
+<p><strong>Deployment</strong></p>
+<hr />
+<p>Install DAIV, configure email, and create the first admin.</p>
+<p><a href="../deployment/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Deployment</a></p>
+</li>
+<li>
+<p><strong>Platform setup</strong></p>
+<hr />
+<p>Connect DAIV to GitLab or GitHub, the same platform used for OAuth login.</p>
+<p><a href="../platform-setup/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Platform setup</a></p>
+</li>
+<li>
+<p><strong>Jobs API</strong></p>
+<hr />
+<p>Authenticate programmatic agent runs with a personal API key.</p>
+<p><a href="../../features/jobs-api/"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13.22 19.03a.75.75 0 0 1 0-1.06L18.19 13H3.75a.75.75 0 0 1 0-1.5h14.44l-4.97-4.97a.749.749 0 0 1 .326-1.275.75.75 0 0 1 .734.215l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0"/></svg></span> Jobs API</a></p>
+</li>
+</ul>
+</div>
+
+
+
+
+
+
+
+  
+    
+  
+  
+    
+  
+
+
+  <aside class="md-source-file">
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Last update">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 19, 2026 19:45:59 UTC">November 19, 2026</span>
+  </span>
+
+    
+    
+      
+  <span class="md-source-file__fact">
+    <span class="md-icon" title="Created">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M14.47 15.08 11 13V7h1.5v5.25l3.08 1.83c-.41.28-.79.62-1.11 1m-1.39 4.84c-.36.05-.71.08-1.08.08-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8c0 .37-.03.72-.08 1.08.69.1 1.33.32 1.92.64.1-.56.16-1.13.16-1.72 0-5.5-4.5-10-10-10S2 6.5 2 12s4.47 10 10 10c.59 0 1.16-.06 1.72-.16-.32-.59-.54-1.23-.64-1.92M18 15v3h-3v2h3v3h2v-3h3v-2h-3v-3z"/></svg>
+    </span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="June 21, 2026 23:21:28 UTC">June 21, 2026</span>
+  </span>
+
+    
+    
+    
+  </aside>
+
+
+  
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["search.highlight", "navigation.instant", "navigation.instant.prefetch", "navigation.instant.preview", "navigation.instant.progress", "navigation.tracking", "navigation.path", "content.code.annotate", "content.code.copy", "content.action.edit"], "search": "../../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
