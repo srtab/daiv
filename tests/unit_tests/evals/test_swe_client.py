@@ -1,3 +1,5 @@
+import io
+import tarfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -9,13 +11,8 @@ from evals.swe_client import SWERepoClient
 
 
 def _mock_cloned_repo(working_dir: str) -> Mock:
-    """A clone mock that survives ``_sanitize_history`` (iterable refs, real-ish git_dir)."""
     mock_repo = Mock()
     mock_repo.working_dir = working_dir
-    mock_repo.branches = []
-    mock_repo.remotes = []
-    mock_repo.tags = []
-    mock_repo.git_dir = str(Path(working_dir) / ".git")
     return mock_repo
 
 
@@ -62,7 +59,7 @@ class TestSWERepoClient:
         with pytest.raises(NotImplementedError, match="does not support listing repositories"):
             swe_client.list_repositories()
 
-    @patch("evals.swe_client.Repo.clone_from")
+    @patch("evals.swe_client.Repo.init")
     @patch("evals.swe_client.tempfile.TemporaryDirectory")
     def test_load_repo_success(self, mock_tempdir, mock_clone, swe_client):
         """Test successful repository loading."""
@@ -77,10 +74,13 @@ class TestSWERepoClient:
 
         with swe_client.load_repo(repository, "abc123") as repo:
             assert repo == mock_repo
-            mock_clone.assert_called_once_with("https://github.com/psf/requests.git", Path(mock_tmpdir) / "repo")
-            mock_repo.git.checkout.assert_called_once_with("--detach", "abc123")
+            mock_clone.assert_called_once_with(Path(mock_tmpdir) / "repo")
+            mock_repo.git.fetch.assert_called_once_with(
+                "--quiet", "--no-tags", "https://github.com/psf/requests.git", "abc123"
+            )
+            mock_repo.git.checkout.assert_called_once_with("--detach", "FETCH_HEAD")
 
-    @patch("evals.swe_client.Repo.clone_from")
+    @patch("evals.swe_client.Repo.init")
     @patch("evals.swe_client.tempfile.TemporaryDirectory")
     def test_get_repository_file_success(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test successful file retrieval."""
@@ -101,7 +101,7 @@ class TestSWERepoClient:
 
         assert result == "print('hello')"
 
-    @patch("evals.swe_client.Repo.clone_from")
+    @patch("evals.swe_client.Repo.init")
     @patch("evals.swe_client.tempfile.TemporaryDirectory")
     def test_get_repository_file_not_found(self, mock_tempdir, mock_clone, swe_client, tmp_path):
         """Test file retrieval when file doesn't exist."""
@@ -118,7 +118,7 @@ class TestSWERepoClient:
 
         assert result is None
 
-    @patch("evals.swe_client.Repo.clone_from")
+    @patch("evals.swe_client.Repo.init")
     @patch("evals.swe_client.tempfile.TemporaryDirectory")
     @patch("evals.swe_client.Path.read_text")
     def test_get_repository_file_binary(self, mock_read_text, mock_tempdir, mock_clone, swe_client, tmp_path):
@@ -141,11 +141,9 @@ class TestSWERepoClient:
 
         assert result is None
 
-    def test_load_repo_sanitizes_future_history(self, swe_client, tmp_path):
-        """The clone must not expose commits made after the base commit: in real eval runs
-        agents found the upstream fix for the issue under evaluation via ``git log --all``
-        on the full clone's remote refs. Tags on ancestors stay — VCS-versioning tools
-        (setuptools-scm, hatch-vcs) need them for editable installs."""
+    def test_load_repo_holds_no_commit_made_after_the_base_commit(self, swe_client, tmp_path):
+        """In real eval runs agents read the upstream fix through ``git log --all``, then through
+        ``git fsck --unreachable`` once the refs were removed: the later commit must not be in the clone at all."""
         origin = Repo.init(tmp_path / "origin", initial_branch="main")
         with origin.config_writer() as cw:
             cw.set_value("user", "name", "Test").set_value("user", "email", "test@example.com")
@@ -157,7 +155,7 @@ class TestSWERepoClient:
 
         (Path(origin.working_dir) / "file.txt").write_text("the future fix")
         origin.index.add(["file.txt"])
-        origin.index.commit("fix: the very issue under evaluation")
+        fix = origin.index.commit("fix: the very issue under evaluation")
         origin.create_tag("v1.1.0")
         origin.create_head("future-branch")
 
@@ -169,11 +167,34 @@ class TestSWERepoClient:
             assert repo.head.commit.hexsha == base_commit.hexsha
             assert (Path(repo.working_dir) / "file.txt").read_text() == "base"
 
-            assert list(repo.branches) == []
-            assert list(repo.remotes) == []
-            assert [tag.name for tag in repo.tags] == ["v1.0.0"]
-            assert not (Path(repo.git_dir) / "logs").exists()
+            assert (list(repo.branches), list(repo.remotes), list(repo.tags)) == ([], [], [])
+            assert repo.git.cat_file("-t", fix.hexsha, with_exceptions=False) == ""
             assert "the very issue under evaluation" not in repo.git.log("--all", "--oneline")
+
+    def test_load_repo_adds_the_generated_files_and_they_stay_out_of_the_working_tree_diff(self, tmp_path):
+        origin = Repo.init(tmp_path / "origin", initial_branch="main")
+        with origin.config_writer() as cw:
+            cw.set_value("user", "name", "Test").set_value("user", "email", "test@example.com")
+        (Path(origin.working_dir) / ".gitignore").write_text("pkg/_version.py\n")
+        origin.index.add([".gitignore"])
+        base_commit = origin.index.commit("base commit")
+
+        files = {"pkg/_version.py": b"version = '1.0'\n", "pkg/_version_meson.py": b"", "pkg/[gen]*.pxd": b""}
+        generated = io.BytesIO()
+        with tarfile.open(fileobj=generated, mode="w") as archive:
+            for name, content in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(content)
+                archive.addfile(info, io.BytesIO(content))
+
+        client = SWERepoClient("github.com", generated_files=generated.getvalue())
+        repository = client.get_repository("owner/repo").model_copy(update={"clone_url": str(tmp_path / "origin")})
+
+        with client.load_repo(repository, base_commit.hexsha) as repo:
+            assert (Path(repo.working_dir) / "pkg/_version.py").read_text() == "version = '1.0'\n"
+            assert repo.git.status("--porcelain", "--untracked-files=all") == ""
+            (Path(repo.working_dir) / "pkg/gen.pxd").write_text("")
+            assert repo.git.status("--porcelain", "--untracked-files=all") == "?? pkg/gen.pxd"
 
     def test_current_user(self, swe_client):
         """Test current_user property."""

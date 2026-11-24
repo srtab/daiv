@@ -1,30 +1,193 @@
+"""Run DAIV on SWE-bench-format tasks and write predictions for the official SWE-bench harness.
+
+Each task runs through ``execute_run`` in its own SWE-bench image with no network, so the agent finds the task's
+dependencies installed and cannot fetch a later release or the upstream repository, which hold the fix. The driver
+needs ``docker`` and pulls the image itself, to copy the files its install generated into the agent's clone. The
+run's captured patch becomes one row of the predictions file, less its changes to the files the task's held-out test
+patch touches: the SWE-rebench harness applies that patch over the agent's tree without resetting it, so a test file
+the agent created at one of those paths would stop the held-out tests from applying. A run that raises predicts an
+empty patch, so it is graded unresolved; ``--retry-failed`` runs those tasks again. Every attempt, failed and
+interrupted ones included, appends its time, tokens and cost to ``<predictions>.usage.jsonl``. A finished task's
+conversation goes to ``<predictions>.transcripts/<instance_id>.json``, in the shape the trace-analyzer skill reads. A
+task already in the predictions file is skipped, so a rerun resumes.
+"""
+
 import argparse
 import asyncio
+import io
 import json
+import random
+import re
 import sys
+import tarfile
 import traceback
+import uuid
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
+from decimal import Decimal
 from pathlib import Path
 from textwrap import dedent
+from time import monotonic
+from typing import TYPE_CHECKING
 
 import django
 from django.apps import apps
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, convert_to_openai_messages
+from langchain_core.tracers.context import register_configure_hook
 
 # The first-party imports below define Django models at import time, so the app registry must be populated
 # before them, once: under pytest a second setup re-applies the test LOGGING and disables existing loggers.
 if not apps.ready:
     django.setup()
 
+from sandbox_envs.models import SandboxEnvironment, Visibility  # noqa: E402
 from sessions.executor.lock import NoLock  # noqa: E402
 from sessions.executor.run import execute_run  # noqa: E402
 from sessions.executor.spec import RunOutcome, RunSpec  # noqa: E402
 
 from automation.agent.base import ThinkingLevel  # noqa: E402
+from automation.agent.usage_tracking import CostAwareUsageMetadataCallbackHandler, build_usage_summary  # noqa: E402
 from automation.agent.validators import validate_agent_override  # noqa: E402
 from codebase.base import Scope  # noqa: E402
 from core.constants import ModelName  # noqa: E402
 from evals.swe_client import SWERepoClient  # noqa: E402
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Generator, Iterable, Iterator, Sequence
+
+DEFAULT_DATASET = "SWE-bench/SWE-bench_Verified"
+DEFAULT_THINKING_LEVEL = ThinkingLevel.HIGH.value
+TASK_ENV_VARS = {
+    "PATH": "/opt/miniconda3/envs/testbed/bin:/opt/conda/envs/testbed/bin:/opt/miniconda3/bin:/opt/conda/bin:"
+    "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    "PYTHONPATH": "/workspace/repo/src:/workspace/repo",
+    "LANG": "C.UTF-8",
+}
+NOT_GENERATED = re.compile(
+    r"(^|/)(__pycache__|build|dist|\.eggs|\.tox|\.nox|\.pytest_cache|node_modules|[^/]+\.egg-info)/|\.py[co]$"
+)
+DIFF_SECTION_START = "diff --git "
+RENAMED_PATH = re.compile(r"^rename (?:from|to) (.+)$", re.MULTILINE)
+MESON_INSTALL_PLANS = (
+    "cd /testbed && for plan in build/*/meson-info/intro-install_plan.json; do "
+    '[ ! -f "$plan" ] || { printf "%s\\0" "$plan" && cat "$plan" && printf "\\0"; }; done'
+)
+
+_run_usage: ContextVar[CostAwareUsageMetadataCallbackHandler | None] = ContextVar("swebench_run_usage", default=None)
+register_configure_hook(_run_usage, inheritable=True)
+
+
+@contextmanager
+def track_run_usage() -> Generator[CostAwareUsageMetadataCallbackHandler]:
+    """One task's model usage, subagents included: ``execute_run`` tallies its own, but returns none when it raises."""
+    handler = CostAwareUsageMetadataCallbackHandler()
+    token = _run_usage.set(handler)
+    try:
+        yield handler
+    finally:
+        _run_usage.reset(token)
+
+
+def select_items(
+    rows: Iterable[dict], instance_ids: list[str] | None, num_samples: int | None, seed: int
+) -> list[dict]:
+    """The named tasks in dataset order, else the dataset shuffled by ``seed`` and cut to ``num_samples``.
+
+    The shuffle does not depend on ``num_samples``, so with one seed a smaller sample is the start of a larger one.
+    """
+    rows = list(rows)
+    if instance_ids:
+        wanted = set(instance_ids)
+        if missing := wanted - {row["instance_id"] for row in rows}:
+            raise SystemExit(f"Not in the dataset: {', '.join(sorted(missing))}")
+        return [row for row in rows if row["instance_id"] in wanted]
+    random.Random(seed).shuffle(rows)  # noqa: S311
+    return rows if num_samples is None else rows[:num_samples]
+
+
+def load_predictions(path: Path) -> list[dict]:
+    return json.loads(path.read_text()) if path.exists() else []
+
+
+def write_predictions(path: Path, predictions: list[dict]) -> None:
+    partial = path.with_suffix(".partial")
+    partial.write_text(json.dumps(predictions, indent=2))
+    partial.replace(path)
+
+
+def write_transcript(path: Path, messages: list, metadata: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    transcript = {"messages": convert_to_openai_messages(messages), "metadata": metadata}
+    path.write_text(json.dumps(transcript, ensure_ascii=False, indent=1, default=str))
+
+
+def load_attempts(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line] if path.exists() else []
+
+
+def failed_instance_ids(attempts: list[dict]) -> set[str]:
+    """The tasks whose latest attempt raised."""
+    latest = {attempt["instance_id"]: attempt["status"] for attempt in attempts}
+    return {instance_id for instance_id, status in latest.items() if status == "failed"}
+
+
+def check_resumable(
+    predictions: list[dict], attempts: list[dict], model_name_or_path: str, thinking_level: str
+) -> None:
+    """A rerun only adds to an output that the same model chain and thinking level wrote."""
+    models = {row["model_name_or_path"] for row in [*predictions, *attempts]}
+    levels = {attempt["thinking_level"] for attempt in attempts}
+    if models - {model_name_or_path} or levels - {thinking_level}:
+        raise SystemExit(
+            f"The output already holds runs of {', '.join(sorted(models))} at thinking level "
+            f"{', '.join(sorted(levels)) or 'unknown'}: pass another --output-path for {model_name_or_path} "
+            f"at {thinking_level}."
+        )
+
+
+def attempt_record(
+    instance_id: str,
+    status: str,
+    model_name_or_path: str,
+    thinking_level: str,
+    usage: CostAwareUsageMetadataCallbackHandler,
+    seconds: float,
+) -> dict:
+    """One attempt's line in the usage log; ``cost_usd`` is None when a model it called has no known price."""
+    record = {
+        "instance_id": instance_id,
+        "status": status,
+        "model_name_or_path": model_name_or_path,
+        "thinking_level": thinking_level,
+        "seconds": round(seconds, 1),
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "cost_usd": 0.0,
+        "by_model": {},
+    }
+    if usage.usage_metadata:
+        summary = build_usage_summary(usage)
+        record |= {
+            "input_tokens": summary.input_tokens,
+            "output_tokens": summary.output_tokens,
+            "total_tokens": summary.total_tokens,
+            "cost_usd": None if summary.cost_usd is None else float(Decimal(summary.cost_usd)),
+            "by_model": summary.by_model,
+        }
+    return record
+
+
+def cost_summary(attempts: list[dict]) -> str:
+    priced = [attempt for attempt in attempts if attempt["cost_usd"] is not None]
+    summary = f"{len(attempts)} attempt(s) logged, ${sum(attempt['cost_usd'] for attempt in priced):.2f}"
+    if finished := [attempt["cost_usd"] for attempt in priced if attempt["status"] == "finished"]:
+        summary += f"; a finished task averaged ${sum(finished) / len(finished):.2f}"
+    if unpriced := len(attempts) - len(priced):
+        summary += f"; {unpriced} attempt(s) called a model with no known price"
+    return summary
 
 
 async def main(
@@ -32,35 +195,50 @@ async def main(
     dataset_split: str,
     output_path: str,
     model_names: list[ModelName | str],
+    thinking_level: str = DEFAULT_THINKING_LEVEL,
     instance_ids: list[str] | None = None,
     num_samples: int | None = None,
+    seed: int = 0,
+    retry_failed: bool = False,
 ):
     for model_name in model_names:
-        validate_agent_override(model_name, None)
+        validate_agent_override(model_name, thinking_level)
 
     from datasets import load_dataset
 
-    dataset = load_dataset(dataset_path, split=dataset_split)
-    if instance_ids:
-        selected_instance_ids = set(instance_ids)
-        dataset = dataset.filter(lambda item: item["instance_id"] in selected_instance_ids)
+    output = Path(output_path)
+    usage_path = output.with_suffix(".usage.jsonl")
+    model_name_or_path = ", ".join(model_names)
+    predictions = load_predictions(output)
+    attempts = load_attempts(usage_path)
+    check_resumable(predictions, attempts, model_name_or_path, thinking_level)
+    if retry_failed:
+        retried = failed_instance_ids(attempts)
+        predictions = [prediction for prediction in predictions if prediction["instance_id"] not in retried]
+    predicted = {prediction["instance_id"] for prediction in predictions}
 
-    if num_samples is not None:
-        if num_samples >= 20:
-            raise ValueError("num_samples must be less than or equal to 20")
+    items = select_items(load_dataset(dataset_path, split=dataset_split), instance_ids, num_samples, seed)
+    todo = [item for item in items if item["instance_id"] not in predicted]
+    print(f"{len(todo)} of {len(items)} selected task(s) to run, the rest already predicted", file=sys.stderr)  # noqa: T201
+    output.parent.mkdir(parents=True, exist_ok=True)
+    write_predictions(output, predictions)
 
-        dataset = dataset.take(num_samples)
-
-    predictions = []
     failed = []
-
-    try:
-        for item in dataset:
-            instance_id = item["instance_id"]
-            outcome = None
+    for item in todo:
+        instance_id = item["instance_id"]
+        outcome = None
+        status = "failed"
+        started = monotonic()
+        with track_run_usage() as usage:
             try:
-                outcome = await _execute(_run_spec(item, model_names))
+                generated = await generated_files(task_image(item))
+                async with task_sandbox_env(item, generated.meson_build_dirs) as sandbox_env_id:
+                    outcome = await _execute(
+                        _run_spec(item, model_names, thinking_level, sandbox_env_id, generated.archive)
+                    )
+                status = "finished"
             except asyncio.CancelledError:
+                status = "interrupted"
                 print(f"[{instance_id}] interrupted", file=sys.stderr)  # noqa: T201
                 raise
             except Exception:
@@ -68,21 +246,138 @@ async def main(
                 print(f"[{instance_id}] run failed:", file=sys.stderr)  # noqa: T201
                 traceback.print_exc()
             finally:
-                predictions.append({
-                    "model_patch": _model_patch(instance_id, outcome),
-                    "model_name_or_path": ", ".join(model_names),
-                    "instance_id": instance_id,
-                })
-    finally:
-        print(json.dumps(predictions, indent=2))  # noqa: T201
+                record = attempt_record(
+                    instance_id, status, model_name_or_path, thinking_level, usage, monotonic() - started
+                )
+                with usage_path.open("a") as log:
+                    log.write(json.dumps(record) + "\n")
+                cost = "unpriced" if record["cost_usd"] is None else f"${record['cost_usd']:.2f}"
+                print(f"[{instance_id}] {status} after {record['seconds']:.0f}s, {cost}", file=sys.stderr)  # noqa: T201
+        model_patch, dropped = without_held_out_test_files(_model_patch(instance_id, outcome), item["test_patch"])
+        if dropped:
+            print(f"[{instance_id}] left out its changes to held-out test files: {', '.join(dropped)}", file=sys.stderr)  # noqa: T201
+        predictions.append({
+            "model_patch": model_patch,
+            "model_name_or_path": model_name_or_path,
+            "instance_id": instance_id,
+        })
+        write_predictions(output, predictions)
+        if outcome is not None and outcome.snapshot is not None:
+            write_transcript(
+                output.with_suffix(".transcripts") / f"{instance_id}.json",
+                outcome.snapshot.values.get("messages") or [],
+                {"instance_id": instance_id, "model": model_name_or_path, "thinking_level": thinking_level},
+            )
 
-        with Path(output_path).open("w") as f:
-            json.dump(predictions, f, indent=2)
-
+    print(f"{len(predictions)} prediction(s) in {output}; {cost_summary(load_attempts(usage_path))}", file=sys.stderr)  # noqa: T201
     if failed:
-        print(f"{len(failed)}/{len(predictions)} instances failed: {', '.join(failed)}", file=sys.stderr)  # noqa: T201
-        if len(failed) == len(predictions):
+        print(  # noqa: T201
+            f"{len(failed)}/{len(todo)} instances failed: {', '.join(failed)}. They count as unresolved; rerun with "
+            "--retry-failed if they failed for reasons outside the agent, such as the sandbox or the clone.",
+            file=sys.stderr,
+        )
+        if len(failed) == len(todo):
             raise SystemExit(1)
+
+
+def task_image(item: dict) -> str:
+    """The task's SWE-bench image: Verified and SWE-rebench rows name it; the Mini's is derived the harness's way."""
+    if image := item.get("image") or item.get("docker_image"):
+        return image
+    return f"swebench/sweb.eval.x86_64.{item['instance_id'].replace('__', '_1776_')}:latest".lower()
+
+
+@dataclass(frozen=True)
+class GeneratedFiles:
+    archive: bytes | None = None
+    meson_build_dirs: tuple[str, ...] = ()
+
+
+async def generated_files(image: str) -> GeneratedFiles:
+    """The files the image's install generated in ``/testbed``, as a tar of their paths in the repository.
+
+    The agent's clone lacks them, and some packages fail to import without them: the files the repository's
+    ``.gitignore`` ignores outside build trees and caches, such as the version module setuptools-scm or hatch-vcs
+    writes or extensions built in place, and the files a meson-python build installs from its build directory,
+    such as its extensions, at the path they install to. Those build directories are returned too.
+    """
+    listing = await _run_in_image(
+        image, "cd /testbed && git ls-files -z --others --ignored --exclude-per-directory=.gitignore"
+    )
+    names = {path: path for path in listing.decode().split("\0") if path and not NOT_GENERATED.search(path)}
+    build_dirs = []
+    for build_dir, plan in _meson_install_plans(await _run_in_image(image, MESON_INSTALL_PLANS)):
+        build_dirs.append(build_dir)
+        names |= _meson_built_files(build_dir, plan)
+    if not names:
+        return GeneratedFiles(meson_build_dirs=tuple(build_dirs))
+    archive = await _run_in_image(image, 'cd /testbed && tar -c -- "$@"', *names)
+    return GeneratedFiles(_renamed(archive, names), tuple(build_dirs))
+
+
+def _meson_install_plans(output: bytes) -> Iterator[tuple[str, dict]]:
+    parts = output.decode().split("\0")
+    for path, content in zip(parts[0::2], parts[1::2], strict=False):
+        yield "/testbed/" + path.removesuffix("/meson-info/intro-install_plan.json"), json.loads(content)
+
+
+def _meson_built_files(build_dir: str, plan: dict) -> dict[str, str]:
+    """Each file the plan installs from ``build_dir`` into the package, by its path in ``/testbed``."""
+    built = {}
+    for entries in plan.values():
+        for source, target in entries.items():
+            prefix, _, path = target["destination"].partition("/")
+            if source.startswith(build_dir + "/") and prefix in ("{py_platlib}", "{py_purelib}"):
+                built[source.removeprefix("/testbed/")] = path
+    return built
+
+
+def _renamed(archive: bytes, names: dict[str, str]) -> bytes:
+    renamed = io.BytesIO()
+    with tarfile.open(fileobj=io.BytesIO(archive)) as source, tarfile.open(fileobj=renamed, mode="w") as target:
+        for member in source:
+            content = source.extractfile(member) if member.isfile() else None
+            member.name = names.get(member.name, member.name)
+            target.addfile(member, content)
+    return renamed.getvalue()
+
+
+async def _run_in_image(image: str, script: str, *args: str) -> bytes:
+    process = await asyncio.create_subprocess_exec(
+        *("docker", "run", "--rm", "--network", "none", "--entrypoint", "sh", image, "-c", script, "sh", *args),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await process.communicate()
+    if process.returncode:
+        raise RuntimeError(f"docker run {image} exited {process.returncode}: {stderr.decode(errors='replace')[-2000:]}")
+    return stdout
+
+
+@asynccontextmanager
+async def task_sandbox_env(item: dict, meson_build_dirs: Sequence[str] = ()) -> AsyncGenerator[str]:
+    """A sandbox environment on the task's image, with no network, for the length of one run.
+
+    The image's ``testbed`` interpreter has the task's dependencies installed; SWE-bench images keep it under
+    ``/opt/miniconda3``, SWE-rebench's under ``/opt/conda``. The image installs the project in editable mode from its
+    own ``/testbed`` copy, so ``PYTHONPATH`` puts the agent's copy ahead of it, ``src/`` first for a src-layout project,
+    whose editable install ``/workspace/repo`` alone would not shadow. A meson-python editable install instead takes
+    every import of the package and rebuilds its ``meson_build_dirs`` first, which the sandbox cannot write, so
+    ``MESONPY_EDITABLE_SKIP`` turns it off. The row is deleted after the run, so it never stays in the environment
+    picker; its name is unique, so evals running the same task at once each get their own.
+    """
+    env_vars = TASK_ENV_VARS | ({"MESONPY_EDITABLE_SKIP": ":".join(meson_build_dirs)} if meson_build_dirs else {})
+    env = await SandboxEnvironment.objects.acreate(
+        scope=Visibility.GLOBAL,
+        name=f"swebench {uuid.uuid4().hex[:8]} {item['instance_id']}"[:80],
+        base_image=task_image(item),
+        egress_policy=None,
+        env_vars=[{"name": name, "value": value} for name, value in env_vars.items()],
+    )
+    try:
+        yield str(env.pk)
+    finally:
+        await env.adelete()
 
 
 async def _execute(spec: RunSpec) -> RunOutcome:
@@ -96,7 +391,7 @@ async def _execute(spec: RunSpec) -> RunOutcome:
 
 
 def _model_patch(instance_id: str, outcome: RunOutcome | None) -> str:
-    """A failed or interrupted run predicts no patch; a finished one that captured none means the eval is broken."""
+    """A failed run predicts no patch; a finished one that captured none means the eval is broken."""
     if outcome is None:
         return ""
     if outcome.snapshot is None:
@@ -114,9 +409,42 @@ def _model_patch(instance_id: str, outcome: RunOutcome | None) -> str:
     return values["model_patch"]
 
 
-def _run_spec(item: dict, model_names: list[ModelName | str]) -> RunSpec:
+def without_held_out_test_files(model_patch: str, test_patch: str) -> tuple[str, list[str]]:
+    """The model patch less its sections on files the test patch touches, and the paths those sections touched."""
+    held_out = set().union(*map(_diff_paths, _diff_sections(test_patch)))
+    kept, dropped = [], set()
+    for section in _diff_sections(model_patch):
+        if touched := _diff_paths(section) & held_out:
+            dropped |= touched
+        else:
+            kept.append(section)
+    return "".join(kept), sorted(dropped)
+
+
+def _diff_sections(patch: str) -> list[str]:
+    return re.split(r"(?=^diff --git )", patch, flags=re.MULTILINE)
+
+
+def _diff_paths(section: str) -> set[str]:
+    if not section.startswith(DIFF_SECTION_START):
+        return set()
+    header_line, _, rest = section.partition("\n")
+    sides = header_line.removeprefix(DIFF_SECTION_START)
+    path = sides[2 : (len(sides) - 1) // 2]
+    paths = {path} if sides == f"a/{path} b/{path}" else set()
+    return paths | set(RENAMED_PATH.findall(rest.split("\n@@", 1)[0]))
+
+
+def _run_spec(
+    item: dict,
+    model_names: list[ModelName | str],
+    thinking_level: str,
+    sandbox_env_id: str,
+    generated: bytes | None = None,
+) -> RunSpec:
     """One SWE-bench instance as a one-shot run: no session, no platform API, the exact model chain asked for."""
     return RunSpec(
+        sandbox_env_id=sandbox_env_id,
         thread_id=None,
         repo_id=item["repo"],
         scope=Scope.GLOBAL,
@@ -125,13 +453,29 @@ def _run_spec(item: dict, model_names: list[ModelName | str]) -> RunSpec:
         trigger="eval",
         lock=NoLock(),
         model_names=tuple(model_names),
-        agent_thinking_level=ThinkingLevel.HIGH,
-        context_options={"offline": True, "repo_client": SWERepoClient(repo_host="github.com")},
+        agent_thinking_level=thinking_level,
+        context_options={
+            "offline": True,
+            "repo_client": SWERepoClient(repo_host="github.com", generated_files=generated),
+        },
         web_search_enabled=False,
         web_fetch_enabled=False,
         agent_options={"auto_commit_changes": False, "capture_patch": True},
         extra_metadata={"instance_id": item["instance_id"]},
     )
+
+
+def _problem_statement(item: dict) -> str:
+    """The problem statement, with the task's SWE-rebench interface appended when the statement lacks it.
+
+    The interface names the API the hidden tests call. Most SWE-rebench statements that have one already end with it
+    under ``## Interface``; a few end with that heading left empty, or with no heading at all.
+    """
+    statement = item["problem_statement"]
+    interface = (item.get("interface") or "").strip()
+    if not interface or interface in statement:
+        return statement
+    return f"{statement.rstrip().removesuffix('## Interface').rstrip()}\n\n## Interface\n\n{interface}"
 
 
 def _human_message(item: dict) -> str:
@@ -143,15 +487,15 @@ def _human_message(item: dict) -> str:
 
         ## Execution constraints
 
-        - Web research is unavailable: web search/fetch tools are disabled. Rely on the repository itself (existing code patterns, tests, docs). Installing packages with pip/uv DOES work — use it to provision test dependencies.
+        - The sandbox has no network: web search/fetch tools are disabled, and pip, uv and git cannot download anything. Rely on the repository itself (existing code patterns, tests, docs).
+        - The environment is ready: `python` is the project's interpreter with its test dependencies installed, and `/workspace/repo` comes first on `PYTHONPATH`, so tests run against your changes. Do not install anything.
 
         ## How to work
 
         - Treat any root-cause analysis embedded in the problem statement as a hypothesis to verify, not a conclusion — reporters are sometimes wrong or partial.
-        - Before running tests, provision the environment in ONE step: check `pyproject.toml` / `setup.py` / `tox.ini` for the supported Python version and the test extra's name, then install it once (e.g. `pip install -e ".[test]"`) instead of discovering missing dependencies one test failure at a time.
         - Prefer the smallest change that addresses the problem statement while preserving all existing intended behavior. A 3-line fix that follows the issue beats a 30-line architectural change; avoid touching files the fix doesn't require.
         - When the bug was introduced by an identifiable feature commit, fix the interaction between that feature and the broken case — do NOT revert or remove the feature; upstream maintainers virtually never resolve a regression by deleting the feature that caused it. Untested does not mean unintended: behavior promised by the offending commit's docs/changelog must keep working even when no test pins it, and a green test suite does not prove behavior preservation.
-        - The grader resets every test file to its original state and applies its own held-out tests before scoring, so your edits to existing test files are discarded and never graded — only your source change is scored. Editing a pre-existing test to make it pass therefore cannot help here; if one seems to need changing, treat that as a signal you may be altering behavior the task wants preserved and re-examine your source. Adding new tests to characterize behavior is fine.
+        - The grader resets every test file to its original state and applies its own held-out tests before scoring, so your edits to existing test files are discarded and never graded — only your source change is scored. Adding new tests to characterize behavior is fine.
         - Once your fix is implemented, run the issue's reproduction (if any) and the tests directly affected by your change. When those pass, do ONE final check and stop:
           - Re-read the problem statement and verify every described behavior / expected outcome is addressed — multi-symptom issues need all symptoms fixed, not just the first one you reproduced.
           - If your change introduced warnings in the test output that were not there before (RuntimeWarning, DeprecationWarning, ...), eliminate them — new warnings are regressions even when every test passes.
@@ -162,7 +506,7 @@ def _human_message(item: dict) -> str:
         {problem_statement}
         ```
         """  # noqa: E501
-    ).format(problem_statement=item["problem_statement"])
+    ).format(problem_statement=_problem_statement(item))
 
     if item["hints_text"]:
         human_message += dedent(
@@ -189,14 +533,20 @@ def _human_message(item: dict) -> str:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset-path", type=str, default="princeton-nlp/SWE-bench_Verified")
-    parser.add_argument("--dataset-split", type=str, default="test")
-    parser.add_argument("--num-samples", type=int, default=10)
-    parser.add_argument("--model-names", type=str, nargs="+", default=[ModelName.MINIMAX_M3])
-    parser.add_argument("--instance-ids", type=str, nargs="+")
-    parser.add_argument("--output-path", type=str, default="predictions.json")
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--dataset-path", default=DEFAULT_DATASET)
+    parser.add_argument("--dataset-split", default="test")
+    parser.add_argument(
+        "--output-path", default="predictions.json", help="The usage log goes next to it, as <stem>.usage.jsonl."
+    )
+    parser.add_argument("--model-names", nargs="+", default=[ModelName.MINIMAX_M3])
+    parser.add_argument("--thinking-level", choices=ThinkingLevel.values, default=DEFAULT_THINKING_LEVEL)
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--instance-ids", nargs="+", help="Run exactly these tasks.")
+    selection.add_argument(
+        "--num-samples", type=int, help="Run this many tasks of the dataset shuffled by --seed; all of them if omitted."
+    )
+    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--retry-failed", action="store_true", help="Run again the tasks whose last attempt raised.")
 
-    args = parser.parse_args()
-
-    asyncio.run(main(**vars(args)))
+    asyncio.run(main(**vars(parser.parse_args())))

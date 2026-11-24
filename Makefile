@@ -1,6 +1,7 @@
 # Makefile
 
-.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-design lint-typing evals eval-prompts tailwind-build tailwind-watch up db-reset
+.PHONY: help setup test test-ci lint lint-check lint-format lint-fix lint-imports lint-design lint-typing evals eval-prompts tailwind-build tailwind-watch up db-reset \
+	swebench swebench-evaluate swebench-mini swebench-mini-evaluate swerebench swerebench-evaluate
 
 help:
 	@echo "Available commands:"
@@ -19,6 +20,8 @@ help:
 	@echo "  make integration-tests          - Run integration tests"
 	@echo "  make eval-prompts SUITES=... OUT=...  - Run eval suites DAIV_EVAL_REPEATS times, appending metrics to OUT"
 	@echo "  make eval-prompts CASES=... OUT=...   - The same for single test ids, to confirm a flip compare_runs reports"
+	@echo "  make swebench-mini [SWEBENCH_SAMPLES=5] - Run DAIV on SWE-bench Verified Mini; a rerun resumes"
+	@echo "  make swebench-mini-evaluate             - Grade those predictions with the SWE-bench harness (Docker)"
 
 setup:
 	@if [ ! -f docker/local/app/config.secrets.env ]; then \
@@ -116,38 +119,67 @@ eval-prompts:
 		status=$$?; [ $$status -le 1 ] || exit $$status; \
 	done
 
+# SWE-bench: DAIV writes predictions, then the official harness grades them in Docker. Each generate/evaluate pair
+# shares its dataset, split and SWEBENCH_PREDICTIONS; another model, thinking level or DAIV version needs its own path.
+EVAL_HOST_ENV = DB_HOST=$${DB_HOST:-127.0.0.1} \
+	DJANGO_REDIS_URL=$${DJANGO_REDIS_URL:-redis://127.0.0.1:6379/0} \
+	DJANGO_REDIS_SESSION_URL=$${DJANGO_REDIS_SESSION_URL:-redis://127.0.0.1:6379/1} \
+	DJANGO_REDIS_CHECKPOINT_URL=$${DJANGO_REDIS_CHECKPOINT_URL:-redis://127.0.0.1:6379/0} \
+	DAIV_SANDBOX_URL=$${DAIV_SANDBOX_URL:-http://127.0.0.1:8888} \
+	CODEBASE_GITLAB_URL=$${CODEBASE_GITLAB_URL:-http://127.0.0.1:8929} \
+	LANGSMITH_TRACING=$${LANGSMITH_TRACING:-false} LANGCHAIN_TRACING_V2=$${LANGCHAIN_TRACING_V2:-false} \
+	PYTHONPATH=daiv:.
+SWEBENCH_MODEL ?= openrouter:minimax/minimax-m3
+SWEBENCH_THINKING ?= high
+SWEBENCH_SEED ?= 0
+SWEBENCH_WORKERS ?= 4
+# The harness counts every container whose name contains the run ID as unstopped, so not "daiv".
+SWEBENCH_RUN_ID ?= grade
+VERIFIED_DATASET := SWE-bench/SWE-bench_Verified
+# Mini lacks the image and eval-script columns swebench 5 grades with; its tasks are graded against Verified.
+MINI_DATASET := MariusHobbhahn/swe-bench-verified-mini
+SWEREBENCH_DATASET := nebius/SWE-rebench-leaderboard
+# A split is unseen only by models trained before it; 2026_03 is the newest on Hugging Face as of 2026-11-18.
+SWEREBENCH_SPLIT ?= 2026_03
+SWEBENCH_HARNESS := uv run --no-project --python 3.11 --with swebench==5.0.2 python -m swebench.harness.run_evaluation
+SWEREBENCH_HARNESS := uv run --no-project --python 3.11 \
+	--with git+https://github.com/SWE-rebench/SWE-bench-fork@e4907b7a90eafaa1f0a6428fd04fe31cdd8b4284 \
+	python -m swebench.harness.run_evaluation --namespace swerebench
+
+swebench swerebench: SWEBENCH_SAMPLES ?= 10
+swebench swebench-evaluate: SWEBENCH_PREDICTIONS ?= eval-runs/swebench/verified/predictions.json
+swebench-mini swebench-mini-evaluate: SWEBENCH_PREDICTIONS ?= eval-runs/swebench/mini/predictions.json
+swerebench swerebench-evaluate: SWEBENCH_PREDICTIONS ?= eval-runs/swerebench/$(SWEREBENCH_SPLIT)/predictions.json
+
+# $(1) dataset, $(2) split; runs on the host against the main stack, where a variable set in the shell wins.
+swebench_generate = $(EVAL_HOST_ENV) \
+	uv run --env-file docker/local/app/config.env --env-file docker/local/app/config.secrets.env python -m evals.swebench \
+	--dataset-path "$(1)" --dataset-split "$(2)" --output-path "$(SWEBENCH_PREDICTIONS)" \
+	--model-names $(SWEBENCH_MODEL) --thinking-level $(SWEBENCH_THINKING) --seed $(SWEBENCH_SEED) \
+	$(if $(SWEBENCH_IDS),--instance-ids $(SWEBENCH_IDS),$(if $(SWEBENCH_SAMPLES),--num-samples $(SWEBENCH_SAMPLES))) \
+	$(if $(SWEBENCH_RETRY_FAILED),--retry-failed)
+
+# $(1) dataset, $(2) split, $(3) harness; its logs and report land next to the predictions.
+swebench_evaluate = cd "$(dir $(SWEBENCH_PREDICTIONS))" && $(3) --dataset_name "$(1)" --split "$(2)" \
+	--predictions_path "$(notdir $(SWEBENCH_PREDICTIONS))" --max_workers $(SWEBENCH_WORKERS) --run_id $(SWEBENCH_RUN_ID)
+
 swebench:
-	uv run python -m evals.swebench --dataset-path "princeton-nlp/SWE-bench_Verified" --dataset-split "test" --output-path swebench-predictions.json --num-samples 10
+	$(call swebench_generate,$(VERIFIED_DATASET),test)
 
-swebench-evaluate: swebench-clean
-	mkdir -p /tmp/swebench
-	git clone https://github.com/SWE-bench/SWE-bench /tmp/swebench
-	cd /tmp/swebench; uv venv --python 3.11; uv pip install -e .; uv run -m swebench.harness.run_evaluation \
-		--dataset_name princeton-nlp/SWE-bench_Verified \
-		--split dev \
-		--max_workers 4 \
-		--predictions_path /tmp/predictions.json \
-		--run_id 1
+swebench-evaluate:
+	$(call swebench_evaluate,$(VERIFIED_DATASET),test,$(SWEBENCH_HARNESS))
 
-swebench-clean:
-	rm -rf /tmp/swebench
+swebench-mini:
+	$(call swebench_generate,$(MINI_DATASET),test)
+
+swebench-mini-evaluate:
+	$(call swebench_evaluate,$(VERIFIED_DATASET),test,$(SWEBENCH_HARNESS))
 
 swerebench:
-	uv run python -m evals.swebench --dataset-path "nebius/SWE-rebench-leaderboard" --dataset-split "2026_03" --output-path swerebench-predictions.json --num-samples 10
+	$(call swebench_generate,$(SWEREBENCH_DATASET),$(SWEREBENCH_SPLIT))
 
-swerebench-evaluate: swerebench-clean
-	mkdir -p /tmp/swerebench
-	git clone https://github.com/SWE-rebench/SWE-bench-fork /tmp/swerebench
-	cd /tmp/swerebench; uv venv --python 3.11; uv pip install -e .; uv run -m swebench.harness.run_evaluation \
-		--dataset_name nebius/SWE-rebench-leaderboard \
-		--split 2026_03 \
-		--max_workers 4 \
-		--predictions_path /tmp/predictions.json \
-		--namespace "swerebench" \
-		--run_id 1
-
-swerebench-clean:
-	rm -rf /tmp/swerebench
+swerebench-evaluate:
+	$(call swebench_evaluate,$(SWEREBENCH_DATASET),$(SWEREBENCH_SPLIT),$(SWEREBENCH_HARNESS))
 
 docs-serve:
 	uv run --only-group=docs mkdocs serve -o -a localhost:4000 -w docs/
