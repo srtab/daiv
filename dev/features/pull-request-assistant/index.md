@@ -24,7 +24,7 @@ DAIV reacts to your comment with an eyes emoji to confirm it received the reques
 
 You can mention DAIV in two places:
 
-- **Inline on the diff** — comment directly on specific lines of code. This reaches DAIV only on a merge request a DAIV session owns (see [A merge request DAIV published](#a-merge-request-daiv-published))
+- **Inline on the diff** — comment directly on specific lines of code, or on a whole file. DAIV answers in that thread
 - **General discussion** — comment in the pull request conversation
 
 DAIV sees the diff and the comment's position, so an inline comment tells it exactly what you mean.
@@ -33,7 +33,7 @@ DAIV sees the diff and the comment's position, so an inline comment tells it exa
 
 When a DAIV session published the merge or pull request, a mention goes to that session instead of starting a new one: the session that owns it (see [The session inbox](https://docs.daivagent.com/dev/features/sessions/#the-session-inbox)). It picks up where the session left off, and acts as you: as the DAIV account you signed in to with that GitLab/GitHub account, with its personal MCP servers, never as the session's owner. If you never signed in to DAIV with that account, the run gets no personal tools, even when a DAIV user shares your username. Its final message, or its question, is posted in the thread of your mention; when you mentioned DAIV in several threads before it answered, the full reply goes in the latest one, and each other thread gets a line linking to it.
 
-A mention on a diff line reaches DAIV only on a merge request a session owns. On GitHub this also needs the App subscribed to **Pull request review comment** (see [Platform setup](https://docs.daivagent.com/dev/getting-started/platform-setup/#github-app-permissions-and-events)). Comments that don't mention DAIV aren't answered, but the owning session remembers them, and its next run sees them. It remembers them from anyone but DAIV itself, even from people left out of [`allowed_usernames`](https://docs.daivagent.com/dev/customization/repository-config/#access-control); only a mention needs its author on that list.
+On GitHub, a mention on a diff line needs the App subscribed to **Pull request review comment** (see [Platform setup](https://docs.daivagent.com/dev/getting-started/platform-setup/#github-app-permissions-and-events)). Comments that don't mention DAIV aren't answered, but the owning session remembers them, and its next run sees them. It remembers them from anyone but DAIV itself, even from people left out of [`allowed_usernames`](https://docs.daivagent.com/dev/customization/repository-config/#access-control); only a mention needs its author on that list.
 
 ## What DAIV can do
 
@@ -77,7 +77,7 @@ DAIV inspects the pipeline logs, identifies the root cause, and pushes a fix to 
 
 ### Answer a question from DAIV
 
-When your request is ambiguous in a way that changes the work, or the choice is yours to make, DAIV can post a question instead of guessing. The question mentions you and ends with "reply mentioning `@daiv` with your answer." To answer, leave a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is a top-level comment, unless you asked on a diff line of a merge request a session owns, where it is posted in that thread.
+When your request is ambiguous in a way that changes the work, or the choice is yours to make, DAIV can post a question instead of guessing. The question mentions you and ends with "reply mentioning `@daiv` with your answer." To answer, leave a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is a top-level comment, unless you asked on a diff line, where it is posted in that thread.
 
 ## Conversation continuity
 

@@ -1941,13 +1941,13 @@
 <h3 id="where-to-comment">Where to comment</h3>
 <p>You can mention DAIV in two places:</p>
 <ul>
-<li><strong>Inline on the diff</strong> — comment directly on specific lines of code. This reaches DAIV only on a merge request a DAIV session owns (see <a href="#a-merge-request-daiv-published">A merge request DAIV published</a>)</li>
+<li><strong>Inline on the diff</strong> — comment directly on specific lines of code, or on a whole file. DAIV answers in that thread</li>
 <li><strong>General discussion</strong> — comment in the pull request conversation</li>
 </ul>
 <p>DAIV sees the diff and the comment's position, so an inline comment tells it exactly what you mean.</p>
 <h3 id="a-merge-request-daiv-published">A merge request DAIV published</h3>
 <p>When a DAIV session published the merge or pull request, a mention goes to that session instead of starting a new one: the session that owns it (see <a href="../sessions/#the-session-inbox">The session inbox</a>). It picks up where the session left off, and acts as you: as the DAIV account you signed in to with that GitLab/GitHub account, with its personal MCP servers, never as the session's owner. If you never signed in to DAIV with that account, the run gets no personal tools, even when a DAIV user shares your username. Its final message, or its question, is posted in the thread of your mention; when you mentioned DAIV in several threads before it answered, the full reply goes in the latest one, and each other thread gets a line linking to it.</p>
-<p>A mention on a diff line reaches DAIV only on a merge request a session owns. On GitHub this also needs the App subscribed to <strong>Pull request review comment</strong> (see <a href="../../getting-started/platform-setup/#github-app-permissions-and-events">Platform setup</a>). Comments that don't mention DAIV aren't answered, but the owning session remembers them, and its next run sees them. It remembers them from anyone but DAIV itself, even from people left out of <a href="../../customization/repository-config/#access-control"><code>allowed_usernames</code></a>; only a mention needs its author on that list.</p>
+<p>On GitHub, a mention on a diff line needs the App subscribed to <strong>Pull request review comment</strong> (see <a href="../../getting-started/platform-setup/#github-app-permissions-and-events">Platform setup</a>). Comments that don't mention DAIV aren't answered, but the owning session remembers them, and its next run sees them. It remembers them from anyone but DAIV itself, even from people left out of <a href="../../customization/repository-config/#access-control"><code>allowed_usernames</code></a>; only a mention needs its author on that list.</p>
 <h2 id="what-daiv-can-do">What DAIV can do</h2>
 <h3 id="apply-code-changes">Apply code changes</h3>
 <p>Ask DAIV to modify code based on your review feedback:</p>
@@ -1969,7 +1969,7 @@
 </code></pre></div></td></tr></table></div>
 <p>DAIV inspects the pipeline logs, identifies the root cause, and pushes a fix to the branch.</p>
 <h3 id="answer-a-question-from-daiv">Answer a question from DAIV</h3>
-<p>When your request is ambiguous in a way that changes the work, or the choice is yours to make, DAIV can post a question instead of guessing. The question mentions you and ends with "reply mentioning <code>@daiv</code> with your answer." To answer, leave a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is a top-level comment, unless you asked on a diff line of a merge request a session owns, where it is posted in that thread.</p>
+<p>When your request is ambiguous in a way that changes the work, or the choice is yours to make, DAIV can post a question instead of guessing. The question mentions you and ends with "reply mentioning <code>@daiv</code> with your answer." To answer, leave a new comment that mentions DAIV. On GitLab, DAIV posts its question inside the discussion thread of the comment that triggered it, so replying in that same thread keeps the conversation together; on GitHub the question is a top-level comment, unless you asked on a diff line, where it is posted in that thread.</p>
 <h2 id="conversation-continuity">Conversation continuity</h2>
 <p>DAIV keeps its context across the mentions on one pull request. Each new mention builds on the earlier ones, so DAIV knows the history of changes and discussion. If DAIV drifts or gets stuck, comment <code>@daiv /clear</code> to reset the conversation; see <a href="../slash-commands/#clear">Slash commands and skills</a>.</p>
 <h2 id="review-reports">Review reports</h2>
@@ -2034,7 +2034,7 @@ reports, the next review covers the whole pull request again.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 22, 2026 08:18:41 UTC">November 22, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 25, 2026 15:24:14 UTC">November 25, 2026</span>
   </span>
 
     
