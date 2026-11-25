@@ -509,8 +509,11 @@ class RepoClient(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
-        """`note_id` names a conversation comment, as for `create_merge_request_note_emoji`."""
+    def get_merge_request_note(
+        self, repo_id: str, merge_request_id: int, note_id: int, *, on_diff: bool = False
+    ) -> Note:
+        """`note_id` names a conversation comment, or with `on_diff` a comment on the diff, as for
+        `create_merge_request_note_emoji`."""
 
     @abc.abstractmethod
     def create_merge_request_note_emoji(

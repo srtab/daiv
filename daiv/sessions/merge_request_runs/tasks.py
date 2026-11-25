@@ -6,7 +6,9 @@ from django.tasks import task
 
 from asgiref.sync import sync_to_async
 
+from codebase.base import DiffLocation
 from codebase.clients import RepoClient
+from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from sessions.inbox.drain import Drain
 from sessions.merge_request_runs.guards import JobGuard, JobNotStarted, MentionGuard
@@ -28,6 +30,7 @@ async def address_merge_request_task(
     request_key: str,
     mention_comment_id: str | None = None,
     mention_note_id: int | None = None,
+    mention_location: dict[str, Any] | None = None,
     sandbox_environment_id: str | None = None,
     prompt: str | None = None,
     requester_username: str = "",
@@ -48,9 +51,12 @@ async def address_merge_request_task(
         merge_request_id (int): The merge request id.
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the caller decided and stamped on the ``Run``.
-        request_key (str): What asked for the run (``SourceKey.note`` or ``SourceKey.job``); part of its dedup key.
+        request_key (str): What asked for the run (``SourceKey.note``, ``SourceKey.review_comment`` or
+            ``SourceKey.job``); part of its dedup key.
         mention_comment_id (str | None): The discussion of the mention.
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers.
+        mention_location (dict | None): A dumped ``DiffLocation``: the note is on the diff, so the run reads it there,
+            tells the agent where, and answers in its thread.
         sandbox_environment_id (str | None): The env the caller selected; ``None``: the GLOBAL default.
         prompt (str | None): A job's prompt, in place of a mention.
         requester_username (str): Who sent the job, as the model sees them.
@@ -64,7 +70,8 @@ async def address_merge_request_task(
     client = RepoClient.create_instance()
     merge_request = client.get_merge_request(repo_id, merge_request_id)
     if prompt is None:
-        guard = MentionGuard(client, merge_request)
+        thread = CommentThread(mention_comment_id, on_diff=True) if mention_location and mention_comment_id else None
+        guard = MentionGuard(client, merge_request, reply_to=thread)
         recheck = None
     else:
         guard = JobGuard(client, merge_request, thread_id=thread_id, task_result_id=context.task_result.id)
@@ -79,6 +86,7 @@ async def address_merge_request_task(
             merge_request=merge_request,
             mention_comment_id=mention_comment_id,
             mention_note_id=mention_note_id,
+            mention_location=DiffLocation.model_validate(mention_location) if mention_location else None,
             thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
             run_id=task_run.run_id,

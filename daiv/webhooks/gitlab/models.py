@@ -4,6 +4,8 @@ from typing import Literal
 from ninja import Field
 from pydantic import BaseModel
 
+from codebase.base import DiffLocation
+
 
 class MergeRequestAction(StrEnum):
     """
@@ -110,6 +112,23 @@ class NoteAction(StrEnum):
     CREATE = "create"
 
 
+class Position(BaseModel):
+    """
+    Where a GitLab diff note was left: a removed line has an ``old_line`` only, and a comment on the whole file no line.
+    """
+
+    old_path: str
+    new_path: str
+    old_line: int | None = None
+    new_line: int | None = None
+
+    @property
+    def location(self) -> DiffLocation:
+        if self.new_line is None and self.old_line is not None:
+            return DiffLocation(path=self.old_path, line=self.old_line, old_line=True)
+        return DiffLocation(path=self.new_path, line=self.new_line)
+
+
 class Note(BaseModel):
     """
     Gitlab Note
@@ -124,6 +143,7 @@ class Note(BaseModel):
     system: bool
     type: Literal["DiffNote", "DiscussionNote", "Note"] | None = None
     url: str = ""
+    position: Position | None = None
 
 
 class Project(BaseModel):

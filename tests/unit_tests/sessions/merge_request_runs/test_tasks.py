@@ -12,7 +12,8 @@ from sessions.merge_request_runs.tasks import address_merge_request_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import TaskRun
 
-from codebase.base import MergeRequest, User
+from codebase.base import DiffLocation, MergeRequest, User
+from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from tests.unit_tests.sessions.merge_request_runs.conftest import addressor_agent, addressor_ctx, addressor_run
 
@@ -77,6 +78,19 @@ async def test_address_mr_comments_skips_when_merged(run_lookup):
     assert result["code_changes"] is False
 
 
+@pytest.mark.parametrize(
+    ("location", "reply_to"), [(None, None), ({"path": "a.py", "line": 3}, CommentThread("d1", on_diff=True))]
+)
+async def test_a_skipped_mention_is_answered_in_its_thread_only_on_the_diff(location, reply_to):
+    client = MagicMock()
+    client.get_merge_request.return_value = _mr(merged=True)
+
+    with patch("sessions.merge_request_runs.tasks.RepoClient.create_instance", return_value=client):
+        await _mention_task(mention_location=location)
+
+    assert client.create_merge_request_comment.call_args.kwargs["reply_to"] == reply_to
+
+
 async def test_address_mr_comments_skips_when_branch_gone():
     client = MagicMock()
     client.get_merge_request.return_value = _mr(merged=False)
@@ -102,7 +116,11 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         patch("sessions.merge_request_runs.tasks.RepoClient.create_instance", return_value=client),
         patch(_ADDRESS, address),
     ):
-        result = await _mention_task(mention_note_id=5, sandbox_environment_id="e")
+        result = await _mention_task(
+            mention_note_id=5,
+            mention_location={"path": "a.py", "line": 3, "old_line": False},
+            sandbox_environment_id="e",
+        )
 
     assert result == {"response": "done"}
     assert address.await_args.kwargs == {
@@ -110,6 +128,7 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "merge_request": merge_request,
         "mention_comment_id": "d1",
         "mention_note_id": 5,
+        "mention_location": DiffLocation(path="a.py", line=3),
         "thread_id": "t-7",
         "sandbox_env_id": "e",
         "run_id": "run-1",
@@ -235,7 +254,7 @@ class TestAJobThatWaitedForTheSessionSlot:
         result, stack = await self._run_job(captured_client, merge)
 
         stack.create_agent.assert_not_awaited()
-        captured_client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=note)
+        captured_client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=note, reply_to=None)
         await run.arefresh_from_db()
         assert (run.status, run.error_message) == (RunStatus.FAILED, note)
         assert result["response"] == note

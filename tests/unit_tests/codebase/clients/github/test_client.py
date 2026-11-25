@@ -7,6 +7,7 @@ from github import Consts
 from github.GithubException import GithubException
 from github.IssueComment import IssueComment
 from github.NamedUser import NamedUser
+from github.PullRequestComment import PullRequestComment
 from github.Repository import Repository as GhRepository
 
 from codebase.base import GitPlatform, MergeRequestCommit, Repository, User
@@ -216,6 +217,20 @@ class TestGitHubClient:
         mock_repo.get_pull.assert_not_called()
         mock_issue.get_comment.assert_called_once_with(3645723306)
         assert (result.id, result.body, result.noteable_type) == (3645723306, "Test comment", "MergeRequest")
+
+    def test_get_merge_request_note_reads_a_diff_comment_as_a_review_comment(self, github_client):
+        mock_repo = Mock()
+        github_client.client.get_repo.return_value = mock_repo
+        review_comment = mock_repo.get_pull.return_value.get_review_comment
+        review_comment.return_value = Mock(
+            spec=PullRequestComment, id=901, body="@daiv shorten it", user=Mock(id=1, login="alice")
+        )
+
+        result = github_client.get_merge_request_note("owner/repo", 42, 901, on_diff=True)
+
+        mock_repo.get_issue.assert_not_called()
+        review_comment.assert_called_once_with(901)
+        assert (result.id, result.body, result.author.username) == (901, "@daiv shorten it", "alice")
 
     @patch("codebase.clients.github.client.Repo.clone_from")
     def test_load_repo_configures_git_identity_with_app_bot(self, mock_clone_from, github_client, monkeypatch):

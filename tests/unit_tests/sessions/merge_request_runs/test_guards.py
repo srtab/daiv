@@ -13,6 +13,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import TaskRun
 
 from codebase.base import MergeRequest, User
+from codebase.clients.base import CommentThread
 
 _PLATFORM_ERRORS = [
     GitlabGetError("502 Bad Gateway", response_code=502),
@@ -48,7 +49,7 @@ class TestMentionGuard:
         result = await MentionGuard(client, _mr(merged=True)).askip()
 
         body = client.create_merge_request_comment.call_args.kwargs["body"]
-        client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=body)
+        client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=body, reply_to=None)
         assert "already been merged" in body
         assert "`chore/x`" in body
         assert (result["response"], result["code_changes"], result["merge_request_id"]) == (body, False, 7)
@@ -63,6 +64,14 @@ class TestMentionGuard:
         assert "`chore/x`" in body
         assert "no longer exists" in body
         assert result["response"] == body
+
+    async def test_a_diff_mention_is_answered_in_its_thread(self):
+        client = MagicMock()
+        thread = CommentThread("d1", on_diff=True)
+
+        await MentionGuard(client, _mr(), reply_to=thread).abranch_gone()
+
+        assert client.create_merge_request_comment.call_args.kwargs["reply_to"] == thread
 
 
 @pytest.mark.django_db(transaction=True)
@@ -104,7 +113,7 @@ class TestJobGuard:
         result = await self._guard(client, _mr(**state)).askip()
 
         assert result["response"] == note
-        client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=note)
+        client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=note, reply_to=None)
         stopped = await Run.objects.aget(pk=run.pk)
         assert (stopped.status, stopped.error_message) == (RunStatus.FAILED, note)
 
@@ -169,7 +178,9 @@ class TestJobGuard:
 
         result = await self._guard(client, _mr()).abranch_gone()
 
-        client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=NOT_STARTED_BRANCH_GONE)
+        client.create_merge_request_comment.assert_called_once_with(
+            "group/repo", 7, body=NOT_STARTED_BRANCH_GONE, reply_to=None
+        )
         assert result["response"] == NOT_STARTED_BRANCH_GONE
         stopped = await Run.objects.aget(pk=run.pk)
         assert (stopped.status, stopped.error_message) == (RunStatus.FAILED, NOT_STARTED_BRANCH_GONE)
@@ -188,7 +199,7 @@ class TestJobGuard:
         result = await self._guard(client, _mr()).abranch_gone()
 
         client.get_merge_request.assert_called_once_with("group/repo", 7)
-        client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=note)
+        client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=note, reply_to=None)
         assert result["response"] == note
         stopped = await Run.objects.aget(pk=run.pk)
         assert (stopped.status, stopped.error_message) == (RunStatus.FAILED, note)
@@ -199,6 +210,8 @@ class TestJobGuard:
         result = await self._guard(client, _mr(merged=True)).askip()
 
         task_run.assert_awaited_once_with("tr-1")
-        client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=NOT_STARTED_MERGED)
+        client.create_merge_request_comment.assert_called_once_with(
+            "group/repo", 7, body=NOT_STARTED_MERGED, reply_to=None
+        )
         assert result["response"] == NOT_STARTED_MERGED
         assert not await Run.objects.aexists()

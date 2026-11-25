@@ -16,7 +16,8 @@ from webhooks.github.callbacks import (
 )
 from webhooks.github.models import Comment, Issue, Label, PullRequest, Pusher, Ref, Repository, ReviewComment, User
 
-from codebase.base import GitPlatform
+from codebase.base import DiffLocation, GitPlatform
+from codebase.clients.base import Emoji
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_LABEL, BOT_MAX_LABEL
 from core.site_settings import site_settings
@@ -585,6 +586,9 @@ def create_review_comment_callback(
             user=author,
             html_url="https://github.com/owner/repo/pull/42#discussion_r901",
             in_reply_to_id=in_reply_to_id,
+            path="app/x.py",
+            line=12,
+            side="RIGHT",
         ),
     )
 
@@ -616,6 +620,7 @@ class TestReviewCommentsOnAnOwnedPullRequest:
         event = await InboxEvent.objects.aget(session_id=ownership.session_id)
         assert (event.kind, event.wake, event.source_key) == ("mention", True, "review-comment:901")
         assert (event.payload["discussion_id"], event.payload["is_diff"]) == ("900", True)
+        assert event.payload["location"] == {"path": "app/x.py", "line": 12, "old_line": False}
         mock_repo_client.create_merge_request_note_emoji.assert_called_once()
 
     async def test_a_comment_without_a_mention_is_remembered(self):
@@ -658,14 +663,56 @@ class TestReviewCommentsOnAnOwnedPullRequest:
         assert not await InboxEvent.objects.aexists()
         mock_repo_client.create_merge_request_note_emoji.assert_not_called()
 
-    @pytest.mark.parametrize("body", ["@daiv why this line?", "Nit: rename this"])
-    async def test_an_unowned_pull_request_gets_nothing(self, mock_repo_client, body):
+    async def test_a_comment_without_a_mention_on_an_unowned_pull_request_gets_nothing(self, mock_repo_client):
         with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
-            await create_review_comment_callback(body).process_callback()
+            await create_review_comment_callback("Nit: rename this").process_callback()
 
         task.get_or_enqueue.assert_not_called()
         assert not await InboxEvent.objects.aexists()
         mock_repo_client.create_merge_request_note_emoji.assert_not_called()
+
+    async def test_a_mention_on_an_unowned_pull_request_starts_a_run_answering_in_its_thread(self, mock_repo_client):
+        with (
+            patch("sessions.merge_request_runs.service.address_merge_request_task") as task,
+            patch("sessions.merge_request_runs.starter.create_run"),
+            patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        ):
+            task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
+            await create_review_comment_callback(in_reply_to_id=900).process_callback()
+
+        task_kwargs = task.get_or_enqueue.call_args.kwargs
+        assert (task_kwargs["mention_note_id"], task_kwargs["mention_comment_id"]) == (901, "900")
+        assert task_kwargs["mention_location"] == {"path": "app/x.py", "line": 12, "old_line": False}
+        assert not await InboxEvent.objects.aexists()
+        mock_repo_client.create_merge_request_note_emoji.assert_called_once_with(
+            "owner/repo", 42, Emoji.EYES, 901, on_diff=True
+        )
+
+
+@pytest.mark.parametrize(
+    ("subject_type", "line", "original_line", "side", "location"),
+    [
+        ("file", None, None, None, DiffLocation(path="CHANGELOG.md")),
+        ("line", 12, 12, "RIGHT", DiffLocation(path="CHANGELOG.md", line=12)),
+        ("line", 3, 3, "LEFT", DiffLocation(path="CHANGELOG.md", line=3, old_line=True)),
+        ("line", None, 40, "RIGHT", DiffLocation(path="CHANGELOG.md", line=40)),
+    ],
+    ids=["file", "line", "removed-line", "outdated-line"],
+)
+def test_a_review_comment_is_where_it_was_left(subject_type, line, original_line, side, location):
+    comment = ReviewComment(
+        id=901,
+        body="@daiv shorter",
+        user=User(**{"id": 10, "login": "alice"}),
+        html_url="https://github.com/owner/repo/pull/42#discussion_r901",
+        path="CHANGELOG.md",
+        subject_type=subject_type,
+        line=line,
+        original_line=original_line,
+        side=side,
+    )
+
+    assert comment.location == location
 
 
 class TestReviewCommentAcceptance:

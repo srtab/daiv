@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
     from codebase.base import MergeRequest
     from codebase.clients import RepoClient
+    from codebase.clients.base import CommentThread
     from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.tasks")
@@ -42,15 +43,16 @@ class JobNotStarted(Exception):  # noqa: N818
 
 @dataclass
 class MergeRequestGuard:
-    """What the guards share: the merge request they answer on, and the task's result for a run that answered without
-    its agent."""
+    """What the guards share: the merge request they answer on, and the thread when they answer in one, and the task's
+    result for a run that answered without its agent."""
 
     client: RepoClient
     merge_request: MergeRequest
+    reply_to: CommentThread | None = None
 
     async def _aanswer(self, body: str) -> AgentResult:
         await sync_to_async(self.client.create_merge_request_comment)(
-            self.merge_request.repo_id, self.merge_request.merge_request_id, body=body
+            self.merge_request.repo_id, self.merge_request.merge_request_id, body=body, reply_to=self.reply_to
         )
         return self._result(body)
 
@@ -70,7 +72,8 @@ class MergeRequestGuard:
 
 
 class MentionGuard(MergeRequestGuard):
-    """Answers a mention whose run can't go ahead: its merge request was merged, or its source branch is gone."""
+    """Answers a mention whose run can't go ahead: its merge request was merged, or its source branch is gone. A
+    mention on the diff is answered in its thread, ``reply_to``."""
 
     async def askip(self) -> AgentResult | None:
         """Answer a mention on a merged merge request; ``None`` when its run goes ahead."""

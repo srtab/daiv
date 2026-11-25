@@ -173,6 +173,20 @@ class NoteType(StrEnum):
     DISCUSSION_NOTE = "DiscussionNote"
 
 
+class DiffLocation(BaseModel):
+    """Where a comment on a merge request's diff was left: ``line`` is ``None`` on a comment on the whole file, and
+    ``old_line`` says it counts in the file before the change, as on a removed line."""
+
+    path: str
+    line: int | None = None
+    old_line: bool = False
+
+    def describe(self) -> str:
+        if self.line is None:
+            return f"the file `{self.path}`"
+        return f"line {self.line}{' (before the change)' if self.old_line else ''} of `{self.path}`"
+
+
 class Note(BaseModel):
     id: int
     body: str

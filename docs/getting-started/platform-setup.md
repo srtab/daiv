@@ -212,7 +212,7 @@ Subscribe the App to these events:
 - **Push**
 - **Issues**
 - **Issue comment**
-- **Pull request review comment**, for mentions and comments on diff lines of a pull request a DAIV session owns
+- **Pull request review comment**, for mentions on diff lines, and comments on diff lines of a pull request a DAIV session owns
 - **Pull request**
 - **Workflow run**, which GitHub lists only once **Actions** is **Read-only**
 

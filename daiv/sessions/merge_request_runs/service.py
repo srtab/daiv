@@ -3,8 +3,8 @@
 A comment on a merge request a session owns goes to that session's inbox: a mention as a waking event, any other
 comment as a remembered one, and a job (:class:`~sessions.merge_request_runs.starter.Request`,
 :meth:`MergeRequestRuns.astart_job`) as a ``merge_request_job`` with its own run
-(:mod:`sessions.inbox.merge_request_jobs`). Only an owned merge request takes a
-mention on a diff line. Otherwise a mention or a job starts an addressor run in the merge request's session
+(:mod:`sessions.inbox.merge_request_jobs`). Otherwise a mention, in the conversation or on the diff, or a job starts
+an addressor run in the merge request's session
 (:class:`~sessions.merge_request_runs.starter.RunStarter`). A trigger on an archived session starts nothing; a mention
 is answered once, linking the session, and a job is told through its outcome, with nothing posted on the merge request.
 """
@@ -70,9 +70,6 @@ class MergeRequestRuns:
                 return StartOutcome(thread_id=thread_id, archived=True)
             created = await self._apost_comment(ownership, caller, mention, kind=EventKind.MENTION, use_max=use_max)
             return StartOutcome(thread_id=thread_id, started=created)
-        if mention.on_diff:
-            logger.info("Ignoring a diff mention on %s#%s: no session owns it", self.repo_id, self.merge_request_iid)
-            return StartOutcome(thread_id=self.starter.thread_id)
         if ref is None:
             ref = await self._afetch_source_branch()
         return await self.starter.astart(
@@ -81,9 +78,10 @@ class MergeRequestRuns:
             use_max=use_max,
             task_kwargs={
                 "merge_request_id": self.merge_request_iid,
-                "request_key": kinds.SourceKey.note(mention.note_id),
+                "request_key": self._source_key(mention),
                 "mention_comment_id": mention.comment_id,
                 "mention_note_id": mention.note_id,
+                "mention_location": mention.location.model_dump() if mention.location else None,
             },
             trigger_type=SessionOrigin.MR_WEBHOOK,
             title=title,
@@ -184,6 +182,15 @@ class MergeRequestRuns:
         if (ownership := await Ownerships(self.repo_id).afind_open(self.merge_request_iid, title=title)) is not None:
             await self._apost_comment(ownership, await caller(), comment, kind=EventKind.COMMENT)
 
+    def _is_review_comment(self, comment: Mention) -> bool:
+        """A GitHub review comment, numbered apart from conversation comments."""
+        return comment.on_diff and self.client.git_platform == GitPlatform.GITHUB
+
+    def _source_key(self, comment: Mention) -> str:
+        if self._is_review_comment(comment):
+            return kinds.SourceKey.review_comment(comment.note_id)
+        return kinds.SourceKey.note(comment.note_id)
+
     def _reply_under(self, mention: Mention):
         thread = CommentThread(mention.comment_id, on_diff=mention.on_diff)
 
@@ -199,7 +206,7 @@ class MergeRequestRuns:
         since an edit keeps the comment's key. A remembered comment has a key of its own, so editing it to mention
         DAIV still wakes the session. With ``use_max`` the payload names the model and thinking level the drain runs
         it on."""
-        review_comment = comment.on_diff and self.client.git_platform == GitPlatform.GITHUB
+        review_comment = self._is_review_comment(comment)
         payload: dict[str, Any] = {
             "body": comment.body,
             "web_url": comment.web_url,
@@ -207,11 +214,11 @@ class MergeRequestRuns:
             "is_diff": comment.on_diff,
             ("review_comment_id" if review_comment else "note_id"): comment.note_id,
         }
+        if comment.location is not None:
+            payload["location"] = comment.location.model_dump()
         if use_max:
             payload["agent_model"], payload["agent_thinking_level"] = RunStarter.pinned_model(use_max)
-        source_key = (
-            kinds.SourceKey.review_comment(comment.note_id) if review_comment else kinds.SourceKey.note(comment.note_id)
-        )
+        source_key = self._source_key(comment)
         result = await Inbox(ownership.session.thread_id).apost(
             kind=kind,
             source_key=source_key if kind == EventKind.MENTION else kinds.SourceKey.comment(source_key),
