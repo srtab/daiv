@@ -13,6 +13,7 @@ from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import TaskRun
 
 from codebase.base import DiffLocation, MergeRequest, User
+from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from tests.unit_tests.sessions.merge_request_runs.conftest import addressor_agent, addressor_ctx, addressor_run
 
@@ -75,6 +76,17 @@ async def test_address_mr_comments_skips_when_merged(run_lookup):
     client.create_merge_request_comment.assert_called_once()
     assert "already been merged" in result["response"]
     assert result["code_changes"] is False
+
+
+@pytest.mark.parametrize(("on_diff", "reply_to"), [(False, None), (True, CommentThread("d1", on_diff=True))])
+async def test_a_skipped_mention_is_answered_in_its_thread_only_on_the_diff(on_diff, reply_to):
+    client = MagicMock()
+    client.get_merge_request.return_value = _mr(merged=True)
+
+    with patch("sessions.merge_request_runs.tasks.RepoClient.create_instance", return_value=client):
+        await _mention_task(mention_on_diff=on_diff)
+
+    assert client.create_merge_request_comment.call_args.kwargs["reply_to"] == reply_to
 
 
 async def test_address_mr_comments_skips_when_branch_gone():
@@ -242,7 +254,7 @@ class TestAJobThatWaitedForTheSessionSlot:
         result, stack = await self._run_job(captured_client, merge)
 
         stack.create_agent.assert_not_awaited()
-        captured_client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=note)
+        captured_client.create_merge_request_comment.assert_called_once_with("group/repo", 7, body=note, reply_to=None)
         await run.arefresh_from_db()
         assert (run.status, run.error_message) == (RunStatus.FAILED, note)
         assert result["response"] == note

@@ -535,6 +535,18 @@ class TestOwnedMergeRequest:
         assert (mention.wake, mention.source_key) == (True, "note:300")
         steps.client.create_merge_request_note_emoji.assert_called_once()
 
+    @pytest.mark.parametrize(
+        ("platform", "request_key"), [(GitPlatform.GITLAB, "note:300"), (GitPlatform.GITHUB, "review-comment:300")]
+    )
+    async def test_a_diff_mentions_run_is_keyed_apart_from_conversation_comments_on_github(
+        self, steps, platform, request_key
+    ):
+        steps.client.git_platform = platform
+
+        await _mr_comment_run(steps, mention=self._mention(on_diff=True))
+
+        assert steps.address_mr_comments_task.get_or_enqueue.call_args.kwargs["request_key"] == request_key
+
     async def test_a_diff_mention_on_an_unowned_merge_request_starts_a_run_and_reacts_on_the_diff_note(self, steps):
         await _mr_comment_run(steps, mention=self._mention(on_diff=True, location=DiffLocation(path="a.py", line=3)))
 

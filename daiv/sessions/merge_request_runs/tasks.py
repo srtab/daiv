@@ -8,6 +8,7 @@ from asgiref.sync import sync_to_async
 
 from codebase.base import DiffLocation
 from codebase.clients import RepoClient
+from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from sessions.inbox.drain import Drain
 from sessions.merge_request_runs.guards import JobGuard, JobNotStarted, MentionGuard
@@ -51,7 +52,8 @@ async def address_merge_request_task(
         merge_request_id (int): The merge request id.
         thread_id (str): The LangGraph checkpoint key minted by the caller.
         use_max (bool): The max mode the caller decided and stamped on the ``Run``.
-        request_key (str): What asked for the run (``SourceKey.note`` or ``SourceKey.job``); part of its dedup key.
+        request_key (str): What asked for the run (``SourceKey.note``, ``SourceKey.review_comment`` or
+            ``SourceKey.job``); part of its dedup key.
         mention_comment_id (str | None): The discussion of the mention.
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers.
         mention_on_diff (bool): The note is on the diff, so the run reads it there and answers in its thread.
@@ -69,7 +71,8 @@ async def address_merge_request_task(
     client = RepoClient.create_instance()
     merge_request = client.get_merge_request(repo_id, merge_request_id)
     if prompt is None:
-        guard = MentionGuard(client, merge_request)
+        thread = CommentThread(mention_comment_id, on_diff=True) if mention_on_diff and mention_comment_id else None
+        guard = MentionGuard(client, merge_request, reply_to=thread)
         recheck = None
     else:
         guard = JobGuard(client, merge_request, thread_id=thread_id, task_result_id=context.task_result.id)

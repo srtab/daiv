@@ -78,7 +78,7 @@ class MergeRequestRuns:
             use_max=use_max,
             task_kwargs={
                 "merge_request_id": self.merge_request_iid,
-                "request_key": kinds.SourceKey.note(mention.note_id),
+                "request_key": self._source_key(mention),
                 "mention_comment_id": mention.comment_id,
                 "mention_note_id": mention.note_id,
                 "mention_on_diff": mention.on_diff,
@@ -183,6 +183,15 @@ class MergeRequestRuns:
         if (ownership := await Ownerships(self.repo_id).afind_open(self.merge_request_iid, title=title)) is not None:
             await self._apost_comment(ownership, await caller(), comment, kind=EventKind.COMMENT)
 
+    def _is_review_comment(self, comment: Mention) -> bool:
+        """A GitHub review comment, numbered apart from conversation comments."""
+        return comment.on_diff and self.client.git_platform == GitPlatform.GITHUB
+
+    def _source_key(self, comment: Mention) -> str:
+        if self._is_review_comment(comment):
+            return kinds.SourceKey.review_comment(comment.note_id)
+        return kinds.SourceKey.note(comment.note_id)
+
     def _reply_under(self, mention: Mention):
         thread = CommentThread(mention.comment_id, on_diff=mention.on_diff)
 
@@ -198,7 +207,7 @@ class MergeRequestRuns:
         since an edit keeps the comment's key. A remembered comment has a key of its own, so editing it to mention
         DAIV still wakes the session. With ``use_max`` the payload names the model and thinking level the drain runs
         it on."""
-        review_comment = comment.on_diff and self.client.git_platform == GitPlatform.GITHUB
+        review_comment = self._is_review_comment(comment)
         payload: dict[str, Any] = {
             "body": comment.body,
             "web_url": comment.web_url,
@@ -210,9 +219,7 @@ class MergeRequestRuns:
             payload["location"] = comment.location.model_dump()
         if use_max:
             payload["agent_model"], payload["agent_thinking_level"] = RunStarter.pinned_model(use_max)
-        source_key = (
-            kinds.SourceKey.review_comment(comment.note_id) if review_comment else kinds.SourceKey.note(comment.note_id)
-        )
+        source_key = self._source_key(comment)
         result = await Inbox(ownership.session.thread_id).apost(
             kind=kind,
             source_key=source_key if kind == EventKind.MENTION else kinds.SourceKey.comment(source_key),

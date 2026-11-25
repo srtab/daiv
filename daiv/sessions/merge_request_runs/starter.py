@@ -204,7 +204,9 @@ class RunStarter:
         @sync_to_async
         @transaction.atomic
         def enqueue_with_run() -> StartOutcome:
-            if self._queued_before_the_move(task_kwargs.get("mention_note_id")):
+            if self._queued_before_the_move(
+                task_kwargs.get("mention_note_id"), on_diff=task_kwargs.get("mention_on_diff", False)
+            ):
                 return StartOutcome(thread_id=self.thread_id)
             result, created = task.get_or_enqueue(
                 repo_id=self.repo_id,
@@ -236,10 +238,11 @@ class RunStarter:
 
         return await enqueue_with_run()
 
-    def _queued_before_the_move(self, note_id: int | None) -> bool:
+    def _queued_before_the_move(self, note_id: int | None, *, on_diff: bool) -> bool:
         """Whether the merge request mention ``note_id`` has a task queued, running or done under the path and key it
-        had before it moved to this app, which the new task's dedup can't see. SYNC ONLY. For one release."""
-        if self.scope != Scope.MERGE_REQUEST or note_id is None:
+        had before it moved to this app, which the new task's dedup can't see; a diff mention never ran there. SYNC
+        ONLY. For one release."""
+        if self.scope != Scope.MERGE_REQUEST or note_id is None or on_diff:
             return False
         return DBTaskResult.objects.filter(
             task_path=MENTION_TASK_PATH_BEFORE_THE_MOVE,

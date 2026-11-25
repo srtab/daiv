@@ -692,22 +692,25 @@ class TestReviewCommentsOnAnOwnedPullRequest:
 
 
 @pytest.mark.parametrize(
-    ("line", "side", "location"),
+    ("subject_type", "line", "original_line", "side", "location"),
     [
-        (None, None, DiffLocation(path="CHANGELOG.md")),
-        (12, "RIGHT", DiffLocation(path="CHANGELOG.md", line=12)),
-        (3, "LEFT", DiffLocation(path="CHANGELOG.md", line=3, old_line=True)),
+        ("file", None, None, None, DiffLocation(path="CHANGELOG.md")),
+        ("line", 12, 12, "RIGHT", DiffLocation(path="CHANGELOG.md", line=12)),
+        ("line", 3, 3, "LEFT", DiffLocation(path="CHANGELOG.md", line=3, old_line=True)),
+        ("line", None, 40, "RIGHT", DiffLocation(path="CHANGELOG.md", line=40)),
     ],
-    ids=["file", "line", "removed-line"],
+    ids=["file", "line", "removed-line", "outdated-line"],
 )
-def test_a_review_comment_is_where_it_was_left(line, side, location):
+def test_a_review_comment_is_where_it_was_left(subject_type, line, original_line, side, location):
     comment = ReviewComment(
         id=901,
         body="@daiv shorter",
         user=User(**{"id": 10, "login": "alice"}),
         html_url="https://github.com/owner/repo/pull/42#discussion_r901",
         path="CHANGELOG.md",
+        subject_type=subject_type,
         line=line,
+        original_line=original_line,
         side=side,
     )
 

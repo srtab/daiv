@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
     from codebase.base import MergeRequest
     from codebase.clients import RepoClient
+    from codebase.clients.base import CommentThread
     from sessions.executor.result import AgentResult
 
 logger = logging.getLogger("daiv.tasks")
@@ -48,9 +49,9 @@ class MergeRequestGuard:
     client: RepoClient
     merge_request: MergeRequest
 
-    async def _aanswer(self, body: str) -> AgentResult:
+    async def _aanswer(self, body: str, reply_to: CommentThread | None = None) -> AgentResult:
         await sync_to_async(self.client.create_merge_request_comment)(
-            self.merge_request.repo_id, self.merge_request.merge_request_id, body=body
+            self.merge_request.repo_id, self.merge_request.merge_request_id, body=body, reply_to=reply_to
         )
         return self._result(body)
 
@@ -69,8 +70,12 @@ class MergeRequestGuard:
         )
 
 
+@dataclass
 class MentionGuard(MergeRequestGuard):
-    """Answers a mention whose run can't go ahead: its merge request was merged, or its source branch is gone."""
+    """Answers a mention whose run can't go ahead: its merge request was merged, or its source branch is gone. A
+    mention on the diff is answered in its thread, ``reply_to``."""
+
+    reply_to: CommentThread | None = None
 
     async def askip(self) -> AgentResult | None:
         """Answer a mention on a merged merge request; ``None`` when its run goes ahead."""
@@ -84,7 +89,8 @@ class MentionGuard(MergeRequestGuard):
         return await self._aanswer(
             f"This merge request has already been merged, so I can't act on comments left against "
             f"its branch (`{self.merge_request.source_branch}`). Please open a new issue or merge request "
-            f"for any follow-up changes."
+            f"for any follow-up changes.",
+            reply_to=self.reply_to,
         )
 
     async def abranch_gone(self) -> AgentResult:
@@ -98,7 +104,8 @@ class MentionGuard(MergeRequestGuard):
         return await self._aanswer(
             f"The source branch `{self.merge_request.source_branch}` for this merge request no longer "
             f"exists, so I can't check it out to address this comment. If it was merged and deleted, "
-            f"please open a new issue or merge request for any follow-up changes."
+            f"please open a new issue or merge request for any follow-up changes.",
+            reply_to=self.reply_to,
         )
 
 
