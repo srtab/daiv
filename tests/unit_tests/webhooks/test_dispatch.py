@@ -551,9 +551,7 @@ class TestOwnedMergeRequest:
         await _mr_comment_run(steps, mention=self._mention(on_diff=True, location=DiffLocation(path="a.py", line=3)))
 
         task_kwargs = steps.address_mr_comments_task.get_or_enqueue.call_args.kwargs
-        assert (task_kwargs["mention_on_diff"], task_kwargs["mention_location"]) == (
-            True, {"path": "a.py", "line": 3, "old_line": False},
-        )  # fmt: skip
+        assert task_kwargs["mention_location"] == {"path": "a.py", "line": 3, "old_line": False}
         steps.create_run.assert_called_once()
         steps.client.create_merge_request_note_emoji.assert_called_once_with(
             "group/repo", 7, Emoji.EYES, 300, on_diff=True

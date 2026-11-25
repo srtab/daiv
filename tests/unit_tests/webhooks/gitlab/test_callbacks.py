@@ -842,7 +842,7 @@ class TestNotesOnAnOwnedMergeRequest:
             ).process_callback()
 
         task_kwargs = task.get_or_enqueue.call_args.kwargs
-        assert (task_kwargs["mention_note_id"], task_kwargs["mention_on_diff"]) == (100, True)
+        assert task_kwargs["mention_note_id"] == 100
         assert task_kwargs["mention_location"] == {"path": "CHANGELOG.md", "line": None, "old_line": False}
         assert not await InboxEvent.objects.aexists()
 

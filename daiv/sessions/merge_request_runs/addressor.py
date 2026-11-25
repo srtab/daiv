@@ -45,16 +45,18 @@ class CommentsAddressorManager(BaseManager):
         self,
         *,
         merge_request: MergeRequest,
-        mention_on_diff: bool = False,
         mention_location: DiffLocation | None = None,
         on_context_ready: Callable[[str], Awaitable[None]] | None = None,
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.merge_request = merge_request
-        self.mention_on_diff = mention_on_diff
         self.mention_location = mention_location
         self.on_context_ready = on_context_ready
+
+    @property
+    def mention_on_diff(self) -> bool:
+        return self.mention_location is not None
 
     @property
     def reply_to_id(self) -> str | None:
@@ -71,7 +73,6 @@ class CommentsAddressorManager(BaseManager):
         thread_id: str,
         use_max: bool,
         mention_note_id: int | None = None,
-        mention_on_diff: bool = False,
         mention_location: DiffLocation | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
@@ -95,8 +96,7 @@ class CommentsAddressorManager(BaseManager):
             thread_id: The session's thread id.
             use_max: The max mode the callback decided.
             mention_note_id: The note that mentioned the bot, which the run answers.
-            mention_on_diff: Whether that note is on the diff.
-            mention_location: Where on the diff it was left, which the agent is told.
+            mention_location: Where on the diff that note was left, which the agent is told; ``None`` off the diff.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
             acting_user_id: The DAIV user the run acts as, its ``Run``'s user; ``None`` for none.
@@ -118,7 +118,6 @@ class CommentsAddressorManager(BaseManager):
             merge_request=merge_request,
             mention_comment_id=mention_comment_id,
             mention_note_id=mention_note_id,
-            mention_on_diff=mention_on_diff,
             mention_location=mention_location,
             thread_id=thread_id,
             on_context_ready=on_context_ready,
@@ -227,7 +226,7 @@ class CommentsAddressorManager(BaseManager):
         if response := outcome.response_text.strip():
             self._leave_comment(
                 self._append_footer(response, fallback_footer),
-                reply_to_id=self.reply_to_id if self.mention_on_diff else None,
+                reply_to_id=self.mention_comment_id if self.mention_on_diff else None,
             )
         else:
             logger.warning("Agent returned empty response for merge request %d", self.merge_request.merge_request_id)

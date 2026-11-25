@@ -78,13 +78,15 @@ async def test_address_mr_comments_skips_when_merged(run_lookup):
     assert result["code_changes"] is False
 
 
-@pytest.mark.parametrize(("on_diff", "reply_to"), [(False, None), (True, CommentThread("d1", on_diff=True))])
-async def test_a_skipped_mention_is_answered_in_its_thread_only_on_the_diff(on_diff, reply_to):
+@pytest.mark.parametrize(
+    ("location", "reply_to"), [(None, None), ({"path": "a.py", "line": 3}, CommentThread("d1", on_diff=True))]
+)
+async def test_a_skipped_mention_is_answered_in_its_thread_only_on_the_diff(location, reply_to):
     client = MagicMock()
     client.get_merge_request.return_value = _mr(merged=True)
 
     with patch("sessions.merge_request_runs.tasks.RepoClient.create_instance", return_value=client):
-        await _mention_task(mention_on_diff=on_diff)
+        await _mention_task(mention_location=location)
 
     assert client.create_merge_request_comment.call_args.kwargs["reply_to"] == reply_to
 
@@ -116,7 +118,6 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
     ):
         result = await _mention_task(
             mention_note_id=5,
-            mention_on_diff=True,
             mention_location={"path": "a.py", "line": 3, "old_line": False},
             sandbox_environment_id="e",
         )
@@ -127,7 +128,6 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "merge_request": merge_request,
         "mention_comment_id": "d1",
         "mention_note_id": 5,
-        "mention_on_diff": True,
         "mention_location": DiffLocation(path="a.py", line=3),
         "thread_id": "t-7",
         "sandbox_env_id": "e",

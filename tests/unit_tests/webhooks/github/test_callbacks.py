@@ -681,9 +681,7 @@ class TestReviewCommentsOnAnOwnedPullRequest:
             await create_review_comment_callback(in_reply_to_id=900).process_callback()
 
         task_kwargs = task.get_or_enqueue.call_args.kwargs
-        assert (task_kwargs["mention_note_id"], task_kwargs["mention_comment_id"], task_kwargs["mention_on_diff"]) == (
-            901, "900", True,
-        )  # fmt: skip
+        assert (task_kwargs["mention_note_id"], task_kwargs["mention_comment_id"]) == (901, "900")
         assert task_kwargs["mention_location"] == {"path": "app/x.py", "line": 12, "old_line": False}
         assert not await InboxEvent.objects.aexists()
         mock_repo_client.create_merge_request_note_emoji.assert_called_once_with(

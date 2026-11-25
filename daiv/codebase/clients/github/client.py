@@ -799,7 +799,9 @@ class GitHubClient(RepoClient):
         """
         if on_diff:
             pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
-            return self._serialize_review_comment(pr.get_review_comment(note_id))
+            return self._serialize_comment(
+                pr.get_review_comment(note_id), NoteableType.MERGE_REQUEST, note_type=NoteType.DIFF_NOTE
+            )
         # A comment on the pull request conversation is an issue comment. Going through the issue
         # keeps this to one request: reaching it via ``get_pull`` would fetch the whole PR first.
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(merge_request_id)
@@ -834,31 +836,25 @@ class GitHubClient(RepoClient):
         user = self.client.get_user(f"{self.client_installation.app_slug}[bot]")
         return User(id=user.id, username=self.client_installation.app_slug, name=user.name)
 
-    def _serialize_comment(self, comment: IssueComment, noteable_type: NoteableType) -> Note:
+    def _serialize_comment(
+        self,
+        comment: IssueComment | PullRequestComment,
+        noteable_type: NoteableType,
+        *,
+        note_type: NoteType = NoteType.DISCUSSION_NOTE,
+    ) -> Note:
         """
-        Serialize an issue comment, which is also what a pull request conversation comment is.
+        Serialize an issue comment, which is also what a pull request conversation comment is, or a review comment on
+        the diff, ``note_type`` ``DIFF_NOTE``.
 
-        Diff comments are review comments, which take another path. The author's ``name`` is left out: nothing reads
-        it, and PyGithub completes a missing one with a ``/users`` request per comment.
+        The author's ``name`` is left out: nothing reads it, and PyGithub completes a missing one with a ``/users``
+        request per comment.
         """
         return Note(
             id=comment.id,
             body=comment.body,
-            type=NoteType.DISCUSSION_NOTE,
+            type=note_type,
             noteable_type=noteable_type,
-            system=False,
-            resolvable=False,
-            resolved=False,
-            author=User(id=comment.user.id, username=comment.user.login),
-        )
-
-    def _serialize_review_comment(self, comment: PullRequestComment) -> Note:
-        """Serialize a review comment, on a diff line or on a whole file."""
-        return Note(
-            id=comment.id,
-            body=comment.body,
-            type=NoteType.DIFF_NOTE,
-            noteable_type=NoteableType.MERGE_REQUEST,
             system=False,
             resolvable=False,
             resolved=False,

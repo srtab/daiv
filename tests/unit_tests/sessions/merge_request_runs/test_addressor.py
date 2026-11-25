@@ -204,7 +204,7 @@ class TestReviewAfterRunMatrix:
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with addressor_run(agent, ctx=addressor_ctx()):
-            await _address(mention_note_id=12, mention_on_diff=True, mention_location=location)
+            await _address(mention_note_id=12, mention_location=location)
 
         captured_client.get_merge_request_note.assert_called_once_with("owner/repo", 99, 12, on_diff=True)
         [prompt_message] = agent.ainvoke.await_args.args[0]["messages"]
@@ -216,7 +216,7 @@ class TestReviewAfterRunMatrix:
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with addressor_run(agent, ctx=addressor_ctx()):
-            await _address(mention_on_diff=True)
+            await _address(mention_location=DiffLocation(path="a.py", line=3))
 
         [reply] = mention.create_merge_request_comment.call_args_list
         assert (reply.args[2], reply.kwargs["reply_to"]) == ("done", CommentThread("c-1", on_diff=True))
@@ -226,7 +226,7 @@ class TestReviewAfterRunMatrix:
         agent = addressor_agent(side_effect=RuntimeError("boom"))
 
         with addressor_run(agent, ctx=addressor_ctx()), pytest.raises(RuntimeError, match="boom"):
-            await _address(mention_on_diff=True)
+            await _address(mention_location=DiffLocation(path="a.py", line=3))
 
         [note] = mention.create_merge_request_comment.call_args_list
         assert "An unexpected error occurred while working on this pull request." in note.args[2]

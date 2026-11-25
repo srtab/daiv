@@ -82,17 +82,17 @@ async def test_a_given_model_and_environment_replace_the_defaults():
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.usefixtures("database_task_backend")
 @pytest.mark.parametrize(
-    ("status", "note_id", "on_diff", "started"),
+    ("status", "note_id", "request_key", "started"),
     [
-        ("READY", 5, False, False),
-        ("RUNNING", 5, False, False),
-        ("SUCCESSFUL", 5, False, False),
-        ("FAILED", 5, False, True),
-        ("READY", 6, False, True),
-        ("READY", 5, True, True),
+        ("READY", 5, SourceKey.note(5), False),
+        ("RUNNING", 5, SourceKey.note(5), False),
+        ("SUCCESSFUL", 5, SourceKey.note(5), False),
+        ("FAILED", 5, SourceKey.note(5), True),
+        ("READY", 6, SourceKey.note(6), True),
+        ("READY", 5, SourceKey.review_comment(5), True),
     ],
 )
-async def test_a_mention_queued_under_its_old_task_path_starts_no_second_run(status, note_id, on_diff, started):
+async def test_a_mention_queued_under_its_old_task_path_starts_no_second_run(status, note_id, request_key, started):
     await DBTaskResult.objects.acreate(
         status=status,
         task_path="webhooks.tasks.address_mr_comments_task",
@@ -114,10 +114,9 @@ async def test_a_mention_queued_under_its_old_task_path_starts_no_second_run(sta
             use_max=False,
             task_kwargs={
                 "merge_request_id": 7,
-                "request_key": SourceKey.note(note_id),
+                "request_key": request_key,
                 "mention_comment_id": "d",
                 "mention_note_id": note_id,
-                "mention_on_diff": on_diff,
             },
             trigger_type=SessionOrigin.MR_WEBHOOK,
             title="t",

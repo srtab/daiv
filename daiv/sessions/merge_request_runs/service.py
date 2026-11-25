@@ -81,7 +81,6 @@ class MergeRequestRuns:
                 "request_key": self._source_key(mention),
                 "mention_comment_id": mention.comment_id,
                 "mention_note_id": mention.note_id,
-                "mention_on_diff": mention.on_diff,
                 "mention_location": mention.location.model_dump() if mention.location else None,
             },
             trigger_type=SessionOrigin.MR_WEBHOOK,

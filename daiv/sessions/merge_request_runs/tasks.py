@@ -30,7 +30,6 @@ async def address_merge_request_task(
     request_key: str,
     mention_comment_id: str | None = None,
     mention_note_id: int | None = None,
-    mention_on_diff: bool = False,
     mention_location: dict[str, Any] | None = None,
     sandbox_environment_id: str | None = None,
     prompt: str | None = None,
@@ -56,8 +55,8 @@ async def address_merge_request_task(
             ``SourceKey.job``); part of its dedup key.
         mention_comment_id (str | None): The discussion of the mention.
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers.
-        mention_on_diff (bool): The note is on the diff, so the run reads it there and answers in its thread.
-        mention_location (dict | None): A dumped ``DiffLocation``, where on the diff the note was left.
+        mention_location (dict | None): A dumped ``DiffLocation``: the note is on the diff, so the run reads it there,
+            tells the agent where, and answers in its thread.
         sandbox_environment_id (str | None): The env the caller selected; ``None``: the GLOBAL default.
         prompt (str | None): A job's prompt, in place of a mention.
         requester_username (str): Who sent the job, as the model sees them.
@@ -71,7 +70,7 @@ async def address_merge_request_task(
     client = RepoClient.create_instance()
     merge_request = client.get_merge_request(repo_id, merge_request_id)
     if prompt is None:
-        thread = CommentThread(mention_comment_id, on_diff=True) if mention_on_diff and mention_comment_id else None
+        thread = CommentThread(mention_comment_id, on_diff=True) if mention_location and mention_comment_id else None
         guard = MentionGuard(client, merge_request, reply_to=thread)
         recheck = None
     else:
@@ -87,7 +86,6 @@ async def address_merge_request_task(
             merge_request=merge_request,
             mention_comment_id=mention_comment_id,
             mention_note_id=mention_note_id,
-            mention_on_diff=mention_on_diff,
             mention_location=DiffLocation.model_validate(mention_location) if mention_location else None,
             thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
