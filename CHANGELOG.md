@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Answer a mention on a diff line or file of any merge request, telling the agent which file and line it is on
+- Answer a mention on a diff line or file of any merge request, telling the agent which file and line it is on ([#1869](https://github.com/srtab/daiv/pull/1869))
 
 ## [3.0.0] - 2026-11-24
 
