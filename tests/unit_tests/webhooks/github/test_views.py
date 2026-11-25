@@ -106,7 +106,10 @@ REVIEW_COMMENT_CREATED = json.dumps({
         "id": 10, "number": 42, "title": "Some PR", "state": "open",
         "head": {"ref": "feat/x", "sha": "abc123"}, "base": {"ref": "main", "sha": "def456"},
     },
-    "comment": {"id": 901, "body": "@daiv why?", "user": {"id": 10, "login": "alice"}, "in_reply_to_id": 900},
+    "comment": {
+        "id": 901, "body": "@daiv why?", "user": {"id": 10, "login": "alice"}, "in_reply_to_id": 900,
+        "path": "app/x.py", "line": 12, "side": "RIGHT",
+    },
     "sender": {"id": 10, "login": "alice"},
 }).encode()  # fmt: skip
 

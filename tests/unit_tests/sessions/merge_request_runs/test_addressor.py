@@ -15,7 +15,7 @@ from automation.agent.agent_settings import resolve_agent_settings
 from automation.agent.provider_errors import tag_provider_failure
 from automation.agent.questions import render_questions
 from automation.agent.validators import AgentConfigurationError
-from codebase.base import GitPlatform, MergeRequest, User
+from codebase.base import DiffLocation, GitPlatform, MergeRequest, Note, NoteableType, User
 from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneCredentialUnavailableError, CloneRefNotFoundError
 from core.provider_failures import ProviderFailure
@@ -48,10 +48,19 @@ def _merge_request(merge_request_id: int = 99, *, source_branch: str = "feature"
 
 @pytest.fixture
 def mention(captured_client):
-    captured_client.get_merge_request_note.return_value = SimpleNamespace(
-        author=SimpleNamespace(username="bob"), id=11, body="please fix"
-    )
+    captured_client.get_merge_request_note.return_value = _note(11, "please fix")
     return captured_client
+
+
+def _note(note_id: int, body: str, *, author: str = "bob") -> Note:
+    return Note(
+        id=note_id,
+        body=body,
+        author=User(id=2, username=author),
+        noteable_type=NoteableType.MERGE_REQUEST,
+        system=False,
+        resolvable=True,
+    )
 
 
 async def _review_session(thread_id: str, **fields) -> Session:
@@ -171,17 +180,57 @@ class TestReviewAfterRunMatrix:
         assert reply.kwargs["reply_to"] == CommentThread("c-1")
 
     async def test_a_mention_run_answers_the_note_it_was_started_for(self, captured_client):
-        captured_client.get_merge_request_note.return_value = SimpleNamespace(
-            author=SimpleNamespace(username="carol"), id=12, body="@daiv-bot add it"
-        )
+        captured_client.get_merge_request_note.return_value = _note(12, "@daiv-bot add it", author="carol")
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
 
         with addressor_run(agent, ctx=addressor_ctx()):
             await _address(mention_note_id=12)
 
-        captured_client.get_merge_request_note.assert_called_once_with("owner/repo", 99, 12)
+        captured_client.get_merge_request_note.assert_called_once_with("owner/repo", 99, 12, on_diff=False)
         [prompt_message] = agent.ainvoke.await_args.args[0]["messages"]
         assert (prompt_message.name, prompt_message.content) == ("carol", "@daiv-bot add it")
+
+    @pytest.mark.parametrize(
+        ("location", "where"),
+        [
+            (DiffLocation(path="CHANGELOG.md"), "the file `CHANGELOG.md`"),
+            (DiffLocation(path="app/x.py", line=12), "line 12 of `app/x.py`"),
+            (DiffLocation(path="app/x.py", line=3, old_line=True), "line 3 (before the change) of `app/x.py`"),
+        ],
+        ids=["file", "line", "removed-line"],
+    )
+    async def test_a_diff_mention_tells_the_agent_where_it_was_left(self, captured_client, location, where):
+        captured_client.get_merge_request_note.return_value = _note(12, "@daiv-bot shorten it")
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with addressor_run(agent, ctx=addressor_ctx()):
+            await _address(mention_note_id=12, mention_on_diff=True, mention_location=location)
+
+        captured_client.get_merge_request_note.assert_called_once_with("owner/repo", 99, 12, on_diff=True)
+        [prompt_message] = agent.ainvoke.await_args.args[0]["messages"]
+        assert prompt_message.content == f"Comment on {where} in the merge request's diff:\n\n@daiv-bot shorten it"
+
+    @pytest.mark.parametrize("platform", [GitPlatform.GITLAB, GitPlatform.GITHUB])
+    async def test_a_diff_mention_is_answered_in_its_thread(self, mention, platform):
+        mention.git_platform = platform
+        agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
+
+        with addressor_run(agent, ctx=addressor_ctx()):
+            await _address(mention_on_diff=True)
+
+        [reply] = mention.create_merge_request_comment.call_args_list
+        assert (reply.args[2], reply.kwargs["reply_to"]) == ("done", CommentThread("c-1", on_diff=True))
+
+    async def test_a_failed_diff_mention_on_github_says_so_in_its_thread(self, mention):
+        mention.git_platform = GitPlatform.GITHUB
+        agent = addressor_agent(side_effect=RuntimeError("boom"))
+
+        with addressor_run(agent, ctx=addressor_ctx()), pytest.raises(RuntimeError, match="boom"):
+            await _address(mention_on_diff=True)
+
+        [note] = mention.create_merge_request_comment.call_args_list
+        assert "An unexpected error occurred while working on this pull request." in note.args[2]
+        assert note.kwargs["reply_to"] == CommentThread("c-1", on_diff=True)
 
     async def test_a_job_runs_its_prompt_as_the_requesters_message(self, captured_client):
         agent = addressor_agent(return_value={"messages": [AIMessage(content="done")]})
@@ -236,9 +285,7 @@ class TestReviewAfterRunMatrix:
 
     async def test_a_question_on_github_is_not_threaded(self, mention):
         mention.git_platform = GitPlatform.GITHUB
-        mention.get_merge_request_note.return_value = SimpleNamespace(
-            author=SimpleNamespace(username="bob"), id=7, body="please fix"
-        )
+        mention.get_merge_request_note.return_value = _note(7, "please fix")
         messages = [HumanMessage(content="migrate"), *ask_user_question_messages()]
         agent = addressor_agent(return_value={"messages": messages}, state_values={"messages": messages})
 

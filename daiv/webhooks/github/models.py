@@ -3,6 +3,8 @@ from typing import Literal
 from pydantic import BaseModel
 from pydantic.fields import Field
 
+from codebase.base import DiffLocation
+
 
 class User(BaseModel):
     """
@@ -101,11 +103,18 @@ class Comment(BaseModel):
 
 class ReviewComment(Comment):
     """
-    GitHub pull request review comment, on a diff line. ``in_reply_to_id`` is the first comment of its thread, which
-    replies go under.
+    GitHub pull request review comment, on a diff line or on a whole file, which has no ``line``. ``in_reply_to_id`` is
+    the first comment of its thread, which replies go under; ``side`` ``LEFT`` is the file before the change.
     """
 
     in_reply_to_id: int | None = None
+    path: str
+    line: int | None = None
+    side: Literal["LEFT", "RIGHT"] | None = None
+
+    @property
+    def location(self) -> DiffLocation:
+        return DiffLocation(path=self.path, line=self.line, old_line=self.side == "LEFT")
 
 
 class Review(BaseModel):

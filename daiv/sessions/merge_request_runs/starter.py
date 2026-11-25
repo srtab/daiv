@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from accounts.models import User
+    from codebase.base import DiffLocation
     from core.backends.deduplicating import DeduplicatingTask
     from sessions.models import Run, SessionOrigin
 
@@ -103,6 +104,9 @@ class Mention:
     web_url: str = ""
     on_diff: bool = False
     """A GitLab DiffNote or a GitHub review comment."""
+
+    location: DiffLocation | None = None
+    """Where on the diff a comment on it was left."""
 
 
 @dataclass(frozen=True, kw_only=True)

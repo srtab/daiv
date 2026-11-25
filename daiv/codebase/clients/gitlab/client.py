@@ -1120,14 +1120,17 @@ class GitLabClient(RepoClient):
         mr = project.mergerequests.get(merge_request_id)
         return self._serialize_merge_request(repo_id, mr, merged=mr.state == "merged", closed=mr.state == "closed")
 
-    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
+    def get_merge_request_note(
+        self, repo_id: str, merge_request_id: int, note_id: int, *, on_diff: bool = False
+    ) -> Note:
         """
-        Get a note on a merge request.
+        Get a note on a merge request; a diff note is read the same way.
 
         Args:
             repo_id: The repository ID.
             merge_request_id: The merge request IID.
             note_id: The note ID.
+            on_diff: Whether the note is on the diff.
 
         Returns:
             The note.

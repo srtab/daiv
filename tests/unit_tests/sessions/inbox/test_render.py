@@ -41,6 +41,39 @@ def _comment(body: str, **fields) -> InboxEvent:
     )
 
 
+class TestCommentsOnTheDiff:
+    def test_a_mention_says_where_on_the_diff_it_was_left(self):
+        mention = _event(
+            EventKind.MENTION,
+            {
+                "note_id": 1, "body": "@daiv why?", "web_url": "https://mr/9#1", "is_diff": True,
+                "location": {"path": "app/x.py", "line": 12, "old_line": False},
+            },
+            author_username="bob",
+        )  # fmt: skip
+
+        assert (
+            RunInput([mention])
+            .request()
+            .startswith("bob mentioned you on line 12 of `app/x.py` in !9 (https://mr/9#1):\n> @daiv why?")
+        )
+
+    def test_a_remembered_comment_says_which_file_it_was_left_on(self):
+        comment = _event(
+            EventKind.COMMENT,
+            {
+                "note_id": 1, "body": "Shorter.", "web_url": "https://mr/9", "is_diff": True,
+                "location": {"path": "CHANGELOG.md", "line": None, "old_line": False},
+            },
+            author_username="alice",
+        )  # fmt: skip
+
+        assert (
+            '- Comment by alice on the file `CHANGELOG.md` in !9 (not addressed to you): "Shorter."'
+            in RunInput([comment]).context().splitlines()
+        )
+
+
 class TestContext:
     def test_nothing_remembered_renders_nothing(self):
         assert RunInput([_event(EventKind.CI_FAILED, ci_payload())]).context() == ""

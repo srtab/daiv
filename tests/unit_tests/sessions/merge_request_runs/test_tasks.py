@@ -12,7 +12,7 @@ from sessions.merge_request_runs.tasks import address_merge_request_task
 from sessions.models import Run, RunStatus, Session, SessionOrigin
 from sessions.services import TaskRun
 
-from codebase.base import MergeRequest, User
+from codebase.base import DiffLocation, MergeRequest, User
 from codebase.exceptions import CloneRefNotFoundError
 from tests.unit_tests.sessions.merge_request_runs.conftest import addressor_agent, addressor_ctx, addressor_run
 
@@ -102,7 +102,12 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         patch("sessions.merge_request_runs.tasks.RepoClient.create_instance", return_value=client),
         patch(_ADDRESS, address),
     ):
-        result = await _mention_task(mention_note_id=5, sandbox_environment_id="e")
+        result = await _mention_task(
+            mention_note_id=5,
+            mention_on_diff=True,
+            mention_location={"path": "a.py", "line": 3, "old_line": False},
+            sandbox_environment_id="e",
+        )
 
     assert result == {"response": "done"}
     assert address.await_args.kwargs == {
@@ -110,6 +115,8 @@ async def test_address_mr_comments_hands_the_merge_request_and_its_run_to_the_ad
         "merge_request": merge_request,
         "mention_comment_id": "d1",
         "mention_note_id": 5,
+        "mention_on_diff": True,
+        "mention_location": DiffLocation(path="a.py", line=3),
         "thread_id": "t-7",
         "sandbox_env_id": "e",
         "run_id": "run-1",

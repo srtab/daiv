@@ -3,8 +3,8 @@
 A comment on a merge request a session owns goes to that session's inbox: a mention as a waking event, any other
 comment as a remembered one, and a job (:class:`~sessions.merge_request_runs.starter.Request`,
 :meth:`MergeRequestRuns.astart_job`) as a ``merge_request_job`` with its own run
-(:mod:`sessions.inbox.merge_request_jobs`). Only an owned merge request takes a
-mention on a diff line. Otherwise a mention or a job starts an addressor run in the merge request's session
+(:mod:`sessions.inbox.merge_request_jobs`). Otherwise a mention, in the conversation or on the diff, or a job starts
+an addressor run in the merge request's session
 (:class:`~sessions.merge_request_runs.starter.RunStarter`). A trigger on an archived session starts nothing; a mention
 is answered once, linking the session, and a job is told through its outcome, with nothing posted on the merge request.
 """
@@ -70,9 +70,6 @@ class MergeRequestRuns:
                 return StartOutcome(thread_id=thread_id, archived=True)
             created = await self._apost_comment(ownership, caller, mention, kind=EventKind.MENTION, use_max=use_max)
             return StartOutcome(thread_id=thread_id, started=created)
-        if mention.on_diff:
-            logger.info("Ignoring a diff mention on %s#%s: no session owns it", self.repo_id, self.merge_request_iid)
-            return StartOutcome(thread_id=self.starter.thread_id)
         if ref is None:
             ref = await self._afetch_source_branch()
         return await self.starter.astart(
@@ -84,6 +81,8 @@ class MergeRequestRuns:
                 "request_key": kinds.SourceKey.note(mention.note_id),
                 "mention_comment_id": mention.comment_id,
                 "mention_note_id": mention.note_id,
+                "mention_on_diff": mention.on_diff,
+                "mention_location": mention.location.model_dump() if mention.location else None,
             },
             trigger_type=SessionOrigin.MR_WEBHOOK,
             title=title,
@@ -207,6 +206,8 @@ class MergeRequestRuns:
             "is_diff": comment.on_diff,
             ("review_comment_id" if review_comment else "note_id"): comment.note_id,
         }
+        if comment.location is not None:
+            payload["location"] = comment.location.model_dump()
         if use_max:
             payload["agent_model"], payload["agent_thinking_level"] = RunStarter.pinned_model(use_max)
         source_key = (

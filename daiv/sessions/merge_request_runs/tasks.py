@@ -6,6 +6,7 @@ from django.tasks import task
 
 from asgiref.sync import sync_to_async
 
+from codebase.base import DiffLocation
 from codebase.clients import RepoClient
 from codebase.exceptions import CloneRefNotFoundError
 from sessions.inbox.drain import Drain
@@ -28,6 +29,8 @@ async def address_merge_request_task(
     request_key: str,
     mention_comment_id: str | None = None,
     mention_note_id: int | None = None,
+    mention_on_diff: bool = False,
+    mention_location: dict[str, Any] | None = None,
     sandbox_environment_id: str | None = None,
     prompt: str | None = None,
     requester_username: str = "",
@@ -51,6 +54,8 @@ async def address_merge_request_task(
         request_key (str): What asked for the run (``SourceKey.note`` or ``SourceKey.job``); part of its dedup key.
         mention_comment_id (str | None): The discussion of the mention.
         mention_note_id (int | None): The note that mentioned DAIV, which the run answers.
+        mention_on_diff (bool): The note is on the diff, so the run reads it there and answers in its thread.
+        mention_location (dict | None): A dumped ``DiffLocation``, where on the diff the note was left.
         sandbox_environment_id (str | None): The env the caller selected; ``None``: the GLOBAL default.
         prompt (str | None): A job's prompt, in place of a mention.
         requester_username (str): Who sent the job, as the model sees them.
@@ -79,6 +84,8 @@ async def address_merge_request_task(
             merge_request=merge_request,
             mention_comment_id=mention_comment_id,
             mention_note_id=mention_note_id,
+            mention_on_diff=mention_on_diff,
+            mention_location=DiffLocation.model_validate(mention_location) if mention_location else None,
             thread_id=thread_id,
             sandbox_env_id=sandbox_environment_id,
             run_id=task_run.run_id,

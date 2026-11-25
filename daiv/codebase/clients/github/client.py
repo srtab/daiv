@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
     from github.IssueComment import IssueComment
     from github.PullRequest import PullRequest
+    from github.PullRequestComment import PullRequestComment
     from github.WorkflowRun import WorkflowRun
 
 
@@ -781,18 +782,24 @@ class GitHubClient(RepoClient):
             repo_id, mr, merged=mr.merged, closed=mr.state == "closed" and not mr.merged
         )
 
-    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
+    def get_merge_request_note(
+        self, repo_id: str, merge_request_id: int, note_id: int, *, on_diff: bool = False
+    ) -> Note:
         """
-        Get a comment on the pull request conversation.
+        Get a comment on the pull request conversation, or with ``on_diff`` a review comment on its diff.
 
         Args:
             repo_id: The repository ID.
             merge_request_id: The pull request number.
             note_id: The comment ID.
+            on_diff: Whether the comment is a review comment.
 
         Returns:
             The comment as a note.
         """
+        if on_diff:
+            pr = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+            return self._serialize_review_comment(pr.get_review_comment(note_id))
         # A comment on the pull request conversation is an issue comment. Going through the issue
         # keeps this to one request: reaching it via ``get_pull`` would fetch the whole PR first.
         issue = self.client.get_repo(repo_id, lazy=True).get_issue(merge_request_id)
@@ -839,6 +846,19 @@ class GitHubClient(RepoClient):
             body=comment.body,
             type=NoteType.DISCUSSION_NOTE,
             noteable_type=noteable_type,
+            system=False,
+            resolvable=False,
+            resolved=False,
+            author=User(id=comment.user.id, username=comment.user.login),
+        )
+
+    def _serialize_review_comment(self, comment: PullRequestComment) -> Note:
+        """Serialize a review comment, on a diff line or on a whole file."""
+        return Note(
+            id=comment.id,
+            body=comment.body,
+            type=NoteType.DIFF_NOTE,
+            noteable_type=NoteableType.MERGE_REQUEST,
             system=False,
             resolvable=False,
             resolved=False,

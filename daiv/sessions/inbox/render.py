@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import sync_to_async
 
+from codebase.base import DiffLocation
 from sessions.inbox.kinds import PRECEDENCE
 from sessions.models import EventKind, EventState, InboxEvent, QuietReason
 
@@ -142,7 +143,7 @@ class RunInput:
             return "\n\n".join(f"[{event.created_at:%H:%M}] {event.payload['text']}" for event in events)
         if kind == EventKind.MENTION:
             mentions = [
-                f"{EventText(event).author_name()} mentioned you on {EventText(event).merge_request()} "
+                f"{EventText(event).author_name()} mentioned you on {EventText(event).commented_on()} "
                 f"({event.payload['web_url']}):\n{EventText.blockquote(event.payload['body'])}"
                 for event in events
             ]
@@ -262,6 +263,12 @@ class EventText:
         """The event's merge request, or ``iid``, prefixed with its repository when it is not the session's own."""
         return f"{self.event.repo_id}!{iid or self.event.merge_request_iid}"
 
+    def commented_on(self) -> str:
+        """The comment's merge request, after the place on its diff when it was left there."""
+        if not (location := self.event.payload.get("location")):
+            return self.merge_request()
+        return f"{DiffLocation.model_validate(location).describe()} in {self.merge_request()}"
+
     def branch(self) -> str:
         """The event's branch, named with its repository when it is not the session's own."""
         event = self.event
@@ -320,7 +327,7 @@ class EventText:
                 return f"{self.merge_request()} was closed by {payload['by_username']}."
             case EventKind.COMMENT:
                 return (
-                    f"Comment by {self.author_name()} on {self.merge_request()} (not addressed to you): "
+                    f"Comment by {self.author_name()} on {self.commented_on()} (not addressed to you): "
                     f'"{self.cut(payload["body"])}"'
                 )
             case EventKind.DELEGATED_CI_OUTCOME:

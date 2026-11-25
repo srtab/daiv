@@ -16,7 +16,7 @@ from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, S
 from webhooks.dispatch import Author, Mention, dispatch_issue_run, dispatch_mr_comment, dispatch_mr_comment_run
 
 from accounts.models import User
-from codebase.base import GitPlatform, Scope
+from codebase.base import DiffLocation, GitPlatform, Scope
 from codebase.clients.base import CommentThread, Emoji
 from core.site_settings import site_settings
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
@@ -535,10 +535,17 @@ class TestOwnedMergeRequest:
         assert (mention.wake, mention.source_key) == (True, "note:300")
         steps.client.create_merge_request_note_emoji.assert_called_once()
 
-    async def test_a_diff_mention_on_an_unowned_merge_request_starts_nothing(self, steps):
-        await _mr_comment_run(steps, mention=self._mention(on_diff=True))
+    async def test_a_diff_mention_on_an_unowned_merge_request_starts_a_run_and_reacts_on_the_diff_note(self, steps):
+        await _mr_comment_run(steps, mention=self._mention(on_diff=True, location=DiffLocation(path="a.py", line=3)))
 
-        steps.address_mr_comments_task.get_or_enqueue.assert_not_called()
+        task_kwargs = steps.address_mr_comments_task.get_or_enqueue.call_args.kwargs
+        assert (task_kwargs["mention_on_diff"], task_kwargs["mention_location"]) == (
+            True, {"path": "a.py", "line": 3, "old_line": False},
+        )  # fmt: skip
+        steps.create_run.assert_called_once()
+        steps.client.create_merge_request_note_emoji.assert_called_once_with(
+            "group/repo", 7, Emoji.EYES, 300, on_diff=True
+        )
         assert not await InboxEvent.objects.aexists()
 
     async def test_a_comment_on_an_owned_merge_request_is_remembered(self, steps, owned):
