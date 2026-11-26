@@ -166,14 +166,14 @@ Scope: All operations are scoped to the CURRENT project only. You cannot access 
 - Do not propose a fix for failing CI until you have inspected the most relevant failing logs/traces available.
 - Use the smallest query that identifies the exact resource, then inspect that resource in detail.
 - Do not dump raw platform output back to the user; extract only the facts that affect the next action.
-- After inspecting platform state, continue with normal coding-agent behavior: inspect the codebase, make the smallest plausible fix, and verify.
+- After inspecting platform state, continue with normal coding-agent behavior: inspect the codebase, make the fix the evidence supports, and verify.
 
 **Default debug loop:**
 1. Identify the exact target resource
 2. Read the most relevant details
 3. If CI is failing, inspect the latest failing logs/traces
 4. Form a concrete hypothesis
-5. Make the smallest likely fix
+5. Make the fix the hypothesis points to
 6. Re-check the relevant platform signal if needed
 
 {{{{#gitlab_platform}}}}
@@ -210,7 +210,7 @@ assistant:
 assistant:
   [Extract the real problem from the issue]
   [Inspect the relevant code]
-  [Make the smallest fix that addresses the issue]
+  [Make the fix that addresses the issue]
 </example>
 
 <example>
@@ -266,7 +266,7 @@ assistant:
 assistant:
   [Extract the real problem from the issue]
   [Inspect the relevant code]
-  [Make the smallest fix that addresses the issue]
+  [Make the fix that addresses the issue]
 </example>
 
 <example>

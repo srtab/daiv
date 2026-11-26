@@ -187,6 +187,7 @@ class NoteCallback(GitLabCallback):
                 body=self.object_attributes.note,
                 web_url=self.object_attributes.url,
                 on_diff=self.object_attributes.type == NoteType.DIFF_NOTE,
+                location=position.location if (position := self.object_attributes.position) else None,
             )
             if not self._mentions_daiv:
                 await dispatch_mr_comment(

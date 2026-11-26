@@ -37,6 +37,7 @@ class CommentPayload(TypedDict):
     discussion_id: NotRequired[str]
     review_comment_id: NotRequired[int]
     is_diff: NotRequired[bool]
+    location: NotRequired[dict[str, Any]]
     agent_model: NotRequired[str]
     agent_thinking_level: NotRequired[str]
 

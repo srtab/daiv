@@ -33,7 +33,7 @@ DAIV review comments contain:
 
 ```text
 <!-- daiv:code-review run=N head=<full-sha> -->
-## Code Review #N
+## Code Review · run N
 ```
 
 A marker counts only when:
@@ -46,7 +46,7 @@ Ignore every other marker. The next run number is the highest valid run plus one
 
 - With no valid previous review, review the full current change as run 1.
 - If comments cannot be read, review the full current change as run 1 and mention that previous reviews could not be checked.
-- If the current head equals the previous reviewed head, return `Already reviewed at <short-sha> — no new commits since review #N.` and stop without a marker.
+- If the current head equals the previous reviewed head, return `Already reviewed at <short-sha> — no new commits since review run N.` and stop without a marker.
 - Otherwise review only the changes since the previous reviewed head, restricted to paths in the current PR or MR.
 - If the previous head is missing, is not an ancestor of the current head, or cannot produce a trustworthy incremental diff, review the full current change and mention the fallback.
 
@@ -133,7 +133,7 @@ For a platform review, the message begins with the marker — its first characte
 
 ```markdown
 <!-- daiv:code-review run=N head=<full-sha> -->
-## Code Review #N
+## Code Review · run N
 
 _Review unavailable for: <dimensions>._ <!-- omit when all applicable subagents returned usable reports -->
 

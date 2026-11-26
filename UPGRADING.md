@@ -18,20 +18,19 @@ most configuration from environment variables into the database. Do these steps 
    the other secrets you enter in the dashboard, with this key, or with a key derived from
    `DJANGO_SECRET_KEY` when it is unset. Changing either key afterwards makes those secrets
    unreadable.
-4. Upgrade daiv-sandbox to 0.5.0 or later, and give it an egress CA through
+4. Upgrade daiv-sandbox to 0.6.0 or later, and give it an egress CA through
    `DAIV_SANDBOX_EGRESS_CA_CERT_FILE` and `DAIV_SANDBOX_EGRESS_CA_KEY_FILE`, as in steps 2 and
-   3 of [Deploy with Docker Swarm](https://docs.daivagent.com/dev/getting-started/deployment/#deploy-with-docker-swarm).
+   3 of [Deploy with Docker Swarm](https://docs.daivagent.com/latest/getting-started/deployment/#deploy-with-docker-swarm).
    Every run fails without the CA, because git traffic goes through the egress proxy.
-   Multi-repository sessions, and stopping a bash command that timed out, need a daiv-sandbox
-   release after 0.5.0. Setting `DAIV_SANDBOX_REDIS_URL` on the sandbox turns on its session
-   locks and idle reaping.
+   Setting `DAIV_SANDBOX_REDIS_URL` on the sandbox turns on its session locks and idle
+   reaping.
 5. Run Redis 8 or later, with the agent's checkpoints on database `0`: leave
    `DJANGO_REDIS_CHECKPOINT_URL` unset, or point it at `/0`.
 
 ### Update the deployment
 
 Compare your stack or Compose file with the samples in
-[Deployment](https://docs.daivagent.com/dev/getting-started/deployment/), then:
+[Deployment](https://docs.daivagent.com/latest/getting-started/deployment/), then:
 
 - Remove the `mcp-proxy` service and its secrets, and revoke the DAIV API key it used.
 - Run the scheduler, one replica, and the sandbox. Both are required.
@@ -66,14 +65,14 @@ DAIV ignores a removed variable without a warning, so check each one:
 
 A setting you leave unset takes the new default, including the default models, which all run
 through OpenRouter. Without an OpenRouter key, set every model setting listed in
-[Environment variables](https://docs.daivagent.com/dev/reference/env-variables/). A setting you
+[Environment variables](https://docs.daivagent.com/latest/reference/env-variables/). A setting you
 set in the environment overrides the dashboard and locks its field there.
 
 ### Update `.daiv.yml`
 
 - DAIV ignores the `sandbox:` block. Create a sandbox environment for a repository that needs
   its own image, resources or network, and assign the repository to it; see
-  [Sandbox environments](https://docs.daivagent.com/dev/features/sandbox-environments/). A
+  [Sandbox environments](https://docs.daivagent.com/latest/features/sandbox-environments/). A
   repository can no longer turn the sandbox off.
 - Move `sandbox.command_policy.disallow` entries to `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW`,
   which applies to every repository. Per-repository `allow` entries have no replacement.
@@ -101,20 +100,20 @@ On GitHub, in the GitHub App's settings:
 3. Subscribe to the **Pull request**, **Pull request review comment** and **Workflow run**
    events.
 
-See [Platform setup](https://docs.daivagent.com/dev/getting-started/platform-setup/).
+See [Platform setup](https://docs.daivagent.com/latest/getting-started/platform-setup/).
 
 ### After the first start
 
 1. Sign in to the dashboard. Every user from 2.0.0 becomes an admin, so `bootstrap_admin` is
    not needed: sign in with an emailed code, which needs the user's email address, or with
    GitLab or GitHub; see
-   [Accounts and roles](https://docs.daivagent.com/dev/getting-started/accounts/).
+   [Accounts and roles](https://docs.daivagent.com/latest/getting-started/accounts/).
 2. Under **Users**, turn users who should not administer DAIV into members. A member reaches
    only the repositories their linked GitLab or GitHub account can reach.
 3. Every user with an email address receives notification emails about their runs that found
    issues, need attention or failed.
 4. Under **MCP servers**, add an `Authorization: Sentry-Bearer <token>` header to the `sentry`
-   server and enable it; see [MCP tools](https://docs.daivagent.com/dev/customization/mcp-tools/).
+   server and enable it; see [MCP tools](https://docs.daivagent.com/latest/customization/mcp-tools/).
    The `context7` server is on, without a key.
 5. Recreate any custom sandbox image, resources or network access on the **Default** sandbox
    environment. Its image, `ghcr.io/astral-sh/uv:python3.14-bookworm`, is about 1.1 GB; pull
@@ -124,8 +123,8 @@ See [Platform setup](https://docs.daivagent.com/dev/getting-started/platform-set
 
 - `POST /api/chat/completions` no longer speaks the OpenAI chat-completions format, and it
   counts against `DAIV_JOBS_THROTTLE_RATE`. `GET /api/models` is gone. Drive DAIV from code
-  with the [Jobs API](https://docs.daivagent.com/dev/features/jobs-api/) or the
-  [MCP endpoint](https://docs.daivagent.com/dev/features/mcp-endpoint/).
+  with the [Jobs API](https://docs.daivagent.com/latest/features/jobs-api/) or the
+  [MCP endpoint](https://docs.daivagent.com/latest/features/mcp-endpoint/).
 - `GET /api/automation/mcp-proxy/config/` is gone.
 - Worker logs come from the `django.tasks` logger instead of `django_tasks`, and commands
   blocked by `DAIV_SANDBOX_COMMAND_POLICY_DISALLOW` are reported as `global_disallow`

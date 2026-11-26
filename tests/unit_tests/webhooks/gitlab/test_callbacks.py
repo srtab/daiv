@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import Literal
-from unittest.mock import ANY, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, Mock, patch
 
 from django.utils import timezone
 
@@ -26,7 +26,7 @@ from webhooks.gitlab.models import (
     User,
 )
 
-from codebase.base import GitPlatform
+from codebase.base import DiffLocation, GitPlatform
 from codebase.base import User as BaseUser
 from codebase.repo_config import RepositoryConfig
 from core.constants import BOT_MAX_LABEL
@@ -76,6 +76,7 @@ def create_note_callback(
     labels: list[str] | None = None,
     note_id: int = 100,
     note_type: Literal["DiffNote", "DiscussionNote"] | None = None,
+    position: dict | None = None,
 ) -> NoteCallback:
     """Helper to create a minimal NoteCallback instance."""
     return NoteCallback(
@@ -101,8 +102,12 @@ def create_note_callback(
             note=note_body,
             system=False,
             type=note_type,
+            position=position,
         ),
     )
+
+
+_FILE_POSITION = {"position_type": "file", "old_path": "CHANGELOG.md", "new_path": "CHANGELOG.md"}
 
 
 def test_accept_when_mention(monkeypatch_dependencies, stub_client):
@@ -761,6 +766,33 @@ class TestProcessCallback:
         )
 
 
+@pytest.mark.parametrize(
+    ("position", "location"),
+    [
+        (None, None),
+        (_FILE_POSITION, DiffLocation(path="CHANGELOG.md")),
+        (
+            {"position_type": "text", "old_path": "a.py", "new_path": "b.py", "old_line": 4, "new_line": 5},
+            DiffLocation(path="b.py", line=5),
+        ),
+        (
+            {"position_type": "text", "old_path": "a.py", "new_path": "b.py", "old_line": 4, "new_line": None},
+            DiffLocation(path="a.py", line=4, old_line=True),
+        ),
+    ],
+    ids=["conversation", "file", "line", "removed-line"],
+)
+async def test_a_notes_position_is_where_its_mention_was_left(
+    monkeypatch_dependencies, stub_client, position, location
+):
+    callback = create_note_callback("@daiv shorter", note_type="DiffNote" if position else None, position=position)
+
+    with patch("webhooks.gitlab.callbacks.dispatch_mr_comment_run", new=AsyncMock()) as run:
+        await callback.process_callback()
+
+    assert run.await_args.kwargs["mention"].location == location
+
+
 async def deliver(callback: NoteCallback) -> None:
     """What the webhook view does with a parsed payload."""
     if callback.accept_callback():
@@ -781,11 +813,14 @@ class TestNotesOnAnOwnedMergeRequest:
     async def test_a_diff_mention_reaches_the_owning_session(self):
         ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
 
-        await create_note_callback("@daiv why this line?", note_type="DiffNote").process_callback()
+        await create_note_callback(
+            "@daiv why this line?", note_type="DiffNote", position=_FILE_POSITION
+        ).process_callback()
 
         event = await InboxEvent.objects.aget(session_id=ownership.session_id)
         assert (event.kind, event.wake, event.source_key) == ("mention", True, "note:100")
         assert (event.payload["is_diff"], event.payload["discussion_id"]) == (True, "discussion_1")
+        assert event.payload["location"] == {"path": "CHANGELOG.md", "line": None, "old_line": False}
 
     async def test_a_mention_on_a_daiv_max_merge_request_asks_for_the_max_model(self):
         ownership = await amake_owned_merge_request(repo_id="group/repo", merge_request_iid=1)
@@ -795,11 +830,20 @@ class TestNotesOnAnOwnedMergeRequest:
         event = await InboxEvent.objects.aget(session_id=ownership.session_id)
         assert (event.kind, event.payload["agent_model"]) == ("mention", site_settings.agent_max_model_name)
 
-    async def test_a_diff_mention_on_an_unowned_merge_request_is_still_ignored(self):
-        with patch("sessions.merge_request_runs.service.address_merge_request_task") as task:
-            await create_note_callback("@daiv why this line?", note_type="DiffNote").process_callback()
+    async def test_a_diff_mention_on_an_unowned_merge_request_starts_a_run(self):
+        with (
+            patch("sessions.merge_request_runs.service.address_merge_request_task") as task,
+            patch("sessions.merge_request_runs.starter.create_run"),
+            patch("sessions.merge_request_runs.starter.resolve_env_for_run", new=AsyncMock(return_value=None)),
+        ):
+            task.get_or_enqueue.return_value = (Mock(id="task-1"), True)
+            await create_note_callback(
+                "@daiv why this line?", note_type="DiffNote", position=_FILE_POSITION
+            ).process_callback()
 
-        task.get_or_enqueue.assert_not_called()
+        task_kwargs = task.get_or_enqueue.call_args.kwargs
+        assert task_kwargs["mention_note_id"] == 100
+        assert task_kwargs["mention_location"] == {"path": "CHANGELOG.md", "line": None, "old_line": False}
         assert not await InboxEvent.objects.aexists()
 
     async def test_a_note_without_a_mention_is_remembered(self):

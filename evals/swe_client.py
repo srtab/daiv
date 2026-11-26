@@ -295,7 +295,9 @@ class SWERepoClient(RepoClient):
         MR lookup) then fall through gracefully."""
         return None
 
-    def get_merge_request_note(self, repo_id: str, merge_request_id: int, note_id: int) -> Note:
+    def get_merge_request_note(
+        self, repo_id: str, merge_request_id: int, note_id: int, *, on_diff: bool = False
+    ) -> Note:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge request comments")
 

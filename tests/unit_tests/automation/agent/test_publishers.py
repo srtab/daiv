@@ -1,7 +1,7 @@
 import inspect
 import json
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, call, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -2268,3 +2268,34 @@ class TestRepoPublishState:
         state = json.loads(json.dumps(publish.to_state()))
 
         assert RepoPublish.from_state(state) == publish
+
+
+class TestPublishToADraftMergeRequest:
+    @staticmethod
+    async def _publish_to_a_draft_opened_by(author: User) -> tuple[GitChangePublisher, Mock]:
+        publisher = _make_publisher()
+        # GitHub names the bot by its app slug but authors its pull requests as "<slug>[bot]": only the id matches.
+        publisher.client.current_user = User(id=99, username="daiv")
+        publisher.client.update_merge_request.return_value = make_merge_request(author=author)
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()) as diff_to_metadata:
+            await publisher.publish(merge_request=make_merge_request(draft=True, author=author))
+        return publisher, diff_to_metadata
+
+    @pytest.mark.parametrize(
+        ("author", "updates"),
+        [
+            pytest.param(User(id=99, username="daiv[bot]"), [call("owner/repo", 42, as_draft=False)], id="daiv-opened"),
+            pytest.param(User(id=1, username="alice"), [], id="someone-else-opened"),
+        ],
+    )
+    async def test_only_a_draft_daiv_opened_is_marked_ready(self, author, updates):
+        publisher, _ = await self._publish_to_a_draft_opened_by(author)
+
+        assert publisher.client.update_merge_request.call_args_list == updates
+
+    async def test_marking_a_draft_ready_writes_no_merge_request_text(self):
+        _, diff_to_metadata = await self._publish_to_a_draft_opened_by(User(id=99, username="daiv[bot]"))
+
+        assert diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is None

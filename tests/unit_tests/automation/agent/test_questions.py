@@ -38,12 +38,21 @@ class TestSchema:
         with pytest.raises(ValidationError):
             AskUserQuestionInput.model_validate({"questions": [_question(header=header)]})
 
-    def test_question_must_end_with_a_question_mark(self):
+    @pytest.mark.parametrize("statement", ["Pick a module.", "Read https://example.com/?page=2 first."])
+    def test_a_statement_is_not_a_question(self, statement):
         with pytest.raises(ValidationError):
-            AskUserQuestionInput.model_validate({"questions": [_question(question="Pick a module.")]})
+            AskUserQuestionInput.model_validate({"questions": [_question(question=statement)]})
 
-    def test_a_full_width_question_mark_is_accepted(self):
-        AskUserQuestionInput.model_validate({"questions": [_question(question="どれを使いますか？")]})
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "Which database engine should the project migrate to? I need the target before I change anything.",
+            "どれを使いますか？",
+            "どれを使いますか？変更する前に知りたいです。",
+        ],
+    )
+    def test_a_question_may_be_followed_by_its_reason(self, question):
+        AskUserQuestionInput.model_validate({"questions": [_question(question=question)]})
 
     @pytest.mark.parametrize("count", [1, 5])
     def test_options_are_zero_or_two_to_four(self, count):

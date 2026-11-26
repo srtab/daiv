@@ -232,9 +232,9 @@ class IssueCommentCallback(GitHubCallback):
 
 class PullRequestReviewCommentCallback(GitHubCallback):
     """
-    GitHub Pull Request Review Comment Webhook: a comment on a diff line, which reaches only a session owning the pull
-    request, as a mention or a remembered comment. The allowed usernames gate only a mention; a comment without one is
-    remembered from anyone but DAIV.
+    GitHub Pull Request Review Comment Webhook: a comment on a diff line. A mention goes where a conversation mention
+    does; a comment without one reaches only a session owning the pull request, which remembers it from anyone but
+    DAIV. The allowed usernames gate only a mention.
     """
 
     action: Literal["created", "edited", "deleted"]
@@ -272,6 +272,7 @@ class PullRequestReviewCommentCallback(GitHubCallback):
             body=self.comment.body,
             web_url=self.comment.html_url,
             on_diff=True,
+            location=self.comment.location,
         )
         if not self._mentions_daiv:
             await dispatch_mr_comment(

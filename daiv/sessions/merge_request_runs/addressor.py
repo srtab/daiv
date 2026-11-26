@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from langgraph.types import StateSnapshot
 
     from automation.agent.references import ExternalRef
+    from codebase.base import DiffLocation
     from sessions.executor.result import AgentResult
     from sessions.executor.spec import RunOutcome
 
@@ -41,11 +42,26 @@ class CommentsAddressorManager(BaseManager):
     """
 
     def __init__(
-        self, *, merge_request: MergeRequest, on_context_ready: Callable[[str], Awaitable[None]] | None = None, **kwargs
+        self,
+        *,
+        merge_request: MergeRequest,
+        mention_location: DiffLocation | None = None,
+        on_context_ready: Callable[[str], Awaitable[None]] | None = None,
+        **kwargs,
     ):
         super().__init__(**kwargs)
         self.merge_request = merge_request
+        self.mention_location = mention_location
         self.on_context_ready = on_context_ready
+
+    @property
+    def mention_on_diff(self) -> bool:
+        return self.mention_location is not None
+
+    @property
+    def reply_to_id(self) -> str | None:
+        """A diff mention is answered in its thread on either platform."""
+        return self.mention_comment_id if self.mention_on_diff else super().reply_to_id
 
     @classmethod
     async def address_comments(
@@ -57,6 +73,7 @@ class CommentsAddressorManager(BaseManager):
         thread_id: str,
         use_max: bool,
         mention_note_id: int | None = None,
+        mention_location: DiffLocation | None = None,
         sandbox_env_id: str | None = None,
         run_id: str | None = None,
         acting_user_id: int | None = None,
@@ -69,8 +86,8 @@ class CommentsAddressorManager(BaseManager):
         on_context_ready: Callable[[str], Awaitable[None]] | None = None,
     ) -> AgentResult:
         """
-        Process a comment left directly on the merge request (not in the diff or thread) that mentions DAIV, or a
-        job's ``prompt``, whose answer and question go on the merge request as new comments.
+        Process a comment that mentions DAIV, or a job's ``prompt``. The answer to a conversation comment or a job goes
+        on the merge request as a new comment; a comment on the diff is answered in its thread.
 
         Args:
             repo_id: The repository slug.
@@ -79,6 +96,7 @@ class CommentsAddressorManager(BaseManager):
             thread_id: The session's thread id.
             use_max: The max mode the callback decided.
             mention_note_id: The note that mentioned the bot, which the run answers.
+            mention_location: Where on the diff that note was left, which the agent is told; ``None`` off the diff.
             sandbox_env_id: The sandbox environment the callback selected.
             run_id: The ``Run`` row this turn executes, or ``None`` when the callback created none.
             acting_user_id: The DAIV user the run acts as, its ``Run``'s user; ``None`` for none.
@@ -100,6 +118,7 @@ class CommentsAddressorManager(BaseManager):
             merge_request=merge_request,
             mention_comment_id=mention_comment_id,
             mention_note_id=mention_note_id,
+            mention_location=mention_location,
             thread_id=thread_id,
             on_context_ready=on_context_ready,
         )
@@ -133,10 +152,16 @@ class CommentsAddressorManager(BaseManager):
         self, *, sandbox_env_id: str | None, run_id: str | None, use_max: bool, acting_user_id: int | None = None
     ) -> AgentResult:
         note = self.client.get_merge_request_note(
-            self.repo_id, self.merge_request.merge_request_id, self._require_mention_note_id()
+            self.repo_id,
+            self.merge_request.merge_request_id,
+            self._require_mention_note_id(),
+            on_diff=self.mention_on_diff,
         )
+        content = note.body
+        if self.mention_location is not None:
+            content = f"Comment on {self.mention_location.describe()} in the merge request's diff:\n\n{note.body}"
         return await self._run(
-            HumanMessage(name=note.author.username, id=note.id, content=note.body),
+            HumanMessage(name=note.author.username, id=note.id, content=content),
             asker=note.author.username,
             trigger="mention",
             sandbox_env_id=sandbox_env_id,
@@ -199,7 +224,10 @@ class CommentsAddressorManager(BaseManager):
             self._leave_comment(self._append_footer(question, fallback_footer), reply_to_id=self.reply_to_id)
             return
         if response := outcome.response_text.strip():
-            self._leave_comment(self._append_footer(response, fallback_footer))
+            self._leave_comment(
+                self._append_footer(response, fallback_footer),
+                reply_to_id=self.mention_comment_id if self.mention_on_diff else None,
+            )
         else:
             logger.warning("Agent returned empty response for merge request %d", self.merge_request.merge_request_id)
             self._add_unable_to_address_review_note(fallback_footer=fallback_footer)
@@ -294,5 +322,5 @@ class CommentsAddressorManager(BaseManager):
             self.repo_id,
             self.merge_request.merge_request_id,
             repo_relative_text(body),
-            reply_to=CommentThread(reply_to_id) if reply_to_id else None,
+            reply_to=CommentThread(reply_to_id, on_diff=self.mention_on_diff) if reply_to_id else None,
         )
