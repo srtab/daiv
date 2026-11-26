@@ -4,6 +4,7 @@ from unittest.mock import Mock, call, patch
 import pytest
 import requests
 from git import GitCommandError
+from gitlab import Gitlab
 from gitlab.exceptions import GitlabCreateError, GitlabGetError
 
 from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
@@ -720,6 +721,143 @@ class TestGitLabClient:
         existing_mr.save.assert_called_once()
         mock_project.mergerequests.create.assert_called_once()
         mock_sleep.assert_not_called()
+
+    def test_update_or_create_merge_request_keeps_an_existing_one_in_the_requested_draft_state(self, gitlab_client):
+        mock_project = Mock()
+        mock_project.mergerequests.create.side_effect = GitlabCreateError(
+            error_message="Another open merge request already exists", response_code=409
+        )
+        existing_mr = self._merge_request_mock(source_branch="feat/x")
+        mock_project.mergerequests.list.return_value.next.return_value = existing_mr
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        gitlab_client.update_or_create_merge_request(
+            repo_id="group/repo",
+            source_branch="feat/x",
+            target_branch="main",
+            title="feat: add x",
+            description="Desc",
+            as_draft=True,
+        )
+
+        assert existing_mr.title == "Draft: feat: add x"
+        assert mock_project.mergerequests.list.call_args.kwargs["state"] == "opened"
+
+    def test_update_or_create_merge_request_keeps_a_draft_title_within_gitlabs_limit(self, gitlab_client):
+        """GitLab rejects a title over 255 characters, which the draft prefix must not cause."""
+        mock_project = Mock()
+        mock_project.mergerequests.create.return_value = self._merge_request_mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        gitlab_client.update_or_create_merge_request(
+            repo_id="group/repo",
+            source_branch="feat/x",
+            target_branch="main",
+            title="x" * 255,
+            description="Desc",
+            as_draft=True,
+        )
+
+        assert mock_project.mergerequests.create.call_args.args[0]["title"] == "Draft: " + "x" * 248
+
+    @pytest.mark.parametrize(
+        ("title", "as_draft", "created_title"),
+        [
+            pytest.param("feat: add x", True, "Draft: feat: add x", id="draft-adds-prefix"),
+            pytest.param("feat: add x", False, "feat: add x", id="ready-keeps-title"),
+            pytest.param("Draft: feat: add x", False, "feat: add x", id="ready-drops-prefix"),
+        ],
+    )
+    def test_update_or_create_merge_request_sets_draft_state_through_the_title(
+        self, gitlab_client, title, as_draft, created_title
+    ):
+        """GitLab's create API has no draft parameter: the title prefix is its only draft switch."""
+        mock_project = Mock()
+        mock_project.mergerequests.create.return_value = self._merge_request_mock()
+        gitlab_client.client.projects.get.return_value = mock_project
+
+        gitlab_client.update_or_create_merge_request(
+            repo_id="group/repo",
+            source_branch="feat/x",
+            target_branch="main",
+            title=title,
+            description="Desc",
+            as_draft=as_draft,
+        )
+
+        assert mock_project.mergerequests.create.call_args.args[0]["title"] == created_title
+
+    @staticmethod
+    def _gitlab_serving_merge_request(gitlab_client, *, title: str, draft: bool) -> Gitlab:
+        """A real python-gitlab client over a stubbed transport, so a test can assert the update's PUT body."""
+        attributes = {
+            "iid": 42,
+            "title": title,
+            "description": "Desc",
+            "source_branch": "feat/x",
+            "target_branch": "main",
+            "labels": [],
+            "web_url": "https://gitlab.com/group/repo/-/merge_requests/42",
+            "sha": "deadbeef",
+            "author": {"id": 1, "username": "alice", "name": "Alice"},
+            "work_in_progress": draft,
+        }
+        gl = Gitlab("https://gitlab.com", private_token="test-token")  # noqa: S106
+        gl.http_get = Mock(return_value=attributes)
+        gl.http_put = Mock(return_value=attributes)
+        gitlab_client.client.projects.get.return_value = gl.projects.get("group/repo", lazy=True)
+        return gl
+
+    @pytest.mark.parametrize(
+        ("title", "as_draft", "sent_title"),
+        [
+            pytest.param("Draft: feat: add x", False, "feat: add x", id="ready-drops-draft-colon"),
+            pytest.param("[Draft] feat: add x", False, "feat: add x", id="ready-drops-bracketed"),
+            pytest.param("(draft) feat: add x", False, "feat: add x", id="ready-drops-parenthesised-any-case"),
+            pytest.param("feat: add x", True, "Draft: feat: add x", id="draft-adds-prefix"),
+        ],
+    )
+    def test_update_merge_request_switches_draft_state_through_the_title(
+        self, gitlab_client, title, as_draft, sent_title
+    ):
+        """GitLab answers 400 to an update carrying only a draft flag: the title prefix is its only draft switch."""
+        gl = self._gitlab_serving_merge_request(gitlab_client, title=title, draft=not as_draft)
+
+        gitlab_client.update_merge_request("group/repo", 42, as_draft=as_draft)
+
+        assert gl.http_put.call_args.kwargs["post_data"] == {"title": sent_title}
+
+    @pytest.mark.parametrize(("title", "draft"), [("Draft: feat: add x", True), ("feat: add x", False)])
+    def test_update_merge_request_already_in_the_requested_draft_state_sends_nothing(self, gitlab_client, title, draft):
+        gl = self._gitlab_serving_merge_request(gitlab_client, title=title, draft=draft)
+
+        gitlab_client.update_merge_request("group/repo", 42, as_draft=draft)
+
+        gl.http_put.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "title",
+        [
+            pytest.param("Draft:", id="title-is-only-the-prefix"),
+            pytest.param("WIP: feat: add x", id="prefix-of-an-older-gitlab"),
+        ],
+    )
+    def test_update_merge_request_warns_when_the_title_cannot_mark_a_draft_ready(self, gitlab_client, title, caplog):
+        gl = self._gitlab_serving_merge_request(gitlab_client, title=title, draft=True)
+
+        with caplog.at_level("WARNING", logger="daiv.clients"):
+            gitlab_client.update_merge_request("group/repo", 42, as_draft=False)
+
+        gl.http_put.assert_not_called()
+        assert [record.levelname for record in caplog.records] == ["WARNING"]
+        assert "group/repo!42" in caplog.text
+
+    def test_update_merge_request_keeps_a_new_title_in_the_requested_draft_state(self, gitlab_client):
+        gl = self._gitlab_serving_merge_request(gitlab_client, title="Draft: feat: add x", draft=True)
+
+        gitlab_client.update_merge_request("group/repo", 42, as_draft=True, title="feat: add y")
+
+        assert gl.http_put.call_args.kwargs["post_data"] == {"title": "Draft: feat: add y"}
 
     @pytest.mark.parametrize(
         ("error_message", "response_code", "expected"),
