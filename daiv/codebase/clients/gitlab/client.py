@@ -864,22 +864,21 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id)
 
-        new_title = merge_request.title if title is None else title
         if as_draft is not None:
-            new_title = title_in_draft_state(new_title, draft=as_draft)
-            if new_title == merge_request.title and merge_request.work_in_progress != as_draft:
+            title = title_in_draft_state(merge_request.title if title is None else title, draft=as_draft)
+            if title == merge_request.title and merge_request.work_in_progress != as_draft:
                 logger.warning(
                     "Could not mark %s!%s as %s: GitLab reads the draft state from the title, and '%s' has no "
                     "draft prefix to add or remove.",
                     repo_id,
                     merge_request_id,
                     "a draft" if as_draft else "ready",
-                    merge_request.title,
+                    title,
                 )
 
         has_changes = False
-        if merge_request.title != new_title:
-            merge_request.title = new_title
+        if title is not None and merge_request.title != title:
+            merge_request.title = title
             has_changes = True
         if description is not None and merge_request.description != description:
             merge_request.description = description

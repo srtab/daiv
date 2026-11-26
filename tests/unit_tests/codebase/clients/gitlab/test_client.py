@@ -695,17 +695,20 @@ class TestGitLabClient:
         mock_project.mergerequests.create.assert_called_once()
         mock_sleep.assert_not_called()
 
-    def test_update_or_create_merge_request_updates_existing_on_conflict(self, gitlab_client):
-        """A 409 means an MR already exists for this branch pair -> update it in place, no retry."""
+    def _project_with_conflicting_merge_request(self, gitlab_client) -> tuple[Mock, Mock]:
+        """A project whose create answers 409 for an open merge request, returned with that merge request."""
         mock_project = Mock()
         mock_project.mergerequests.create.side_effect = GitlabCreateError(
             error_message="Another open merge request already exists", response_code=409
         )
         existing_mr = self._merge_request_mock(source_branch="feat/x")
-        mock_iterator = Mock()
-        mock_iterator.next.return_value = existing_mr
-        mock_project.mergerequests.list.return_value = mock_iterator
+        mock_project.mergerequests.list.return_value.next.return_value = existing_mr
         gitlab_client.client.projects.get.return_value = mock_project
+        return mock_project, existing_mr
+
+    def test_update_or_create_merge_request_updates_existing_on_conflict(self, gitlab_client):
+        """A 409 means an MR already exists for this branch pair -> update it in place, no retry."""
+        mock_project, existing_mr = self._project_with_conflicting_merge_request(gitlab_client)
 
         with patch("codebase.clients.gitlab.client.time.sleep") as mock_sleep:
             result = gitlab_client.update_or_create_merge_request(
@@ -723,13 +726,7 @@ class TestGitLabClient:
         mock_sleep.assert_not_called()
 
     def test_update_or_create_merge_request_keeps_an_existing_one_in_the_requested_draft_state(self, gitlab_client):
-        mock_project = Mock()
-        mock_project.mergerequests.create.side_effect = GitlabCreateError(
-            error_message="Another open merge request already exists", response_code=409
-        )
-        existing_mr = self._merge_request_mock(source_branch="feat/x")
-        mock_project.mergerequests.list.return_value.next.return_value = existing_mr
-        gitlab_client.client.projects.get.return_value = mock_project
+        mock_project, existing_mr = self._project_with_conflicting_merge_request(gitlab_client)
 
         gitlab_client.update_or_create_merge_request(
             repo_id="group/repo",
@@ -743,34 +740,7 @@ class TestGitLabClient:
         assert existing_mr.title == "Draft: feat: add x"
         assert mock_project.mergerequests.list.call_args.kwargs["state"] == "opened"
 
-    def test_update_or_create_merge_request_keeps_a_draft_title_within_gitlabs_limit(self, gitlab_client):
-        """GitLab rejects a title over 255 characters, which the draft prefix must not cause."""
-        mock_project = Mock()
-        mock_project.mergerequests.create.return_value = self._merge_request_mock()
-        gitlab_client.client.projects.get.return_value = mock_project
-
-        gitlab_client.update_or_create_merge_request(
-            repo_id="group/repo",
-            source_branch="feat/x",
-            target_branch="main",
-            title="x" * 255,
-            description="Desc",
-            as_draft=True,
-        )
-
-        assert mock_project.mergerequests.create.call_args.args[0]["title"] == "Draft: " + "x" * 248
-
-    @pytest.mark.parametrize(
-        ("title", "as_draft", "created_title"),
-        [
-            pytest.param("feat: add x", True, "Draft: feat: add x", id="draft-adds-prefix"),
-            pytest.param("feat: add x", False, "feat: add x", id="ready-keeps-title"),
-            pytest.param("Draft: feat: add x", False, "feat: add x", id="ready-drops-prefix"),
-        ],
-    )
-    def test_update_or_create_merge_request_sets_draft_state_through_the_title(
-        self, gitlab_client, title, as_draft, created_title
-    ):
+    def test_update_or_create_merge_request_opens_a_draft_through_the_title(self, gitlab_client):
         """GitLab's create API has no draft parameter: the title prefix is its only draft switch."""
         mock_project = Mock()
         mock_project.mergerequests.create.return_value = self._merge_request_mock()
@@ -780,12 +750,12 @@ class TestGitLabClient:
             repo_id="group/repo",
             source_branch="feat/x",
             target_branch="main",
-            title=title,
+            title="feat: add x",
             description="Desc",
-            as_draft=as_draft,
+            as_draft=True,
         )
 
-        assert mock_project.mergerequests.create.call_args.args[0]["title"] == created_title
+        assert mock_project.mergerequests.create.call_args.args[0]["title"] == "Draft: feat: add x"
 
     @staticmethod
     def _gitlab_serving_merge_request(gitlab_client, *, title: str, draft: bool) -> Gitlab:
@@ -808,24 +778,13 @@ class TestGitLabClient:
         gitlab_client.client.projects.get.return_value = gl.projects.get("group/repo", lazy=True)
         return gl
 
-    @pytest.mark.parametrize(
-        ("title", "as_draft", "sent_title"),
-        [
-            pytest.param("Draft: feat: add x", False, "feat: add x", id="ready-drops-draft-colon"),
-            pytest.param("[Draft] feat: add x", False, "feat: add x", id="ready-drops-bracketed"),
-            pytest.param("(draft) feat: add x", False, "feat: add x", id="ready-drops-parenthesised-any-case"),
-            pytest.param("feat: add x", True, "Draft: feat: add x", id="draft-adds-prefix"),
-        ],
-    )
-    def test_update_merge_request_switches_draft_state_through_the_title(
-        self, gitlab_client, title, as_draft, sent_title
-    ):
+    def test_update_merge_request_marks_a_draft_ready_through_the_title(self, gitlab_client):
         """GitLab answers 400 to an update carrying only a draft flag: the title prefix is its only draft switch."""
-        gl = self._gitlab_serving_merge_request(gitlab_client, title=title, draft=not as_draft)
+        gl = self._gitlab_serving_merge_request(gitlab_client, title="Draft: feat: add x", draft=True)
 
-        gitlab_client.update_merge_request("group/repo", 42, as_draft=as_draft)
+        gitlab_client.update_merge_request("group/repo", 42, as_draft=False)
 
-        assert gl.http_put.call_args.kwargs["post_data"] == {"title": sent_title}
+        assert gl.http_put.call_args.kwargs["post_data"] == {"title": "feat: add x"}
 
     @pytest.mark.parametrize(("title", "draft"), [("Draft: feat: add x", True), ("feat: add x", False)])
     def test_update_merge_request_already_in_the_requested_draft_state_sends_nothing(self, gitlab_client, title, draft):

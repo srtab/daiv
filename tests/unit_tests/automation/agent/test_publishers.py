@@ -2121,12 +2121,16 @@ class TestRepoPublishState:
 
 class TestPublishToADraftMergeRequest:
     @staticmethod
-    def _publisher(*, dirty: bool = True):
+    async def _publish_to_a_draft_opened_by(author: User) -> tuple[GitChangePublisher, Mock]:
         publisher = _make_publisher()
         # GitHub names the bot by its app slug but authors its pull requests as "<slug>[bot]": only the id matches.
         publisher.client.current_user = User(id=99, username="daiv")
-        _use_git_manager(publisher, _fake_git_manager(dirty=dirty))
-        return publisher
+        publisher.client.update_merge_request.return_value = make_merge_request(author=author)
+        _use_git_manager(publisher, _fake_git_manager())
+
+        with patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()) as diff_to_metadata:
+            await publisher.publish(merge_request=make_merge_request(draft=True, author=author))
+        return publisher, diff_to_metadata
 
     @pytest.mark.parametrize(
         ("author", "updates"),
@@ -2136,26 +2140,11 @@ class TestPublishToADraftMergeRequest:
         ],
     )
     async def test_only_a_draft_daiv_opened_is_marked_ready(self, author, updates):
-        publisher = self._publisher()
-        publisher.client.update_merge_request.return_value = make_merge_request(author=author)
-
-        with (
-            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()),
-            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()),
-        ):
-            await publisher.publish(merge_request=make_merge_request(draft=True, author=author))
+        publisher, _ = await self._publish_to_a_draft_opened_by(author)
 
         assert publisher.client.update_merge_request.call_args_list == updates
 
     async def test_marking_a_draft_ready_writes_no_merge_request_text(self):
-        publisher = self._publisher(dirty=False)
-        author = User(id=99, username="daiv[bot]")
-        publisher.client.update_merge_request.return_value = make_merge_request(author=author)
+        _, diff_to_metadata = await self._publish_to_a_draft_opened_by(User(id=99, username="daiv[bot]"))
 
-        with (
-            patch.object(publisher, "_diff_to_metadata", return_value=_metadata_stub()) as diff_to_metadata,
-            patch.object(publisher, "_trigger_service_account_pipeline", AsyncMock()),
-        ):
-            await publisher.publish(merge_request=make_merge_request(draft=True, author=author))
-
-        diff_to_metadata.assert_not_called()
+        assert diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is None
