@@ -1895,7 +1895,7 @@
 <h2 id="run-daiv-again">Run DAIV again</h2>
 <p>To run a second plan on an issue DAIV already addressed, add a new comment that mentions <code>@daiv</code> and says what you want. DAIV updates the existing merge or pull request instead of creating a new one. Adding the label again does not start a run: DAIV ignores a label on an issue it already reacted to.</p>
 <h2 id="when-a-run-fails">When a run fails</h2>
-<p>If an unexpected error stops DAIV while it implements a plan, DAIV opens a <strong>draft</strong> merge or pull request to keep the changes it already made.</p>
+<p>If an unexpected error stops DAIV while it implements a plan, DAIV opens a <strong>draft</strong> merge or pull request to keep the changes it already made. The next run that finishes and pushes to that draft marks it ready. A draft someone else opened stays a draft.</p>
 <h2 id="agentsmd-suggestion">AGENTS.md suggestion</h2>
 <p>When DAIV creates a merge request for a repository that doesn't have an <a href="https://agents.md/"><code>AGENTS.md</code></a> file (or whatever <code>context_file_name</code> is configured to), DAIV adds a comment suggesting you create one. The comment includes a one-click link that opens an issue with the <code>daiv-auto</code> label already set. When you submit that issue, DAIV runs the <a href="../slash-commands/#init"><code>/init</code> skill</a> at once, with no approval step, and opens a merge or pull request with the generated <code>AGENTS.md</code>.</p>
 <p>To stop the suggestion on one repository, set <code>suggest_context_file: false</code> in its <code>.daiv.yml</code>. To stop it on every repository, set <code>DAIV_SUGGEST_CONTEXT_FILE_ENABLED</code> to <code>false</code>. <a href="../../customization/repository-config/">Repository configuration</a> and the <a href="../../reference/env-variables/">environment variables reference</a> describe both.</p>
@@ -1935,7 +1935,7 @@
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 12, 2026 16:02:09 UTC">November 12, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="November 26, 2026 01:24:41 UTC">November 26, 2026</span>
   </span>
 
     

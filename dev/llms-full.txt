@@ -1644,7 +1644,7 @@ To run a second plan on an issue DAIV already addressed, add a new comment that 
 
 ## When a run fails
 
-If an unexpected error stops DAIV while it implements a plan, DAIV opens a **draft** merge or pull request to keep the changes it already made.
+If an unexpected error stops DAIV while it implements a plan, DAIV opens a **draft** merge or pull request to keep the changes it already made. The next run that finishes and pushes to that draft marks it ready. A draft someone else opened stays a draft.
 
 ## AGENTS.md suggestion
 
