@@ -34,7 +34,12 @@
   "mainEntityOfPage": "{{ canonical_url|escapejs }}",
   {% if post.image %}"image": "{{ post.absolute_image_url|escapejs }}",{% endif %}
   "author": {"@type": "Person", "name": "{{ post.author|escapejs }}"},
-  "publisher": {"@type": "Organization", "name": "DAIV", "url": "https://daivagent.com/"}
+  "publisher": {
+    "@type": "Organization",
+    "name": "DAIV",
+    "url": "https://daivagent.com/",
+    "logo": {"@type": "ImageObject", "url": "https://daivagent.com/web-app-manifest-512x512.png"}
+  }
 }
 </script>
 {% endblock head_extra %}

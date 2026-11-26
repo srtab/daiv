@@ -10,13 +10,15 @@
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "DAIV",
-  "description": "Open-source, self-hosted SWE agents for GitLab & GitHub. Turn issues into merge requests, answer review comments, and fix failing CI, in a sandbox you control with the LLM provider you choose.",
+  "description": "{{ definition|escapejs }}",
   "applicationCategory": "DeveloperApplication",
   "operatingSystem": "Linux",
+  "softwareVersion": "{{ version|escapejs }}",
   "license": "https://github.com/srtab/daiv/blob/main/LICENSE",
-  "url": "https://github.com/srtab/daiv",
-  "codeRepository": "https://github.com/srtab/daiv",
-  "sameAs": [{% for link in social_links %}"{{ link.url|escapejs }}"{% if not forloop.last %}, {% endif %}{% endfor %}],
+  "url": "{{ canonical_url|escapejs }}",
+  "image": "{{ og_image_url|escapejs }}",
+  "author": {"@type": "Person", "name": "Sandro Rodrigues", "url": "https://github.com/srtab"},
+  "sameAs": ["https://github.com/srtab/daiv"{% for link in social_links %}, "{{ link.url|escapejs }}"{% endfor %}],
   "offers": {
     "@type": "Offer",
     "price": "0",
@@ -76,8 +78,7 @@
 
         <!-- Subheadline -->
         <p class="animate-fade-up mx-auto mt-4 max-w-2xl text-base font-light text-text-muted sm:text-lg" style="animation-delay: 160ms">
-            DAIV works inside GitLab and GitHub through webhooks, plugs into your editor over MCP,
-            and ships with an optional self-hosted dashboard. You host it, you pick the model,
+            {{ definition }} It also plugs into your editor over MCP. You pick the model,
             and every task runs in an isolated sandbox whose network egress you define.
         </p>
 

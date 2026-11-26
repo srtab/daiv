@@ -1,0 +1,29 @@
+{% autoescape off %}# DAIV
+
+> {{ definition }}
+
+DAIV runs on your own servers with Docker Compose or Docker Swarm. You choose the LLM provider, and every agent's commands run in a sandbox whose network you define. It is licensed Apache-2.0, with no per-seat pricing.
+
+Label an issue `daiv` and DAIV posts a plan; once you approve it, DAIV opens a merge request with the change and works to make its pipeline pass. Mention `@daiv` on a merge request and it answers or pushes a fix. It also takes work from your editor over MCP, from scripts through the Jobs API and on a schedule, and its dashboard shows every session.
+
+- Source: https://github.com/srtab/daiv
+- License: Apache-2.0
+- Documentation: {{ docs_url }}
+
+{% for faq in faqs %}**{{ faq.question }}** {{ faq.markdown_answer }}
+
+{% endfor %}## Documentation
+
+- [Documentation for LLMs]({{ docs_url }}llms.txt): every docs page, each with a Markdown version
+- [Full documentation for LLMs]({{ docs_url }}llms-full.txt): every docs page in one Markdown file
+- [Quickstart]({{ quickstart_url }}): run DAIV on one Linux machine with Docker Compose and turn a GitLab issue into a merge request in about 15 minutes
+- [Deployment]({{ deployment_url }}): a production install with Docker Swarm or Docker Compose
+
+## Comparisons
+
+{% for comparison in comparisons %}- [DAIV and {{ comparison.name }}]({{ origin }}{% url "comparison" comparison.slug %}): {{ comparison.summary }}
+{% endfor %}{% if posts %}
+## Blog
+
+{% for post in posts %}- [{{ post.title }}]({{ post.canonical_url }}): {{ post.summary }}
+{% endfor %}{% endif %}{% endautoescape %}

@@ -41,6 +41,7 @@ from codebase.base import GitPlatform
 from codebase.clients import RepoClient
 from codebase.conf import settings as codebase_settings
 from core.conf import settings as core_settings
+from daiv import __version__
 from schedules.models import DispatchError, Frequency, ScheduledJob
 from tests.unit_tests.dashboard.factories import spend_record, spend_run, spend_session
 from tests.unit_tests.sessions.conftest import grant_read_access
@@ -94,7 +95,20 @@ class TestHomepage:
             assert "me" in footer.find("a", href=link.url)["rel"]
         blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)
         app = next(data for data in map(json.loads, blocks) if data["@type"] == "SoftwareApplication")
-        assert app["sameAs"] == [link.url for link in landing.SOCIAL_LINKS]
+        assert app["sameAs"] == ["https://github.com/srtab/daiv", *(link.url for link in landing.SOCIAL_LINKS)]
+
+    def test_json_ld_and_hero_state_the_definition_on_daivagent_com(self):
+        content = Client(HTTP_HOST="daiv.internal.example").get(reverse("homepage")).content.decode()
+
+        blocks = re.findall(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)
+        app = next(data for data in map(json.loads, blocks) if data["@type"] == "SoftwareApplication")
+        assert (app["url"], app["description"], app["softwareVersion"]) == (
+            "https://daivagent.com/",
+            landing.DEFINITION,
+            __version__,
+        )
+        hero = BeautifulSoup(content, "html.parser").select_one("section.landing-hero")
+        assert landing.DEFINITION in hero.get_text(" ", strip=True)
 
     def test_hero_deploy_link_is_the_quickstart(self):
         content = Client().get(reverse("homepage")).content.decode()
@@ -150,6 +164,18 @@ class TestComparison:
 
         assert f"as of {CHECKED:%B %Y}." in content
 
+    def test_json_ld_dates_the_comparison(self):
+        comparison = COMPARISONS[0]
+        content = Client().get(reverse("comparison", args=[comparison.slug])).content.decode()
+
+        data = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', content, re.DOTALL)[1])
+        assert (data["@type"], data["dateModified"], data["url"]) == (
+            "WebPage",
+            f"{CHECKED:%Y-%m-%d}",
+            f"https://daivagent.com/compare/{comparison.slug}/",
+        )
+        assert [item["name"] for item in data["about"]] == ["DAIV", comparison.name]
+
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
@@ -164,6 +190,16 @@ def test_canonical_points_at_daivagent_com_on_any_host(path, canonical):
 
     assert f'<link rel="canonical" href="{canonical}">' in content
     assert f'<meta property="og:url" content="{canonical}">' in content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("path", ["/", f"/compare/{COMPARISONS[0].slug}/"])
+def test_share_image_is_on_daivagent_com_on_any_host(path):
+    content = Client(HTTP_HOST="daiv.internal.example").get(path).content.decode()
+
+    image = "https://daivagent.com/static/dashboard/img/social-preview.png"
+    assert f'<meta property="og:image" content="{image}">' in content
+    assert '<meta name="twitter:card" content="summary_large_image">' in content
 
 
 @pytest.mark.django_db

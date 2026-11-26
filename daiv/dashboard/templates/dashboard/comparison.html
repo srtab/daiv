@@ -8,7 +8,23 @@
 
 {% block og_description %}{{ comparison.summary }}{% endblock %}
 
-{% block head_extra %}{% include "dashboard/_landing_analytics.html" %}{% endblock %}
+{% block head_extra %}
+{% include "dashboard/_landing_analytics.html" %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "DAIV and {{ comparison.name|escapejs }} compared",
+  "description": "{{ comparison.summary|escapejs }}",
+  "url": "{{ canonical_url|escapejs }}",
+  "dateModified": "{{ checked|date:'Y-m-d' }}",
+  "about": [
+    {"@type": "SoftwareApplication", "name": "DAIV", "url": "https://daivagent.com/"},
+    {"@type": "SoftwareApplication", "name": "{{ comparison.name|escapejs }}", "url": "{{ comparison.docs_url|escapejs }}"}
+  ]
+}
+</script>
+{% endblock head_extra %}
 
 {% block content %}
 {% include "dashboard/_landing_nav.html" %}
