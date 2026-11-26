@@ -11,6 +11,7 @@ from skills import urls as skills_urls
 
 from core.views import HealthCheckView, VersionView
 from daiv.api import api
+from daiv.llms import llms_txt
 
 # The skill page's Models and Usage tabs join the skills namespace here: their views live in apps above skills.
 skills_patterns = [
@@ -44,6 +45,7 @@ urlpatterns = [
     path(".well-known/oauth-authorization-server", oauth_metadata, name="oauth_metadata"),
     path("-/alive/", HealthCheckView.as_view(), name="health_check"),
     path("-/version/", VersionView.as_view(), name="version"),
+    path("llms.txt", llms_txt, name="llms_txt"),
     path(
         "sitemap.xml",
         sitemap,

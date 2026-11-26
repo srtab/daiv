@@ -2,8 +2,8 @@ site_name: DAIV
 site_url: https://docs.daivagent.com/
 repo_url: https://github.com/srtab/daiv
 site_description: >-
-  DAIV is an open-source, self-hosted SWE agent for GitLab and GitHub that turns
-  issues into merge requests, answers review comments, and fixes failing CI.
+  DAIV is an open-source, self-hosted AI coding agent for GitLab and GitHub that
+  turns issues into merge requests, answers review comments and fixes failing CI.
 site_author: Sandro Rodrigues
 strict: true
 edit_uri: edit/main/docs/
@@ -56,10 +56,11 @@ plugins:
   - llmstxt:
       full_output: llms-full.txt
       markdown_description: >
-        DAIV is an open-source async software engineering agent that integrates
-        natively with GitLab and GitHub through webhooks. Create an issue, get a
-        merge request. Mention DAIV in a review, get the fix. Licensed under
-        Apache 2.0.
+        DAIV runs on your own servers with Docker Compose or Docker Swarm. You
+        choose the LLM provider, and every agent's commands run in a sandbox whose
+        network you define. Label an issue and DAIV posts a plan, then opens a merge
+        request once you approve it; mention it in a review and it applies the fix.
+        Licensed under Apache 2.0.
       sections:
         Getting Started:
         - getting-started/quickstart.md

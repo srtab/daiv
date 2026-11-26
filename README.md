@@ -30,7 +30,7 @@
   <a href="https://github.com/srtab/daiv/blob/main/CONTRIBUTING.md"><strong>Contributing</strong></a>
 </p>
 
-DAIV (pronounced "dive", from *dev* + *AI*) integrates directly with **GitLab** and **GitHub** through webhooks — no new tools to adopt, no context-switching. Beyond your Git workflow, DAIV plugs into your editor over **MCP** and ships with an optional **self-hosted dashboard** to chat with the agent, start and watch runs, schedule jobs, and review what changed. You host it, you pick the model, and every task executes in an isolated sandbox whose network access you define.
+DAIV (pronounced "dive", from *dev* + *AI*) is an open-source, self-hosted AI coding agent for GitLab and GitHub that turns issues into merge requests, answers review comments and fixes failing CI. It works through webhooks — no new tools to adopt, no context-switching. Beyond your Git workflow, DAIV plugs into your editor over **MCP** and ships with an optional **self-hosted dashboard** to chat with the agent, start and watch runs, schedule jobs, and review what changed. You host it, you pick the model, and every task executes in an isolated sandbox whose network access you define.
 
 ## Why DAIV
 

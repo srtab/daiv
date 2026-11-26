@@ -1,8 +1,10 @@
 import csv
+from urllib.parse import urljoin
 
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.http import Http404, HttpResponse, StreamingHttpResponse
 from django.shortcuts import redirect
+from django.templatetags.static import static
 from django.urls import reverse
 from django.utils.http import urlencode
 from django.views.generic import TemplateView, View
@@ -14,7 +16,7 @@ from skills.pages import SkillPageMixin
 
 from core.api.throttling import SpendExportThrottle
 from core.mixins import AdminRequiredMixin
-from daiv import CANONICAL_ORIGIN
+from daiv import CANONICAL_ORIGIN, __version__
 from dashboard import home, insights, landing, spend
 from dashboard.comparisons import CHECKED, COMPARISONS, COMPARISONS_BY_SLUG
 from dashboard.conf import settings as dashboard_settings
@@ -26,6 +28,7 @@ class LandingPageView(TemplateView):
     def get_context_data(self, **kwargs):
         return super().get_context_data(
             canonical_url=CANONICAL_ORIGIN + self.request.path,
+            og_image_url=urljoin(CANONICAL_ORIGIN, static("dashboard/img/social-preview.png")),
             quickstart_url=landing.QUICKSTART_URL,
             deployment_url=landing.DEPLOYMENT_URL,
             social_links=landing.SOCIAL_LINKS,
@@ -45,7 +48,12 @@ class LandingPageView(TemplateView):
 
 class HomepageView(LandingPageView):
     template_name = "dashboard/homepage.html"
-    extra_context = {"faqs": landing.FAQS, "comparisons": COMPARISONS}
+    extra_context = {
+        "definition": landing.DEFINITION,
+        "version": __version__,
+        "faqs": landing.FAQS,
+        "comparisons": COMPARISONS,
+    }
 
     def get(self, request, *args, **kwargs):
         if request.user.is_authenticated:

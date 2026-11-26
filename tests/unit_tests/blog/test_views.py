@@ -95,6 +95,7 @@ def test_json_ld_describes_the_post(write_post):
         "https://daivagent.com/blog/egress/",
         "Sandro Rodrigues",
     )
+    assert data["publisher"]["logo"]["url"] == "https://daivagent.com/web-app-manifest-512x512.png"
     assert "dateModified" not in data
 
 

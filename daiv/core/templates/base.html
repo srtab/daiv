@@ -15,8 +15,9 @@
     <meta property="og:title" content="{% block og_title %}DAIV — Open-source, self-hosted SWE agents for GitLab &amp; GitHub{% endblock %}">
     <meta property="og:description" content="{% block og_description %}Issues in. Merge requests out. On your infrastructure. DAIV turns issues into merge requests, answers review comments, and fixes failing CI, in a sandbox you control with the LLM provider you choose.{% endblock %}">
     <meta property="og:site_name" content="DAIV">
+    {% if og_image_url %}<meta property="og:image" content="{{ og_image_url }}">{% endif %}
     {% endblock open_graph %}
-    {% block twitter_card %}<meta name="twitter:card" content="summary">{% endblock %}
+    {% block twitter_card %}<meta name="twitter:card" content="{% if og_image_url %}summary_large_image{% else %}summary{% endif %}">{% endblock %}
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="shortcut icon" href="/favicon.ico" />
