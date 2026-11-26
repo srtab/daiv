@@ -73,7 +73,7 @@ If runs end on rate-limit errors, raise `DAIV_MODEL_MAX_RETRIES` or ask Anthropi
 
 ## Custom providers
 
-An admin can register providers beyond the four above, mainly self-hosted, OpenAI-compatible endpoints such as vLLM, llama.cpp, LiteLLM or an internal gateway. A custom provider works with any of the supported wire protocols.
+An admin can register providers beyond the four above, mainly self-hosted, OpenAI-compatible endpoints such as vLLM, llama.cpp, Ollama, LiteLLM or an internal gateway. With a model on your own server, the agent's model requests stay inside your network. A custom provider works with any of the supported wire protocols.
 
 You need the admin role to add a custom provider. Under **Configuration** → **Providers**, the steps in [Add a custom provider](https://docs.daivagent.com/dev/reference/site-configuration/#add-a-custom-provider) create the provider with a slug, a provider type, a base URL, an API key and a few options. [Provider fields](https://docs.daivagent.com/dev/reference/site-configuration/#provider-fields) describes them.
 

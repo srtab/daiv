@@ -1,6 +1,6 @@
 # Platform setup
 
-DAIV connects to one Git platform at a time, set by `CODEBASE_CLIENT`: GitLab (GitLab.com or self-managed) or GitHub (GitHub.com or GitHub Enterprise Server). Once connected, DAIV addresses labeled issues and reviews merge and pull requests in the repositories it can reach. Follow [Connect GitLab](#connect-gitlab) or [Connect GitHub](#connect-github).
+DAIV connects to one Git platform at a time, set by `CODEBASE_CLIENT`: GitLab (GitLab.com or self-managed) or GitHub (GitHub.com or GitHub Enterprise Server). DAIV does not support Bitbucket, Azure DevOps, Gitea or Forgejo. Once connected, DAIV addresses labeled issues and reviews merge and pull requests in the repositories it can reach. Follow [Connect GitLab](#connect-gitlab) or [Connect GitHub](#connect-github).
 
 ## Connect GitLab
 

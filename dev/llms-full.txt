@@ -1,8 +1,8 @@
 # DAIV
 
-> DAIV is an open-source, self-hosted SWE agent for GitLab and GitHub that turns issues into merge requests, answers review comments, and fixes failing CI.
+> DAIV is an open-source, self-hosted AI coding agent for GitLab and GitHub that turns issues into merge requests, answers review comments and fixes failing CI.
 
-DAIV is an open-source async software engineering agent that integrates natively with GitLab and GitHub through webhooks. Create an issue, get a merge request. Mention DAIV in a review, get the fix. Licensed under Apache 2.0.
+DAIV runs on your own servers with Docker Compose or Docker Swarm. You choose the LLM provider, and every agent's commands run in a sandbox whose network you define. Label an issue and DAIV posts a plan, then opens a merge request once you approve it; mention it in a review and it applies the fix. Licensed under Apache 2.0.
 
 
 # Getting Started
@@ -977,7 +977,7 @@ server {
 
 # Platform setup
 
-DAIV connects to one Git platform at a time, set by `CODEBASE_CLIENT`: GitLab (GitLab.com or self-managed) or GitHub (GitHub.com or GitHub Enterprise Server). Once connected, DAIV addresses labeled issues and reviews merge and pull requests in the repositories it can reach. Follow [Connect GitLab](#connect-gitlab) or [Connect GitHub](#connect-github).
+DAIV connects to one Git platform at a time, set by `CODEBASE_CLIENT`: GitLab (GitLab.com or self-managed) or GitHub (GitHub.com or GitHub Enterprise Server). DAIV does not support Bitbucket, Azure DevOps, Gitea or Forgejo. Once connected, DAIV addresses labeled issues and reviews merge and pull requests in the repositories it can reach. Follow [Connect GitLab](#connect-gitlab) or [Connect GitHub](#connect-github).
 
 ## Connect GitLab
 
@@ -1559,7 +1559,7 @@ If runs end on rate-limit errors, raise `DAIV_MODEL_MAX_RETRIES` or ask Anthropi
 
 ## Custom providers
 
-An admin can register providers beyond the four above, mainly self-hosted, OpenAI-compatible endpoints such as vLLM, llama.cpp, LiteLLM or an internal gateway. A custom provider works with any of the supported wire protocols.
+An admin can register providers beyond the four above, mainly self-hosted, OpenAI-compatible endpoints such as vLLM, llama.cpp, Ollama, LiteLLM or an internal gateway. With a model on your own server, the agent's model requests stay inside your network. A custom provider works with any of the supported wire protocols.
 
 You need the admin role to add a custom provider. Under **Configuration** → **Providers**, the steps in [Add a custom provider](https://docs.daivagent.com/dev/reference/site-configuration/#add-a-custom-provider) create the provider with a slug, a provider type, a base URL, an API key and a few options. [Provider fields](https://docs.daivagent.com/dev/reference/site-configuration/#provider-fields) describes them.
 
