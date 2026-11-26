@@ -6,7 +6,7 @@ author: Sandro Rodrigues
 image: social-preview.png
 ---
 
-DAIV (pronounced "dive") is an open-source coding agent that you run on your own infrastructure. It connects to GitLab, self-managed included, and to GitHub, and it works in the issues and merge requests your team already uses. DAIV 3.0.0 is out today.
+DAIV (pronounced "dive") is an open-source coding agent that you run on your own infrastructure. It connects to GitLab, self-managed included, and to GitHub, and it works in the issues and merge requests your team already uses. DAIV 3.0.0 is out now.
 
 This is the first post on this blog, so it starts with what DAIV does, then covers what is new in 3.0.
 
