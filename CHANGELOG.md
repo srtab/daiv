@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix a run that pushed to a draft GitLab merge request failing with "at least one parameter must be provided" after the push, and draft merge requests on GitLab being opened as ready: the draft state is now set through the `Draft:` title prefix ([#1872](https://github.com/srtab/daiv/pull/1872))
+- Fix the Insights spend page showing a second scrollbar that scrolled the whole app away, leaving an empty band below it ([#1873](https://github.com/srtab/daiv/pull/1873))
 
 ## [3.0.0] - 2026-11-24
 
