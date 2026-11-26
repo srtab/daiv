@@ -212,9 +212,7 @@ class GitChangePublisher:
 
         links = await self.session_links() if self.session_links else None
 
-        pr_metadata_diff = (
-            snapshot.diff if merge_request is None or (merge_request.draft and as_draft is False) else None
-        )
+        pr_metadata_diff = snapshot.diff if merge_request is None else None
         commit_message_diff = snapshot.uncommitted_diff if dirty and pending_merge is None else None
         changes_metadata = (
             await self._diff_to_metadata(
@@ -313,7 +311,7 @@ class GitChangePublisher:
             )
             await self._suggest_context_file(merge_request)
         else:
-            if merge_request.draft and as_draft is False:
+            if merge_request.draft and as_draft is False and await self._opened_by_daiv(merge_request):
                 merge_request = await sync_to_async(self.client.update_merge_request)(
                     merge_request.repo_id, merge_request.merge_request_id, as_draft=as_draft
                 )
@@ -334,6 +332,14 @@ class GitChangePublisher:
             pushed_sha=pushed_sha,
             diff_stats=diff_stats,
         )
+
+    async def _opened_by_daiv(self, merge_request: MergeRequest) -> bool:
+        """
+        Whether DAIV opened the merge request, by user id: GitHub names the bot by its app slug but
+        authors its pull requests as ``<slug>[bot]``.
+        """
+        bot = await sync_to_async(lambda: self.client.current_user)()
+        return merge_request.author.id == bot.id
 
     def _merge_commit_message(self, merge: PendingMerge) -> str:
         """git's subject for the merge, then the files it left conflicted, which the agent resolved."""

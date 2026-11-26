@@ -31,7 +31,7 @@ from codebase.base import (
 )
 from codebase.clients import RepoClient
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
-from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE
+from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE, title_in_draft_state
 from codebase.conf import settings as codebase_settings
 from codebase.exceptions import (
     CloneCredentialUnavailableError,
@@ -720,6 +720,7 @@ class GitLabClient(RepoClient):
             The merge request data.
         """
         project = self.client.projects.get(repo_id, lazy=True)
+        title = title_in_draft_state(title, draft=as_draft)
         payload = {
             "source_branch": source_branch,
             "target_branch": target_branch,
@@ -727,7 +728,6 @@ class GitLabClient(RepoClient):
             "description": description,
             "labels": labels or [],
             "assignee_id": assignee_id,
-            "work_in_progress": as_draft,
         }
         try:
             merge_request = self._create_merge_request_awaiting_branch(project, payload, source_branch)
@@ -736,14 +736,13 @@ class GitLabClient(RepoClient):
             if e.response_code != 409:
                 raise e
             if merge_requests := project.mergerequests.list(
-                source_branch=source_branch, target_branch=target_branch, iterator=True
+                source_branch=source_branch, target_branch=target_branch, state="opened", iterator=True
             ):
                 merge_request = merge_requests.next()
                 merge_request.title = title
                 merge_request.description = description
                 merge_request.labels = labels or []
                 merge_request.assignee_id = assignee_id
-                merge_request.work_in_progress = as_draft
                 merge_request.save()
                 return self._serialize_merge_request(repo_id, merge_request)
             raise e
@@ -865,10 +864,19 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id)
 
+        if as_draft is not None:
+            title = title_in_draft_state(merge_request.title if title is None else title, draft=as_draft)
+            if title == merge_request.title and merge_request.work_in_progress != as_draft:
+                logger.warning(
+                    "Could not mark %s!%s as %s: GitLab reads the draft state from the title, and '%s' has no "
+                    "draft prefix to add or remove.",
+                    repo_id,
+                    merge_request_id,
+                    "a draft" if as_draft else "ready",
+                    title,
+                )
+
         has_changes = False
-        if as_draft is not None and merge_request.work_in_progress != as_draft:
-            merge_request.work_in_progress = as_draft
-            has_changes = True
         if title is not None and merge_request.title != title:
             merge_request.title = title
             has_changes = True

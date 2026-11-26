@@ -1,4 +1,6 @@
-from codebase.clients.gitlab.utils import replace_section_start_and_end_markers
+import pytest
+
+from codebase.clients.gitlab.utils import replace_section_start_and_end_markers, title_in_draft_state
 
 
 def test_replace_section_start_and_end_markers():
@@ -15,3 +17,20 @@ def test_replace_section_start_and_end_markers():
 
     assert ">>> step_script" in result
     assert "<<< step_script" in result
+
+
+@pytest.mark.parametrize(
+    ("title", "draft", "expected"),
+    [
+        pytest.param("feat: add x", True, "Draft: feat: add x", id="draft-adds-prefix"),
+        pytest.param("Draft: feat: add x", True, "Draft: feat: add x", id="draft-keeps-a-draft-title"),
+        pytest.param("x" * 255, True, "Draft: " + "x" * 248, id="draft-stays-within-gitlabs-255-characters"),
+        pytest.param("Draft: feat: add x", False, "feat: add x", id="ready-drops-draft-colon"),
+        pytest.param("[Draft] feat: add x", False, "feat: add x", id="ready-drops-bracketed"),
+        pytest.param("(draft) feat: add x", False, "feat: add x", id="ready-drops-parenthesised-any-case"),
+        pytest.param("feat: add x", False, "feat: add x", id="ready-keeps-a-ready-title"),
+        pytest.param("Draft:", False, "Draft:", id="ready-keeps-a-title-that-is-only-the-prefix"),
+    ],
+)
+def test_title_in_draft_state(title, draft, expected):
+    assert title_in_draft_state(title, draft=draft) == expected
