@@ -1,0 +1,14 @@
+# DAIV
+
+> DAIV is an open-source, self-hosted AI coding agent for GitLab and GitHub that turns issues into merge requests, answers review comments and fixes failing CI.
+
+This site holds the documentation of every DAIV release. The current release's documentation is under /latest/.
+
+## Docs
+
+- [Documentation index for LLMs](https://docs.daivagent.com/latest/llms.txt): every page of the current release's documentation, each with a Markdown version
+- [Full documentation for LLMs](https://docs.daivagent.com/latest/llms-full.txt): the current release's documentation in one Markdown file
+
+## Optional
+
+- [DAIV website for LLMs](https://daivagent.com/llms.txt): what DAIV is, its FAQ, comparisons with other tools and blog posts
