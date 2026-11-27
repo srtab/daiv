@@ -623,7 +623,7 @@ async def test_get_job_status_db_exception():
 # ---------------------------------------------------------------------------
 
 
-def _cat(slug: str, name: str, topics: list[str] | None = None):
+def _cat(slug: str, name: str, topics: list[str] | None = None, languages: dict[str, float] | None = None):
     from codebase.models import RepositoryCatalog
 
     return RepositoryCatalog(
@@ -633,6 +633,7 @@ def _cat(slug: str, name: str, topics: list[str] | None = None):
         default_branch="main",
         html_url=f"https://example.com/{slug}",
         topics=topics or [],
+        languages=languages or {},
     )
 
 
@@ -652,7 +653,9 @@ async def test_list_repositories_default():
     assert data["repositories"][0]["default_branch"] == "main"
     assert data["repositories"][0]["html_url"] == "https://example.com/group/alpha"
     assert data["next_cursor"] is None
-    mock_search.assert_awaited_once_with(ANY, search=None, topics=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug=None)
+    mock_search.assert_awaited_once_with(
+        ANY, search=None, topics=None, language=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug=None
+    )
 
 
 async def test_list_repositories_with_search():
@@ -663,7 +666,7 @@ async def test_list_repositories_with_search():
 
     assert [r["slug"] for r in data["repositories"]] == ["group/alpha"]
     mock_search.assert_awaited_once_with(
-        ANY, search="alpha", topics=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug=None
+        ANY, search="alpha", topics=None, language=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug=None
     )
 
 
@@ -675,7 +678,19 @@ async def test_list_repositories_with_topics():
 
     assert len(data["repositories"]) == 2
     mock_search.assert_awaited_once_with(
-        ANY, search=None, topics=["python"], limit=DEFAULT_LIST_LIMIT + 1, after_slug=None
+        ANY, search=None, topics=["python"], language=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug=None
+    )
+
+
+async def test_list_repositories_with_language():
+    rows = [_cat("group/alpha", "alpha", languages={"Python": 80.0})]
+
+    with patch("mcp_api.server.asearch_viewable_repositories", new=AsyncMock(return_value=rows)) as mock_search:
+        data = await list_repositories(language="Python")
+
+    assert data["repositories"][0]["languages"] == {"Python": 80.0}
+    mock_search.assert_awaited_once_with(
+        ANY, search=None, topics=None, language="Python", limit=DEFAULT_LIST_LIMIT + 1, after_slug=None
     )
 
 
@@ -707,7 +722,7 @@ async def test_list_repositories_cursor_is_forwarded_as_after_slug():
         await list_repositories(search="api", cursor=_encode_cursor({"slug": "group/repo-4"}))
 
     mock_search.assert_awaited_once_with(
-        ANY, search="api", topics=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug="group/repo-4"
+        ANY, search="api", topics=None, language=None, limit=DEFAULT_LIST_LIMIT + 1, after_slug="group/repo-4"
     )
 
 
