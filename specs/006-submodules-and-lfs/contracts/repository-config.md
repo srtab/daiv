@@ -14,11 +14,13 @@ checkout:
 
 | Option | Type | Default | Behaviour |
 |---|---|---|---|
-| `checkout.submodules` | `bool` | `false` | DAIV checks out the repository's submodules, nested ones included, at the commits the branch records. It fetches only submodules on the same git platform host, and only those the run's person can read. Changes inside submodules are not published. |
+| `checkout.submodules` | `bool` | `false` | DAIV checks out the repository's submodules, nested ones included, at the commits the branch records. It fetches only submodules on the same git platform host, and only those the run's person can read. Changes inside a submodule whose repository the person can write, and DAIV works on, become a merge request there, and this repository's merge request points the submodule at it. Changes inside other submodules are not published. |
 | `checkout.lfs` | `bool` | `false` | DAIV downloads the content of LFS-tracked files, in the repository and in the submodules it checked out, up to the operator's limit. Changes to LFS-tracked files, new ones included, are not published. |
 
 - The file is read from the default branch, so a merge request cannot turn either setting on for its own runs.
-- Each repository of a session (main and extra) follows its own file.
+- Each repository of a session (main and extra) follows its own file. A submodule's own `.daiv.yml` gives its
+  default branch, omitted content and context file name when DAIV publishes it, as for an extra repository; its
+  `checkout` section is not read, since nested submodules follow the repository that started the clone.
 - As elsewhere in `.daiv.yml`, an unknown key under `checkout` is ignored. An invalid value makes DAIV log the error
   and use the default configuration for the whole file, so both settings are off.
 

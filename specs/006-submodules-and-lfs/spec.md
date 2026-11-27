@@ -125,6 +125,7 @@ A repository has a submodule on another host, a submodule the run may not fetch,
 - A submodule merge request is closed without merging: DAIV changes nothing; the superproject's merge request still names it.
 - The person loses write access to a submodule's repository between turns: from that turn the submodule is read-only, and its open merge request stays as it is.
 - A submodule's merge request merges while the superproject's branch no longer records the commit DAIV pushed: DAIV changes nothing and says so in the session.
+- DAIV can't ask the platform what a merged submodule merge request produced: the session records that the pointer couldn't be checked, and the operator's logs name the merge request.
 
 ## Requirements *(mandatory)*
 
@@ -163,7 +164,7 @@ A repository has a submodule on another host, a submodule the run may not fetch,
 - **Submodule checkout**: one submodule of a cloned repository: its path, the URL in `.gitmodules` at the run's ref, the commit the superproject records, the platform repository the URL resolves to, whether it was fetched or why not, and whether DAIV publishes changes inside it or why not.
 - **LFS file**: an LFS-tracked path in a cloned repository: its pointer, whether its content was fetched or why not.
 - **Checkout report**: what one clone fetched and left out, with reasons. The agent reads it at the start of each run, and the publish uses it to tell the files it keeps out and the submodules it publishes.
-- **Session repository**: a repository a session works in beyond its main one. Today, an extra repository the person chose. With this feature, also each submodule repository DAIV fetched, with its path and parent; a published one carries its working branch and merge request like an extra repository.
+- **Session submodule**: a submodule repository DAIV fetched in a session: its path and parent, and once published its working branch, the last commit DAIV pushed and its merge request, as an extra repository has. Together with the session's other repositories, it decides who may see the session.
 
 ## Success Criteria *(mandatory)*
 

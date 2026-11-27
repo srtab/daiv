@@ -1,6 +1,6 @@
 ---
 
-description: "Task list for submodule and Git LFS checkout"
+description: "Task list for submodule and Git LFS checkout, and publishing submodule changes"
 ---
 
 # Tasks: Submodules and Git LFS
@@ -16,22 +16,29 @@ behaviour change.
 - **Stubs:** tests stub every git-platform client and the sandbox, and make no network call.
 - **Real git:** git runs for real on temporary local repositories, as `test_git_manager.py` does. A stub client
   resolves platform paths to local bare repositories, and `RepoCheckout` is built with `allowed_protocol="file"` in
-  tests (research R12).
+  tests (research R12). Submodule publish tests push to local bare remotes, one per repository.
 - **LFS:** `git lfs pull` and `git lfs smudge` are stubbed at `RepoCheckout`'s command boundary. Stat and index
   behaviour runs on real git, with a test-only clean filter standing in for git-lfs.
 - **Constants:** a test that shortens GitLab's propagation retry patches the module constant
   `codebase.clients.gitlab.client.CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS`, never `time`.
+- **Database:** tests that touch models or the drain use `django_db(transaction=True)` where the code under test opens
+  its own transactions, as the existing inbox and executor tests do.
 
-Principle V: the prompt section and the notice render only for opted-in repositories, which no eval case has. No
-eval runs, and the pull request declares the change unmeasured (T057).
+Principle V: the prompt section, the notice and the `submodule_merged` prompt render only for opted-in repositories
+or sessions that published a submodule, which no eval case has. No eval runs, and the pull request declares the
+change unmeasured (T097).
 
-**Organization**: tasks are grouped by user story. US1 (submodules) is the MVP. US2 (LFS) is independent of US1 once
-Phase 2 is done. US3 (failures degrade the run) builds on both.
+**Organization**: tasks are grouped by user story.
+
+- **US1** (read submodules) is the MVP.
+- **US2** (publish submodule changes) builds on US1.
+- **US3** (LFS) depends only on Phase 2.
+- **US4** (failures degrade the run) builds on the other three.
 
 ## Format: `[ID] [P?] [Story] Description`
 
 - **[P]**: can run in parallel (different files, no dependency on an incomplete task)
-- **[Story]**: the user story the task belongs to (US1, US2, US3)
+- **[Story]**: the user story the task belongs to (US1, US2, US3, US4)
 
 ## Path Conventions
 
@@ -45,9 +52,10 @@ Phase 2 is done. US3 (failures degrade the run) builds on both.
 
 **Purpose**: approval, the refined spec and a clean baseline.
 
-- [X] T001 Record the maintainer's approval of plan.md and refinement SR1 in the **Status** line of specs/006-submodules-and-lfs/plan.md (done 2026-11-27).
+- [X] T001 Record the maintainer's approval of plan.md and refinement SR1 in the **Status** line of specs/006-submodules-and-lfs/plan.md (done 2026-11-27, for the read-only plan).
 - [X] T002 Apply SR1 from specs/006-submodules-and-lfs/research.md (R4) to FR-005 of specs/006-submodules-and-lfs/spec.md, and record it under **Clarifications** (done 2026-11-27).
-- [ ] T003 Run `make test` once before any change and note pre-existing failures, so later ones can be told apart.
+- [ ] T003 Record the maintainer's approval of the 2026-11-27 revision: the **Status** line of specs/006-submodules-and-lfs/plan.md and the five **Needs approval** items under **For the maintainer's eye**. Apply any change the approval asks for to the spec, the research and these tasks before Phase 2 starts.
+- [ ] T004 Run `make test` once before any change and note pre-existing failures, so later ones can be told apart.
 
 ---
 
@@ -56,7 +64,7 @@ Phase 2 is done. US3 (failures degrade the run) builds on both.
 **Purpose**: the settings, the value types, the credential hook, the access predicate and the plumbing every story
 writes into:
 
-- the report on `RepoHandle`;
+- the report and the workspace path on `RepoHandle`;
 - `PublishScope` and `KeptOut` through `GitManager` and the publisher;
 - the prompt section and the turn-end notice.
 
@@ -66,81 +74,87 @@ With both settings off, every command, prompt and reply stays as it is today (FR
 
 ### Tests for Phase 2
 
-- [ ] T004 [P] In tests/unit_tests/codebase/test_repo_config.py, assert that `RepositoryConfig().checkout` has `submodules is False` and `lfs is False`, and that YAML `checkout: {submodules: true, lfs: true}` parses to both `True`.
-- [ ] T005 [P] In tests/unit_tests/codebase/clients/test_base.py:
+- [ ] T005 [P] In tests/unit_tests/codebase/test_repo_config.py, assert that `RepositoryConfig().checkout` has `submodules is False` and `lfs is False`, and that YAML `checkout: {submodules: true, lfs: true}` parses to both `True`.
+- [ ] T006 [P] In tests/unit_tests/codebase/clients/test_base.py:
   - `RepoClient.with_git_auth(repository, operation)` calls `operation` once with `get_git_auth_env(repository)`;
   - `complete_checkout(repo, repository, CheckoutOptions.off(), DENY_ALL)` returns a report whose `is_empty` is true and runs no git command (spy on `RepoCheckout`'s command runner).
-- [ ] T006 [P] In tests/unit_tests/codebase/clients/gitlab/test_client.py, test `GitLabClient.with_git_auth`. With `CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS` patched to zeros:
+- [ ] T007 [P] In tests/unit_tests/codebase/clients/gitlab/test_client.py, test `GitLabClient.with_git_auth`. With `CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS` patched to zeros:
   - an auth error is retried with the same ephemeral token through the backoff;
   - once the retries are spent, the cached token is invalidated (`invalidate_clone_token`) and one fresh token is tried;
   - a PAT token is never retried;
   - a non-auth error propagates at once.
 
   The existing `load_repo` tests keep passing unchanged, proving `_clone` now goes through `with_git_auth`.
-- [ ] T007 [P] In tests/unit_tests/codebase/clients/github/test_client.py, assert that `GitHubClient.with_git_auth` mints a repository-scoped installation token (`_mint_installation_token`) on each call and passes its `GitAuthEnv` to the operation.
-- [ ] T008 [P] In tests/unit_tests/codebase/test_authorization.py, test `platform_account_can_view(uid, repo_id)`:
-  - true with a fresh `RepositoryAccess` row for the configured provider, uid and repository;
-  - false with no row, with a row past the hard TTL, or with a row for another provider.
-- [ ] T009 [P] In tests/unit_tests/automation/agent/test_context.py, test `set_runtime_ctx`:
+- [ ] T008 [P] In tests/unit_tests/codebase/clients/github/test_client.py, assert that `GitHubClient.with_git_auth` mints a repository-scoped installation token (`_mint_installation_token`) on each call and passes its `GitAuthEnv` to the operation.
+- [ ] T009 [P] In tests/unit_tests/codebase/test_authorization.py:
+  - `platform_account_can_view(uid, repo_id)` is true with a fresh `RepositoryAccess` row for the configured provider, uid and repository, and false with no row, a row past the hard TTL, or a row for another provider;
+  - `platform_account_can_write(uid, repo_id)` is true only for a fresh row with `access_level="write"`;
+  - `is_catalogued(repo_id)` is true only for a repository in `RepositoryCatalog`.
+- [ ] T010 [P] In tests/unit_tests/automation/agent/test_context.py, test `set_runtime_ctx`:
   - it calls `repo_client.complete_checkout` once per repository, main and extra, after the clones;
-  - each call gets `CheckoutOptions` built from that repository's own `RepositoryConfig.checkout` and `CODEBASE_LFS_MAX_CLONE_BYTES`, and the `read_access` passed to `set_runtime_ctx` (`DENY_ALL` when omitted);
+  - each call gets `CheckoutOptions` built from that repository's own `RepositoryConfig.checkout`, `CODEBASE_LFS_MAX_CLONE_BYTES` and the session's repository ids, and the `access` passed to `set_runtime_ctx` (`DENY_ALL` when omitted);
   - each call runs in a worker thread, not on the event loop (assert `threading.current_thread()` is not the loop's);
-  - `RepoHandle.checkout` holds the returned report.
-- [ ] T010 [P] In tests/unit_tests/sessions/executor/test_run.py, assert the predicate the executor passes as `read_access`, by the run's person:
-  - a `Run` whose `user` is set checks `codebase.authorization.can_view(user, repo_id)`;
-  - a `Run` with only `external_uid` checks `platform_account_can_view(external_uid, repo_id)`;
-  - a `Run` with neither, or a spec with no `run_id`, denies every repository;
+  - `RepoHandle.checkout` holds the returned report;
+  - `RepoHandle.workspace_path` is `/workspace/repo` for the main handle and `/workspace/repos/<slug>` for an extra one, and the git system prompt's "Other repositories" lines are unchanged byte for byte.
+- [ ] T011 [P] In tests/unit_tests/sessions/executor/test_run.py, assert the `RunRepoAccess` the executor passes as `access`, by the run's person:
+  - a `Run` whose `user` is set: `can_read` checks `can_view(user, repo_id)` and `can_write` checks `can_run(user, repo_id)`;
+  - a `Run` with only `external_uid`: `platform_account_can_view` and `platform_account_can_write`;
+  - `daiv_can_publish` checks `is_catalogued` for every person;
+  - a `Run` with neither, or a spec with no `run_id`, answers no to all three;
   - a run with `acts_as_user=False` still checks its attributed person.
-
-  Use `django_db(transaction=True)`.
-- [ ] T011 [P] In tests/unit_tests/automation/agent/middlewares/test_git.py:
+- [ ] T012 [P] In tests/unit_tests/automation/agent/middlewares/test_git.py:
   - with every handle's report empty, the rendered git system prompt equals today's byte for byte;
-  - with a report holding checked-out and skipped submodules and skipped LFS files, the section from contracts/agent-context.md §1 renders once per such repository, in repository order;
+  - with a report holding checked-out and skipped submodules and skipped LFS files, the section of contracts/agent-context.md §1 renders once per such repository, in repository order, with every checked-out submodule in the read-only list and no reason (T045 adds the published list and the `PublishBlock` phrases);
   - lists stop at 20 entries plus "and N more";
   - each `SkipReason` renders its phrase verbatim;
   - a URL's user info never appears;
   - the "not published" bullet renders whenever either setting is on;
   - a `KeptOut` on the main outcome or on an extra repository's `RepoPublish` adds the notice of §2 as a visible assistant message beside any conflicts notice, naming the repository when the session has extra repositories. An empty `KeptOut` adds nothing.
-- [ ] T012 [P] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, assert that `status_snapshot(..., scope=PublishScope())`, `fast_forward(branch)` and `commit_all(message)` send exactly today's git argument lists (record the runner's calls), and that `RepoStatus.kept_out` is empty.
+- [ ] T013 [P] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, assert that `status_snapshot(..., scope=PublishScope())`, `fast_forward(branch)`, `commit_all(message)` and `push_head_to(..., integrate_on_reject=True)` send exactly today's git argument lists (record the runner's calls), and that `RepoStatus.kept_out` is empty.
+- [ ] T014 [P] In tests/unit_tests/automation/agent/test_git_state.py, assert that `RepoPublish` round-trips `kept_out`, `submodule_path` and `parent_repo_id` through `to_state` and `from_state`, and that a state written before this change (without the keys) loads with `""` and `None`.
 
 ### Implementation for Phase 2
 
-- [ ] T013 [P] In daiv/codebase/repo_config.py, add `class Checkout(BaseModel)` with `submodules: bool = Field(default=False, description=...)` and `lfs: bool = Field(default=False, description=...)`, and `RepositoryConfig.checkout: Checkout = Field(default_factory=Checkout, description=...)`, after `memory`.
-- [ ] T014 [P] In daiv/codebase/conf.py, add `LFS_MAX_CLONE_BYTES: int = Field(default=268435456, ge=0, description=...)`. The environment variable is `CODEBASE_LFS_MAX_CLONE_BYTES`, and `0` downloads no LFS content.
-- [ ] T015 [P] First move `_INHERITED_ENV` out of daiv/automation/agent/workspace/git_runners.py into daiv/codebase/clients/base.py as `GIT_INHERITED_ENV`, beside `GIT_NO_PROMPT_ENV`, and import it back in git_runners.py: `codebase` must not import `automation` (layering). Then create daiv/codebase/clients/checkout.py with the types of data-model.md:
-  - `CheckoutOptions` (frozen): `submodules`, `lfs`, `lfs_max_bytes`, with classmethods `off()` and `from_config(checkout, lfs_max_bytes)`;
-  - `RepoReadAccess` (Protocol, `__call__(repo_id: str) -> bool`) and `DENY_ALL`;
+- [ ] T015 [P] In daiv/codebase/repo_config.py, add `class Checkout(BaseModel)` with `submodules: bool = Field(default=False, description=...)` and `lfs: bool = Field(default=False, description=...)`, and `RepositoryConfig.checkout: Checkout = Field(default_factory=Checkout, description=...)`, after `memory`.
+- [ ] T016 [P] In daiv/codebase/conf.py, add `LFS_MAX_CLONE_BYTES: int = Field(default=268435456, ge=0, description=...)`. The environment variable is `CODEBASE_LFS_MAX_CLONE_BYTES`, and `0` downloads no LFS content.
+- [ ] T017 [P] First move `_INHERITED_ENV` out of daiv/automation/agent/workspace/git_runners.py into daiv/codebase/clients/base.py as `GIT_INHERITED_ENV`, beside `GIT_NO_PROMPT_ENV`, and import it back in git_runners.py: `codebase` must not import `automation` (layering). Then create daiv/codebase/clients/checkout.py with the types of data-model.md:
+  - `CheckoutOptions` (frozen): `submodules`, `lfs`, `lfs_max_bytes`, `session_repo_ids`, `branches`, `pins`, with classmethods `off()` and `from_config(checkout, lfs_max_bytes, *, session_repo_ids, branches, pins)`;
+  - `RunRepoAccess` (Protocol: `can_read`, `can_write`, `daiv_can_publish`) and `DENY_ALL`;
   - `SkipReason` (StrEnum): `outside_platform`, `daiv_no_access`, `person_no_access`, `commit_missing`, `over_limit`, `fetch_failed`;
-  - `SubmoduleCheckout` (frozen): `path`, `url`, `repo_id: str | None`, `commit`, `skipped: SkipReason | None`;
-  - `LfsFile` (frozen): `path`, `size`, `skipped: SkipReason | None`;
-  - `CheckoutReport` (frozen): `options`, `submodules`, `lfs_files`, with `skipped_submodules`, `skipped_lfs_files`, `is_empty` and `EMPTY`;
-  - class `RepoCheckout(client, *, options, read_access, allowed_protocol="https", lfs_filter_config=LFS_FILTER_CONFIG)`, whose `complete(repo, repository) -> CheckoutReport` returns the empty report for `options.off()`. `LFS_FILTER_CONFIG` holds the `filter.lfs.*` keys that run git-lfs; tests pass a test-only clean filter instead. Its command runner runs git subprocesses with the environment it is given, built from `GIT_INHERITED_ENV` and never from `os.environ` whole; tests replace it.
-- [ ] T016 In daiv/codebase/clients/base.py, add two concrete `RepoClient` methods:
+  - `PublishBlock` (StrEnum): `published_elsewhere`, `parent_not_published`, `daiv_no_write`, `person_no_write`;
+  - `SubmoduleCheckout` (frozen) with every field of data-model.md; `LfsFile` (frozen): `path`, `size`, `skipped`;
+  - `CheckoutReport` (frozen): `options`, `submodules`, `lfs_files`, with `skipped_submodules`, `checked_out_submodules`, `skipped_lfs_files`, `is_empty` and `EMPTY`;
+  - class `RepoCheckout(client, *, options, access, allowed_protocol="https", lfs_filter_config=LFS_FILTER_CONFIG)`, whose `complete(repo, repository, *, parent_base_branch) -> CheckoutReport` returns the empty report for `options.off()`. `LFS_FILTER_CONFIG` holds the `filter.lfs.*` keys that run git-lfs; tests pass a test-only clean filter instead. Its command runner runs git subprocesses with the environment it is given, built from `GIT_INHERITED_ENV` and never from `os.environ` whole; tests replace it.
+- [ ] T018 In daiv/codebase/clients/base.py, add two concrete `RepoClient` methods:
   - `with_git_auth(repository, operation: Callable[[GitAuthEnv | None], T]) -> T`, which calls `operation(self.get_git_auth_env(repository))` once;
-  - `complete_checkout(repo, repository, options, read_access) -> CheckoutReport`, which returns `RepoCheckout(self, options=options, read_access=read_access).complete(repo, repository)`.
-- [ ] T017 In daiv/codebase/clients/gitlab/client.py, override `with_git_auth`. Move into it the propagation retry (`_clone_awaiting_token_propagation`) and the stale-token self-heal from `_clone`, generalised over `operation`. The PAT is still never retried. Rewrite `_clone` to call `self.with_git_auth(repository, clone_with)`, where `clone_with` removes a partial clone directory before each attempt, as today.
-- [ ] T018 [P] In daiv/codebase/clients/github/client.py, override `with_git_auth` to mint `_mint_installation_token(repository)` per call and pass `GitAuthEnv.for_token(repository.clone_url, token)`. Make `load_repo` clone through it.
-- [ ] T019 [P] In daiv/codebase/authorization.py, add `platform_account_can_view(uid: str, repo_id: str) -> bool`. It reads `_fresh_rows(uid).filter(repo_id=repo_id).exists()`, after `_maybe_enqueue_backstop()`, as `_resolve_uid` does.
-- [ ] T020 In daiv/automation/agent/context.py:
-  - add `RepoHandle.checkout: CheckoutReport` (default `CheckoutReport.EMPTY`);
-  - add `read_access: RepoReadAccess = DENY_ALL` to `set_runtime_ctx`;
-  - after the clones, complete every handle with `asyncio.gather(*(asyncio.to_thread(repo_client.complete_checkout, h.gitrepo, h.repository, CheckoutOptions.from_config(h.config.checkout, codebase_settings.LFS_MAX_CLONE_BYTES), read_access) for h in handles))`, and rebuild each handle with `dataclasses.replace(handle, checkout=report)` before building `RuntimeCtx`.
-- [ ] T021 In daiv/sessions/executor/run.py, build the `read_access` predicate from the run's person and pass it to `set_runtime_ctx`:
+  - `complete_checkout(repo, repository, options, access, *, parent_base_branch="") -> CheckoutReport`, which returns `RepoCheckout(self, options=options, access=access).complete(repo, repository, parent_base_branch=parent_base_branch)`.
+- [ ] T019 In daiv/codebase/clients/gitlab/client.py, override `with_git_auth`. Move into it the propagation retry (`_clone_awaiting_token_propagation`) and the stale-token self-heal from `_clone`, generalised over `operation`. The PAT is still never retried. Rewrite `_clone` to call `self.with_git_auth(repository, clone_with)`, where `clone_with` removes a partial clone directory before each attempt, as today.
+- [ ] T020 [P] In daiv/codebase/clients/github/client.py, override `with_git_auth` to mint `_mint_installation_token(repository)` per call and pass `GitAuthEnv.for_token(repository.clone_url, token)`. Make `load_repo` clone through it.
+- [ ] T021 [P] In daiv/codebase/authorization.py, add:
+  - `platform_account_can_view(uid, repo_id) -> bool`: `_fresh_rows(uid).filter(repo_id=repo_id).exists()`, after `_maybe_enqueue_backstop()`, as `_resolve_uid` does;
+  - `platform_account_can_write(uid, repo_id) -> bool`: the same, filtered on `access_level=RepoAccessLevel.WRITE`;
+  - `is_catalogued(repo_id) -> bool`: the check `assert_catalogued` makes, returning a bool.
+- [ ] T022 In daiv/automation/agent/context.py:
+  - add `RepoHandle.checkout: CheckoutReport` (default `CheckoutReport.EMPTY`) and `RepoHandle.workspace_path: str`, set to `REPO_PATH` for the main handle and `f"{EXTRA_REPOS_PATH}/{slug}"` for an extra one; make every caller of `extra_repo_path(handle)` read `handle.workspace_path`, then remove `extra_repo_path`;
+  - add `access: RunRepoAccess = DENY_ALL` to `set_runtime_ctx`;
+  - after the clones, complete every handle with `asyncio.gather(*(asyncio.to_thread(repo_client.complete_checkout, h.gitrepo, h.repository, CheckoutOptions.from_config(h.config.checkout, codebase_settings.LFS_MAX_CLONE_BYTES, session_repo_ids=..., branches=..., pins=...), access) for h in handles))`, and rebuild each handle with `dataclasses.replace(handle, checkout=report)` before building `RuntimeCtx`. Until US2, `branches` and `pins` are empty.
+- [ ] T023 In daiv/sessions/executor/run.py, build `RunRepoAccess` from the run's person and pass it to `set_runtime_ctx` as `access`:
   - load `user` (with `is_admin`), `external_provider` and `external_uid` from `Run` by `spec.run_id`;
-  - a user → `can_view(user, repo_id)`; only an external uid → `platform_account_can_view(uid, repo_id)`; neither, or no `run_id` → `DENY_ALL`.
+  - a user → `can_view` and `can_run`; only an external uid → `platform_account_can_view` and `platform_account_can_write`; neither, or no `run_id` → `DENY_ALL`;
+  - `daiv_can_publish` → `is_catalogued`.
 
-  Keep it a small class (`RunReadAccess`) with `__call__`, per code-organization rule 1. It runs in the checkout's worker thread, so its ORM calls are synchronous.
-- [ ] T022 In daiv/automation/agent/workspace/git_manager.py:
-  - add `PublishScope` (frozen; `submodules: bool = False`, `lfs: bool = False`, `from_config(checkout)`);
-  - add `KeptOut` (`lfs_paths`, `submodules`, falsy when empty) and `KeptOutSubmodule` (`path`, `commit_moved`, `changed_files` capped at 20, `more`);
-  - add `RepoStatus.kept_out`;
-  - add `scope: PublishScope = PublishScope()` to `status_snapshot` and `fast_forward`, and `keep_out: Sequence[str] = ()` to `commit_all`. With the defaults, all three send exactly today's commands;
+  Keep it a small class (`RunRepoAccess` implementation, e.g. `PersonRepoAccess`) with the three methods, per code-organization rule 1. It runs in the checkout's worker thread, so its ORM calls are synchronous.
+- [ ] T024 In daiv/automation/agent/workspace/git_manager.py:
+  - add `PublishScope` (frozen; `submodules: bool = False`, `lfs: bool = False`, `record: Mapping[str, str] = {}` as an immutable default, `from_config(checkout, record=...)`);
+  - add `KeptOut` (`lfs_paths`, `submodules`, falsy when empty) and `KeptOutSubmodule` (`path`, `commit_moved`, `removed`, `remote_moved`, `block`, `changed_files` capped at 20, `more`);
+  - add `RepoStatus.kept_out` and `RepoStatus.remote_head`;
+  - add `scope: PublishScope = PublishScope()` to `status_snapshot`, `fast_forward` and `push_head_to` (which hands it to `_integrate_remote`), and `keep_out: Sequence[str] = ()` and `record: Mapping[str, str] = {}` to `commit_all`. With the defaults, all four send exactly today's commands;
   - in daiv/automation/agent/workspace/disk.py and daiv/automation/agent/workspace/sandbox.py, make `fast_forward(branch)` pass `PublishScope.from_config(self._ctx.config.checkout)`.
-- [ ] T023 Thread the scope and the result through the publisher:
-  - daiv/automation/agent/publishers.py: `GitChangePublisher.publish` passes `PublishScope.from_config(self.ctx.config.checkout)` to `status_snapshot`, and the snapshot's kept-out paths (gitlinks and LFS paths) to `commit_all`; `PublishOutcome` gains `kept_out: KeptOut | None`, which `_apublish_extra_repo` copies onto `RepoPublish`;
-  - daiv/automation/agent/git_state.py: `RepoPublish.kept_out`, round-tripped through `to_state` and `from_state`.
-- [ ] T024 In daiv/automation/agent/middlewares/git.py:
-  - render the per-repository section of contracts/agent-context.md §1 from `handle.checkout` in `GIT_SYSTEM_PROMPT` (mustache data built in `awrap_model_call`; nothing renders for an empty report);
+- [ ] T025 Thread the scope and the result through the publisher:
+  - daiv/automation/agent/publishers.py: `GitChangePublisher.publish` takes an optional `scope` (default `PublishScope.from_config(self.ctx.config.checkout)`), passes it to `status_snapshot` and `push_head_to`, and passes the snapshot's kept-out paths (gitlinks and LFS paths) to `commit_all`; `PublishOutcome` gains `kept_out: KeptOut | None`, which `_apublish_extra_repo` copies onto `RepoPublish`;
+  - daiv/automation/agent/git_state.py: `RepoPublish.kept_out`, `submodule_path: str = ""` and `parent_repo_id: str = ""`, round-tripped through `to_state` and `from_state`.
+- [ ] T026 In daiv/automation/agent/middlewares/git.py:
+  - render the per-repository section of contracts/agent-context.md §1 from `handle.checkout` in `GIT_SYSTEM_PROMPT` (mustache data built in `awrap_model_call`; nothing renders for an empty report). Until T067, every checked-out submodule is listed as read-only;
   - add `_kept_out_notice(kept_out, where)`, rendering §2, to the turn-end messages beside `_conflicts_notice`, for the main outcome and for each extra repository.
 
 **Checkpoint**: settings parse, and every run completes an empty checkout. Prompts, commands and replies are unchanged
@@ -151,76 +165,210 @@ for repositories that leave both settings off.
 ## Phase 3: User Story 1 - The agent works with the code in a repository's submodules (Priority: P1) 🎯 MVP
 
 **Goal**: with `checkout.submodules: true`, every reachable submodule the person can read is checked out, recursively
-and on both platforms, each with its own credential. Changes inside submodules are never published, and are named in
-the reply.
+and on both platforms, each with its own credential. Until US2, changes inside submodules are never published, and
+are named in the reply.
 
-**Independent Test**: spec US1, and quickstart scenarios 1–7 for submodules.
+**Independent Test**: spec US1, and quickstart scenarios 1, 2, 4, 7, 12, 13 and 15 for submodules.
 
 ### Tests for User Story 1
 
-- [ ] T025 [P] [US1] In tests/unit_tests/codebase/clients/test_checkout.py, test URL resolution (research R2), using a stub client whose clone URL is `https://git.example.com/group/app.git`:
+- [ ] T027 [P] [US1] In tests/unit_tests/codebase/clients/test_checkout.py, test URL resolution (research R2), using a stub client whose clone URL is `https://git.example.com/group/app.git`:
   - `../lib.git` → `group/lib`;
   - `https://git.example.com/group/lib.git` → `group/lib`;
   - `git@git.example.com:group/lib.git` → `group/lib`;
   - `ssh://git@git.example.com:2222/group/lib.git` → `group/lib`;
   - a nested `../inner.git` resolves against its parent's resolved URL;
   - `https://other.example.com/x.git`, `file:///tmp/x`, `/tmp/x`, `ext::sh -c x` and `git://git.example.com/x.git` give `outside_platform`, with no git command run for them;
-  - `submodule.<name>.url` in the parent's `.git/config` is rewritten to `https://git.example.com/group/lib.git`;
+  - `submodule.<name>.url` in the parent's `.git/config` is rewritten to the stub repository's `clone_url`, and the checked-out submodule's `remote.origin.url` equals it;
   - the report's `url` has user info stripped.
-- [ ] T026 [US1] In tests/unit_tests/codebase/clients/test_checkout.py, with real git, `allowed_protocol="file"` and a stub client mapping `group/lib` and `group/inner` to local bare repositories, test a superproject with `libs/lib` (holding a nested `vendor/inner`):
+- [ ] T028 [US1] In tests/unit_tests/codebase/clients/test_checkout.py, with real git, `allowed_protocol="file"` and a stub client mapping `group/lib` and `group/inner` to local bare repositories, test a superproject with `libs/lib` (holding a nested `vendor/inner`):
   - both are checked out at the recorded commits, not at the branch tips;
   - the report lists `libs/lib` and `libs/lib/vendor/inner` in that order;
   - `git status --porcelain` in the superproject is empty.
-- [ ] T027 [US1] In tests/unit_tests/codebase/clients/test_checkout.py, test access:
+- [ ] T029 [US1] In tests/unit_tests/codebase/clients/test_checkout.py, test access:
   - `get_repository` raising → `daiv_no_access`, the directory stays empty and `with_git_auth` is never called;
-  - `read_access` returning false → `person_no_access`, with the same effects, and its nested submodules are absent from the report;
+  - `can_read` returning false → `person_no_access`, with the same effects, and its nested submodules are absent from the report;
   - `DENY_ALL` checks out nothing.
-- [ ] T028 [US1] In tests/unit_tests/codebase/clients/test_checkout.py, test credentials:
+- [ ] T030 [US1] In tests/unit_tests/codebase/clients/test_checkout.py, test credentials:
   - each submodule's commands run inside `client.with_git_auth(<that submodule's Repository>, ...)`;
   - their environment holds that `GitAuthEnv`'s header and not the main repository's;
   - `GIT_ALLOW_PROTOCOL` equals the allowed protocol;
   - the update runs with `core.hooksPath=/dev/null` and `--checkout`, so a `.gitmodules` `update = !cmd` never runs (assert a marker file is not created).
-- [ ] T029 [P] [US1] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, with real git and a superproject holding a checked-out submodule and `PublishScope(submodules=True)`:
+- [ ] T031 [P] [US1] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, with real git and a superproject holding a checked-out submodule and `PublishScope(submodules=True)`:
   - an edit inside the submodule only → `status_snapshot` reports `dirty` false, an empty diff, and `kept_out.submodules[0].changed_files == ("f",)`;
   - an edit in the superproject and inside the submodule → `commit_all` commits only the superproject file;
   - the submodule's HEAD moved → the gitlink is not in the commit, and `commit_moved` is true;
   - the submodule's directory deleted, or moved with `git mv` → neither the gitlink's deletion nor its rename is in the commit, and `removed` is true for the old path;
+  - a repository cloned inside the checkout, or a submodule added with `git submodule add` → no new gitlink is in the commit, `added` is true, and the `.gitmodules` edit is committed like any file;
   - more than 20 changed files → 20 names and `more`;
   - `fast_forward` on a checkout whose only local changes are inside the submodule still answers `advanced` when the remote moved ahead.
-- [ ] T030 [P] [US1] In tests/unit_tests/automation/agent/test_publishers.py, test the publish:
+- [ ] T032 [P] [US1] In tests/unit_tests/automation/agent/test_publishers.py, test the publish:
   - a turn whose only change is inside a submodule publishes nothing, raises nothing, and returns `kept_out` (FR-013);
-  - FR-014, with a local bare "origin": a publish integrates a remote commit that moved the gitlink, and its submodule's checkout still sits at the old commit. A second publish from the same checkout must then push a branch whose gitlink is still the remote's. Without T034's reset, `git add -A` stages the old commit and the test fails.
-- [ ] T031 [P] [US1] In tests/unit_tests/automation/agent/workspace/test_session.py, assert that `_make_repo_archive` keeps `.git/modules/**` and the submodule's `.git` file, and that `git status --porcelain` is empty in a copy extracted with `tarfile`.
+  - FR-014, with a local bare "origin": a publish integrates a remote commit that moved the gitlink, and its submodule's checkout still sits at the old commit. A second publish from the same checkout must then push a branch whose gitlink is still the remote's. Without T036's reset, `git add -A` stages the old commit and the test fails.
+- [ ] T033 [P] [US1] In tests/unit_tests/automation/agent/workspace/test_session.py, assert that `_make_repo_archive` keeps `.git/modules/**` and the submodule's `.git` file, and that `git status --porcelain` is empty in a copy extracted with `tarfile`.
 
 ### Implementation for User Story 1
 
-- [ ] T032 [US1] In daiv/codebase/clients/checkout.py, implement the reading of `.gitmodules` (`git config -f .gitmodules -z --get-regexp '^submodule\..*\.(path|url)$'`), the URL resolution and the host and protocol policy of research R2, and the rewrite of `submodule.<name>.url`.
-- [ ] T033 [US1] In daiv/codebase/clients/checkout.py, implement each submodule's checkout (research R3):
-  - `client.get_repository(repo_id)` (`daiv_no_access` when it raises), then `read_access(repo_id)` (`person_no_access`);
-  - inside `client.with_git_auth(sub_repository, ...)`: `git submodule init -- <path>`, the URL rewrite, then `git -c core.hooksPath=/dev/null submodule update --checkout -- <path>`, with an environment of only `GitAuthEnv.as_env()`, `GIT_NO_PROMPT_ENV`, `GIT_ALLOW_PROTOCOL` and the variables `GIT_INHERITED_ENV` lists (T015);
-  - recursion into the submodule's own `.gitmodules`.
-- [ ] T034 [US1] In daiv/automation/agent/workspace/git_manager.py, with `scope.submodules`, implement research R8 for submodules:
+- [ ] T034 [US1] In daiv/codebase/clients/checkout.py, implement the reading of `.gitmodules` (`git config -f .gitmodules -z --get-regexp '^submodule\..*\.(path|url|branch)$'`), the URL resolution and the host and protocol policy of research R2, and the rewrite of `submodule.<name>.url` to the looked-up repository's `clone_url`.
+- [ ] T035 [US1] In daiv/codebase/clients/checkout.py, implement each submodule's checkout (research R3):
+  - `client.get_repository(repo_id)` (`daiv_no_access` when it raises), then `access.can_read(repo_id)` (`person_no_access`);
+  - inside `client.with_git_auth(sub_repository, ...)`: `git submodule init -- <path>`, the URL rewrite, then `git -c core.hooksPath=/dev/null submodule update --checkout -- <path>`, with an environment of only `GitAuthEnv.as_env()`, `GIT_NO_PROMPT_ENV`, `GIT_ALLOW_PROTOCOL` and the variables `GIT_INHERITED_ENV` lists (T017);
+  - recursion into the submodule's own `.gitmodules`;
+  - `repository` on the `SubmoduleCheckout`, for US2's handle.
+- [ ] T036 [US1] In daiv/automation/agent/workspace/git_manager.py, with `scope.submodules`, implement research R8 for submodules:
   - add `--ignore-submodules=all` to the snapshot's `status` and `diff` calls;
   - add `status --porcelain=v2 -z` to batch A. Read as submodule changes every `S...` entry and every entry whose `HEAD` mode is `160000`, so a deleted or renamed submodule is kept out too;
   - add one `-C <path> status --porcelain -z` per changed submodule, in the same round trip as batch B;
   - fill `RepoStatus.kept_out`;
-  - in `commit_all`, after `add -A`, run `git --literal-pathspecs reset -q -- <paths>` when `keep_out` is non-empty;
+  - in `commit_all`, after `add -A`, run `git --literal-pathspecs reset -q -- <paths>` when `keep_out` is non-empty, plus every path `diff --cached --raw -z` shows with the new mode `160000` that `record` doesn't name, reported as `added` when HEAD has no gitlink there;
   - in `fast_forward`, add `--ignore-submodules=all` to its `status --porcelain`, so changes kept out of earlier publishes don't count as unpublished work.
 
-**Checkpoint**: US1 is shippable alone. Quickstart scenarios 1 (submodule parts), 2–7 and 9 pass.
+**Checkpoint**: US1 works alone. Every submodule is read-only until US2: nothing publishes submodules yet, the prompt
+lists every checked-out submodule as read-only, and `KeptOut` names every edit inside a submodule.
 
 ---
 
-## Phase 4: User Story 2 - The agent reads the real content of LFS-tracked files (Priority: P2)
+## Phase 4: User Story 2 - The agent's changes inside a submodule become a merge request in its repository (Priority: P2)
 
-**Goal**: with `checkout.lfs: true`, LFS files hold their content, up to the cap. git status stays clean in sandboxes
-without git-lfs, and the sandbox copy carries the content once. LFS paths are never published.
+**Goal**: changes inside submodules the person can write become a merge request in each submodule's repository,
+innermost first, and the parent records the commit DAIV pushed. The merge requests link each other, later turns
+continue on the same branches, a squash or rebase merge makes DAIV re-point the parent, and sessions that fetched a
+submodule are hidden from people who can't read it.
 
-**Independent Test**: spec US2, and quickstart scenarios 1–3 and 8 for LFS.
+**Independent Test**: spec US2, and quickstart scenarios 3, 5, 6, 8–11 and 17.
 
 ### Tests for User Story 2
 
-- [ ] T035 [P] [US2] In tests/unit_tests/codebase/clients/test_checkout.py, test LFS listing and selection (research R5), with real git and pointers committed by hand:
+- [ ] T037 [P] [US2] In tests/unit_tests/codebase/clients/test_checkout.py, test the publish verdicts and targets (research R14, R17), with stub `RunRepoAccess` answers:
+  - all checks pass → `publish_block is None`;
+  - the repository is in `session_repo_ids`, or is a submodule at an earlier path → `published_elsewhere`;
+  - a nested submodule under a blocked one → `parent_not_published`;
+  - `daiv_can_publish` false → `daiv_no_write`; `can_write` false → `person_no_write`; with both false, `daiv_no_write` wins (the R14 order);
+  - `target_branch` is `.gitmodules`' `branch` when set, the `parent_base_branch` argument for `branch = .`, and the submodule repository's default branch otherwise.
+- [ ] T038 [US2] In tests/unit_tests/codebase/clients/test_checkout.py, with real git and local bare remotes, test branch hints and pins (research R19, R21):
+  - a branch in `branches` whose head contains the recorded commit is checked out as a local branch at its head, and the report's `branch` names it;
+  - a branch that doesn't contain the recorded commit leaves the submodule detached at the recorded commit, with the R19 note;
+  - a branch missing on the remote leaves it detached with `branch == ""` and no note;
+  - a pin whose `pushed_sha` equals the recorded commit checks the submodule out detached at `merged_sha`; a pin whose `pushed_sha` differs leaves it at the recorded commit, with the R21 note.
+- [ ] T039 [P] [US2] In tests/unit_tests/codebase/clients/gitlab/test_client.py and tests/unit_tests/codebase/clients/github/test_client.py, test the two new methods with stubbed API objects:
+  - `get_merged_commit(repo_id, iid)`. GitLab: `merge_commit_sha`, else `squash_commit_sha`, else the merge request's head `sha`. GitHub: `merge_commit_sha`. `None` for an unmerged merge request.
+  - `is_ancestor(repo_id, ancestor, descendant)`. GitLab: true when `repository_merge_base([ancestor, descendant])` returns `ancestor`. GitHub: true when `compare(ancestor, descendant).status` is `ahead` or `identical`.
+- [ ] T040 [P] [US2] In tests/unit_tests/automation/agent/test_context.py, test submodule handles (research R15):
+  - each checked-out submodule becomes a `RepoHandle` in its top-level handle's `submodules`, in checkout order, with `workspace_path` `/workspace/repo/libs/lib` and `/workspace/repo/libs/lib/vendor/inner` (and under `/workspace/repos/<slug>/` for an extra repository's);
+  - its `config` comes from the submodule repository's own `RepositoryConfig`, and its `submodule` role carries the report's path, recorded commit, target branch, block and note;
+  - submodule handles are never in `ctx.repos` or `ctx.extra_repos`.
+- [ ] T041 [P] [US2] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, with real git, test `PublishScope.record` (research R16):
+  - a record entry whose commit differs from the index makes `dirty` true with no other change, and the diff the metadata reads holds `git diff --submodule=log` for it;
+  - `commit_all(..., record={"libs/lib": sha})` commits a tree whose `libs/lib` entry is `160000 commit <sha>`, while every other gitlink and kept-out path stays as in HEAD;
+  - `RepoStatus.remote_head` is the head of the given working branch on the remote, or `None` when the branch is absent.
+- [ ] T042 [P] [US2] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, test research R20 with a local bare remote:
+  - the remote branch moved `libs/lib`, and the run's commit records `libs/lib` at another commit and changes `README.md`. After `push_head_to(..., integrate_on_reject=True, scope=PublishScope(submodules=True, record={"libs/lib": ...}))`, the pushed branch has the remote's `libs/lib` and the run's `README.md`, and the outcome's `KeptOutSubmodule` has `remote_moved` true;
+  - the same with the integration as a merge (the run's commits include a merge commit);
+  - a conflict on an ordinary file still aborts with `GitPushStaleError`;
+  - a commit left empty by the resolution is dropped.
+- [ ] T043 [P] [US2] In tests/unit_tests/automation/agent/test_publishers.py, test `apublish_submodules` with real git, local bare remotes for the superproject and each submodule, and a stub merge request client:
+  - changes in the superproject and in `libs/lib` → `group/lib` is pushed first, to a new branch, and its merge request targets the handle's `target_branch`. The superproject's commit records `libs/lib` at that `pushed_sha`. The submodule's `RepoPublish` has `submodule_path="libs/lib"` and `parent_repo_id` set;
+  - only `libs/lib` changed → both repositories publish, and the superproject's commit changes the gitlink alone (US2 #2);
+  - nested changes → the order is `vendor/inner`, then `libs/lib` recording it, then the superproject recording `libs/lib`;
+  - a stubbed push failure on `libs/lib` → it has no record entry, its `RepoPublish.error` is set, and the superproject publishes its other changes with the gitlink unchanged;
+  - a blocked submodule's changes are kept out;
+  - an unchanged submodule whose `HEAD` equals its remote branch head and differs from the recorded commit is recorded; a detached unchanged submodule is not.
+- [ ] T044 [P] [US2] In tests/unit_tests/automation/agent/test_sibling_links.py, assert that `render_related_block` renders the `merges_first`, `recorded_by` and `sibling` groups of contracts/agent-context.md §4, only the groups present, and that re-rendering replaces the marker block instead of adding one.
+- [ ] T045 [P] [US2] In tests/unit_tests/automation/agent/middlewares/test_git.py:
+  - `aafter_agent` publishes in the order: main's submodules, main, then each extra repository's submodules before that repository. Submodule publishes are in `repo_publishes`;
+  - the prompt section lists published and read-only submodules as contracts/agent-context.md §1 shows, including a working branch's merge request and the R19 note;
+  - a failed submodule publish adds its line to the notice of §2;
+  - `_alink_related` runs when a submodule merge request was published in a session with no extra repository, with `merges_first` on the parent and `recorded_by` on the submodule.
+- [ ] T046 [P] [US2] In tests/unit_tests/automation/agent/workspace/test_sandbox.py and tests/unit_tests/automation/agent/workspace/test_session.py:
+  - `for_repo(sub)` runs git at `sub.workspace_path`, and its `authenticate` calls `aadd_repository(sub.repository)` once before returning the manager;
+  - `aadd_repository` appends one credential after the acquire-time ones, whose secret indices stay unchanged. It calls `update_egress` even within `CREDENTIAL_REFRESH_WINDOW_SECONDS`, and a second call for the same repository adds nothing;
+  - on disk, `for_repo(sub)` builds `LocalGitRunner` over the submodule's directory with `get_git_auth_env(sub.repository)`.
+- [ ] T047 [P] [US2] In tests/unit_tests/sessions/test_models.py, test `SessionSubmodule`: unique on `(session, repo_id)`, cascade on session delete.
+- [ ] T048 [P] [US2] In tests/unit_tests/sessions/test_managers.py:
+  - a non-owner who can read the main repository and every extra one but not a submodule row's repository doesn't see the session; one who can read all of them does; owners and admins are unaffected;
+  - `on_merge_request(iid, repo_id)` matches a `SessionSubmodule` row's merge request.
+- [ ] T049 [P] [US2] In tests/unit_tests/sessions/test_multi_repo.py:
+  - `apersist_submodule_state` writes `ref`, `pushed_sha`, the merge request fields and `diff_stats` from a submodule `RepoPublish`, skips one with an error, and clears `ref` and the merge request when the publish ran detached with no merge request;
+  - `Session.aholds_other_repositories()` is true with an extra repository or a submodule row, and false with neither.
+- [ ] T050 [P] [US2] In tests/unit_tests/memory/test_extraction_task.py, assert that extraction is skipped for a session that has a `SessionSubmodule` row and no extra repository.
+- [ ] T051 [P] [US2] In tests/unit_tests/sessions/test_page_state.py, assert a repository card for each submodule row with a merge request, labelled with its path and parent, and none for a row without one. Its `can_act` follows write access to its repository.
+- [ ] T052 [P] [US2] In tests/unit_tests/sessions/executor/test_run.py:
+  - after the checkout and before the agent runs, the executor creates a `SessionSubmodule` row per checked-out submodule whose repository is not the session's main or extra one, and leaves existing rows' state alone. Assert the row exists inside the stubbed agent call;
+  - it passes each top-level repository's `branches` from its rows, and `pins` from a taken `submodule_merged` event;
+  - at turn end, a submodule `RepoPublish` updates its `SessionSubmodule` row, not a `SessionRepository` row. Its merge request is claimed for the CI watch, and it appears in `Run.merge_requests` and `Run.sibling_pushed_shas`;
+  - a `submodule_merged` run falls back to the default branch when the session's branch is gone.
+- [ ] T053 [P] [US2] In tests/unit_tests/sessions/executor/test_recovery.py, assert that draft recovery publishes each repository's submodules before that repository, as drafts.
+- [ ] T054 [P] [US2] In tests/unit_tests/sessions/inbox/test_kinds.py, test_render.py and test_drain.py:
+  - `submodule_merged` has a registered payload and wakes the session;
+  - a run woken only by it renders the DAIV-written prompt of contracts/agent-context.md §3, in each of its three variants;
+  - a non-mention event whose requester can't read a submodule row's repository is failed as `access_denied`, while a mention is not.
+- [ ] T055 [P] [US2] In tests/unit_tests/sessions/test_submodule_merges.py (new), test `settle_submodule_merge_task` with a stub client:
+  - `pushed_sha` is an ancestor of the merged commit → `MergeArchive` settles the session as today, and no event is posted;
+  - it isn't → one waking `submodule_merged` event with the data-model payload, `InboxEvent.repo_id` the submodule's repository, and no archive;
+  - a platform error → an ERROR log naming the repository and merge request, a remembered `notice` event on the session saying the pointer couldn't be checked, and the archive settled as today;
+  - a row whose merge request iid no longer matches (the row moved on) is ignored.
+- [ ] T056 [P] [US2] In tests/unit_tests/webhooks/gitlab/test_callbacks.py, tests/unit_tests/webhooks/github/test_callbacks.py and tests/unit_tests/sessions/test_auto_archive.py:
+  - a merge of a merge request that a `SessionSubmodule` row holds calls `SubmoduleMerges(repo_id, iid).aenqueue()`, and `MergeArchive` leaves that session out;
+  - other sessions on the same merge request are archived as today;
+  - a close without merge enqueues nothing.
+
+### Implementation for User Story 2
+
+- [ ] T057 [US2] In daiv/codebase/clients/checkout.py, implement the publish verdicts and targets of research R14 and R17 for every checked-out submodule, in checkout order. Track repositories already published to detect `published_elsewhere`, and block nested submodules under a blocked parent.
+- [ ] T058 [US2] In daiv/codebase/clients/checkout.py, implement `branches` and `pins` (research R19, R21): after the recorded commit is checked out, `merge-base --is-ancestor` and `checkout -B <branch> origin/<branch>`, or `checkout --detach <merged_sha>`, inside the submodule's `with_git_auth`. Fill `branch` and `note`.
+- [ ] T059 [P] [US2] In daiv/codebase/clients/base.py, add abstract `get_merged_commit(repo_id, iid) -> str | None` and `is_ancestor(repo_id, ancestor, descendant) -> bool`. Implement both in daiv/codebase/clients/gitlab/client.py and daiv/codebase/clients/github/client.py as T039 describes, and in `SWERepoClient` (evals/swe_client.py), raising `NotImplementedError` there, since evals publish nothing.
+- [ ] T060 [US2] In daiv/automation/agent/context.py, add `SubmoduleRole` and `RepoHandle.submodules` and `RepoHandle.submodule`. After the checkout, build a handle per checked-out submodule (research R15): the report's `Repository`, `RepositoryConfig.get_config(repo_id)` in the same worker thread, `git.Repo(<clone>/<path>)`, `current_ref` and `head_detached` from the checkout, and `workspace_path`. Pass the parent's base branch to `complete_checkout` for `branch = .`. Add `submodule_branches` and `submodule_pins` to `set_runtime_ctx` and build each handle's `CheckoutOptions` from them.
+- [ ] T061 [US2] In daiv/automation/agent/workspace/git_manager.py, implement `PublishScope.record` (research R16): a record entry that differs from the index makes the snapshot dirty, adds `diff --submodule=log -- <path>` to batch B, and is excluded from `KeptOut`. `commit_all` runs `update-index --cacheinfo 160000,<sha>,<path>` per entry after the reset. Fill `RepoStatus.remote_head` from the `ls-remote` the snapshot already runs.
+- [ ] T062 [US2] In daiv/automation/agent/workspace/git_manager.py, implement research R20 in `_integrate_remote`:
+  - when the rebase or merge stops and every path in `ls-files -u -z` is a `scope.record` gitlink, write back the remote's stage with `update-index --cacheinfo` and continue (`-c core.editor=true rebase --continue`, or `commit --no-edit`), dropping an empty commit;
+  - report the paths so the publisher puts them in `KeptOut` as `remote_moved`;
+  - any other conflict keeps today's abort.
+- [ ] T063 [US2] In daiv/automation/agent/workspace/session.py, add `SandboxSession.aadd_repository(repository)` (research R18). It appends to the session's repository list and credentials, mints through the client's `get_git_egress_credential`, rebuilds with `with_platform_credentials` and calls `update_egress`, ignoring the refresh window. It is idempotent per repository.
+- [ ] T064 [US2] In daiv/automation/agent/workspace/disk.py and daiv/automation/agent/workspace/sandbox.py, make `for_repo(handle)` use `handle.workspace_path`. For a submodule handle in a sandbox, `authenticate` awaits `aadd_repository(handle.repository)` before building the manager. On disk, use the submodule's own auth environment.
+- [ ] T065 [US2] In daiv/automation/agent/publishers.py:
+  - `run_base_branch` returns `handle.submodule.target_branch` for a detached submodule handle;
+  - add `apublish_submodules(ctx, workspace, handle, *, settings, session_links, skip_ci=False, recovering=False) -> tuple[list[RepoPublish], dict[str, str]]`. It publishes `handle.submodules` whose `publish_block is None`, deepest path first. Each one's `PublishScope` follows the top-level repository's settings, plus `record` for its direct published children. It returns the `RepoPublish` entries (with `submodule_path` and `parent_repo_id`) and the record map for the top-level repository's direct children (research R16);
+  - one submodule's failure never stops the others or its parent.
+- [ ] T066 [US2] In daiv/automation/agent/sibling_links.py, add `RelatedMergeRequest.relation` and grouped rendering (research R23).
+- [ ] T067 [US2] In daiv/automation/agent/middlewares/git.py:
+  - in `aafter_agent`, call `apublish_submodules` before the main publish and before each extra repository's, pass the record map into that repository's publish scope, and append the submodule publishes to `repo_publishes`;
+  - extend the prompt section with the published and read-only lists of contracts/agent-context.md §1;
+  - add failed submodule publishes and `remote_moved` entries to the notice of §2;
+  - make `_alink_related` link submodule merge requests with their relations, also when the session has no extra repository.
+- [ ] T068 [US2] In daiv/sessions/executor/recovery.py, publish each repository's submodules before it, through `apublish_submodules` with `recovering=True`.
+- [ ] T069 [US2] In daiv/sessions/models.py, add `SessionSubmodule` (data-model.md) and `EventKind.SUBMODULE_MERGED`, with their migrations (`uv run python daiv/manage.py makemigrations sessions`; one for the table, one for the `inbox_event_kind_valid` constraint). Add `Session.aholds_other_repositories()`.
+- [ ] T070 [US2] In daiv/sessions/multi_repo.py, add `apersist_submodule_state(session_id, publishes)`, mirroring `apersist_extra_repo_state` (T049), and `aload_submodules(session_id)`.
+- [ ] T071 [US2] In daiv/sessions/executor/run.py:
+  - after `set_runtime_ctx` returns and before the agent runs, create the missing `SessionSubmodule` rows from every handle's checked-out submodules;
+  - pass `submodule_branches` from the rows and `submodule_pins` from a taken `submodule_merged` event;
+  - in `_persist_sibling_state`, send publishes with a `submodule_path` to `apersist_submodule_state`;
+  - turn on `fallback_ref_on_missing` for a run woken by `submodule_merged`.
+- [ ] T072 [P] [US2] In daiv/sessions/managers.py, extend `_readable_repos_q` with `~Exists` over `SessionSubmodule` rows outside the viewable set, and `on_merge_request` with `SessionSubmodule` rows.
+- [ ] T073 [P] [US2] In daiv/memory/tasks.py, make the skip ask `Session.aholds_other_repositories()`, keeping the comment on why.
+- [ ] T074 [P] [US2] In daiv/sessions/page_state.py and daiv/sessions/templates/sessions/_repository_card.html, add cards for submodule rows with a merge request, labelled "submodule `<path>` of `<parent>`". Run `uv run --only-group=dev djade --target-version 6.0` on the template if it is new.
+- [ ] T075 [US2] In daiv/sessions/inbox/:
+  - kinds.py: `SubmoduleMergedPayload` in `PAYLOADS`, and the kind's precedence and trigger;
+  - render.py: the DAIV-written prompt of contracts/agent-context.md §3;
+  - drain.py: the read check on submodule rows for non-mention requesters, beside the write check on extra repositories;
+  - daiv/sessions/inbox_display.py and daiv/chat/static/chat/js/transcript-labels.js: the kind's label.
+- [ ] T076 [US2] Create daiv/sessions/submodule_merges.py with `SubmoduleMerges(repo_id, iid)`, whose `aenqueue()` enqueues `settle_submodule_merge_task`. The task implements research R21 step 2 and T055's outcomes, posting through `Inbox(thread_id).apost(...)` and settling through `MergeArchive`.
+- [ ] T077 [US2] In daiv/webhooks/gitlab/callbacks.py, daiv/webhooks/github/callbacks.py and daiv/sessions/auto_archive.py: on a merge, before `MergeArchive`, hand the sessions that hold the merge request as a `SessionSubmodule` row to `SubmoduleMerges`, and leave them out of that merge's `MergeArchive`.
+
+**Checkpoint**: US1 and US2 work. Quickstart scenarios 1–13 pass for submodules on a sandbox run and a disk run.
+
+---
+
+## Phase 5: User Story 3 - The agent reads the real content of LFS-tracked files (Priority: P3)
+
+**Goal**: with `checkout.lfs: true`, LFS files hold their content, up to the cap. git status stays clean in sandboxes
+without git-lfs, and the sandbox copy carries the content once. LFS paths are never published, in the superproject or
+in a submodule DAIV publishes.
+
+**Independent Test**: spec US3, and quickstart scenarios 1–3 and 14 for LFS.
+
+### Tests for User Story 3
+
+- [ ] T078 [P] [US3] In tests/unit_tests/codebase/clients/test_checkout.py, test LFS listing and selection (research R5), with real git and pointers committed by hand:
   - LFS paths come from `check-attr filter`; an LFS-attributed blob that is not a pointer is skipped;
   - sizes come from the pointers;
   - selection is in path order, superproject first, under `lfs_max_bytes`;
@@ -229,92 +377,98 @@ without git-lfs, and the sandbox copy carries the content once. LFS paths are ne
   - the stubbed `git lfs pull` gets `--include` batches with `*?[]\` escaped, each under 64 KiB of argv;
   - a path with a comma goes to `git lfs smudge` alone;
   - every LFS command's environment holds `lfs.url=<clone_url>/info/lfs` and the `lfs_filter_config` keys, even when the repository's `.lfsconfig` sets another `lfs.url`.
-- [ ] T036 [US2] In tests/unit_tests/codebase/clients/test_checkout.py, test the status after the copy (research R6), with real git and a test-only clean filter passed as `lfs_filter_config`, standing in for git-lfs during the worker refresh:
+- [ ] T079 [US3] In tests/unit_tests/codebase/clients/test_checkout.py, test the status after the copy (research R6), with real git and a test-only clean filter passed as `lfs_filter_config`, standing in for git-lfs during the worker refresh:
   - after `complete`, `core.checkStat` is `minimal` and `core.trustctime` is `false` in the superproject's and the submodule's git config;
   - every fetched file's mtime is at least 2 s in the past;
   - after `_make_repo_archive` and `tarfile` extraction, `git status --porcelain` run with `GIT_CONFIG_NOSYSTEM=1` and an empty `HOME` is empty;
   - an edited LFS file shows ` M`, and a new `*.bin` file shows `??`.
-- [ ] T037 [P] [US2] In tests/unit_tests/codebase/clients/gitlab/test_client.py and tests/unit_tests/codebase/clients/github/test_client.py, assert that the clone's environment holds `GIT_LFS_SKIP_SMUDGE=1` beside the credential keys.
-- [ ] T038 [P] [US2] In tests/unit_tests/automation/agent/workspace/test_session.py:
+- [ ] T080 [P] [US3] In tests/unit_tests/codebase/clients/gitlab/test_client.py and tests/unit_tests/codebase/clients/github/test_client.py, assert that the clone's environment holds `GIT_LFS_SKIP_SMUDGE=1` beside the credential keys.
+- [ ] T081 [P] [US3] In tests/unit_tests/automation/agent/workspace/test_session.py:
   - `_make_repo_archive` and `_make_repos_archive` leave out `.git/lfs/**` and `.git/modules/<name>/lfs/**`, and keep every other path;
   - without an `lfs` directory, the archive's member list is unchanged.
-- [ ] T039 [P] [US2] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, with real git and `PublishScope(lfs=True)`:
+- [ ] T082 [P] [US3] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, with real git and `PublishScope(lfs=True)`:
   - an edited, a new, a deleted and a renamed LFS-tracked path are all left out of the commit and listed in `kept_out.lfs_paths`;
   - a non-LFS edit beside them is committed;
   - a turn whose only changes are LFS paths reports `dirty` false;
   - the snapshot's `status`, `diff` and `ls-files --others` calls carry `:(exclude,attr:filter=lfs)`;
-  - `fast_forward` on a checkout whose only local change is an LFS-tracked file still answers `advanced` when the remote moved ahead.
+  - `fast_forward` on a checkout whose only local change is an LFS-tracked file still answers `advanced` when the remote moved ahead;
+  - in a submodule published under a scope with `lfs=True`, an LFS-tracked edit is kept out of the submodule's commit too.
 
-### Implementation for User Story 2
+### Implementation for User Story 3
 
-- [ ] T040 [P] [US2] Add `git-lfs` to the runtime `apt-get install` list of docker/production/app/Dockerfile and to that of docker/local/app/Dockerfile. Don't run `git lfs install`: DAIV passes the filter config per command (research R11).
-- [ ] T041 [P] [US2] Add `GIT_LFS_SKIP_SMUDGE=1` to the clone environment in daiv/codebase/clients/gitlab/client.py (`clone_with` in `_clone`) and daiv/codebase/clients/github/client.py (`load_repo`).
-- [ ] T042 [US2] In daiv/codebase/clients/checkout.py, implement research R5:
+- [ ] T083 [P] [US3] Add `git-lfs` to the runtime `apt-get install` list of docker/production/app/Dockerfile and to that of docker/local/app/Dockerfile. Don't run `git lfs install`: DAIV passes the filter config per command (research R11).
+- [ ] T084 [P] [US3] Add `GIT_LFS_SKIP_SMUDGE=1` to the clone environment in daiv/codebase/clients/gitlab/client.py (`clone_with` in `_clone`) and daiv/codebase/clients/github/client.py (`load_repo`).
+- [ ] T085 [US3] In daiv/codebase/clients/checkout.py, implement research R5:
   - list pointers per repository;
   - select across the superproject and the fetched submodules under `options.lfs_max_bytes`;
   - fetch each repository's selection inside `client.with_git_auth(<that repository>, ...)`, with `git lfs pull --include` batches and the comma fallback;
   - fill `CheckoutReport.lfs_files`.
-- [ ] T043 [US2] In daiv/codebase/clients/checkout.py, implement research R6 for every repository with fetched content: set `core.checkStat=minimal` and `core.trustctime=false` in that repository's config, set the mtimes of the fetched files to now − 2 s, and run `git update-index -q --refresh` with the checkout's `lfs_filter_config` keys in the environment.
-- [ ] T044 [P] [US2] In daiv/automation/agent/workspace/session.py, add a tar filter to `_make_repo_archive` and `_make_repos_archive` that drops any directory named `lfs` directly inside a git directory (`.git/lfs`, `.git/modules/**/lfs`) (research R7).
-- [ ] T045 [US2] In daiv/automation/agent/workspace/git_manager.py, with `scope.lfs`, implement research R8 for LFS:
+- [ ] T086 [US3] In daiv/codebase/clients/checkout.py, implement research R6 for every repository with fetched content: set `core.checkStat=minimal` and `core.trustctime=false` in that repository's config, set the mtimes of the fetched files to now − 2 s, and run `git update-index -q --refresh` with the checkout's `lfs_filter_config` keys in the environment.
+- [ ] T087 [P] [US3] In daiv/automation/agent/workspace/session.py, add a tar filter to `_make_repo_archive` and `_make_repos_archive` that drops any directory named `lfs` directly inside a git directory (`.git/lfs`, `.git/modules/**/lfs`) (research R7).
+- [ ] T088 [US3] In daiv/automation/agent/workspace/git_manager.py, with `scope.lfs`, implement research R8 for LFS:
   - add the pathspec `.` `:(exclude,attr:filter=lfs)` to the snapshot's `status`, `diff` and `ls-files --others` calls;
   - add `status --porcelain -z -- :(attr:filter=lfs)` to batch A and parse it into `kept_out.lfs_paths`, keeping both paths of a rename;
   - pass those paths to `commit_all`'s reset;
   - in `fast_forward`, add the same exclusion pathspec to its `status --porcelain`.
 
-**Checkpoint**: US1 and US2 both work. Quickstart scenarios 1–9 pass on a sandbox run and on a disk run.
+**Checkpoint**: US1, US2 and US3 work. Quickstart scenarios 1–14 pass on a sandbox run and on a disk run.
 
 ---
 
-## Phase 5: User Story 3 - What cannot be fetched is reported, and the run goes on (Priority: P3)
+## Phase 6: User Story 4 - What cannot be fetched or published is reported, and the run goes on (Priority: P4)
 
 **Goal**: any submodule or LFS failure becomes a reason in the report and never fails the run. DAIV-side faults log
 at ERROR, without secrets.
 
-**Independent Test**: spec US3, and quickstart scenario 10.
+**Independent Test**: spec US4, and quickstart scenario 16.
 
-### Tests for User Story 3
+### Tests for User Story 4
 
-- [ ] T046 [P] [US3] In tests/unit_tests/codebase/clients/test_checkout.py, test failures:
+- [ ] T089 [P] [US4] In tests/unit_tests/codebase/clients/test_checkout.py, test failures:
   - a submodule whose recorded commit is absent from its repository → `commit_missing`, and the other submodules are still checked out;
   - a submodule whose fetch fails with an auth error after `with_git_auth`'s retries, or with a network error → `fetch_failed`;
   - an unexpected exception inside one submodule's checkout → `fetch_failed` for it, a `logger.exception`, and the rest continue;
+  - a branch hint or pin whose git command fails → the submodule stays at the recorded commit, detached, with no note;
   - a failed `git lfs pull` batch → `fetch_failed` for its files;
   - git-lfs missing on the worker (`FileNotFoundError` from the runner) → every selected file `fetch_failed`, and one ERROR naming the missing `git-lfs` program;
   - `complete` never raises.
-- [ ] T047 [US3] In tests/unit_tests/codebase/clients/test_checkout.py, use `caplog` to check levels: `daiv_no_access` and `fetch_failed` log at ERROR, naming the repository and the submodule's path. `outside_platform`, `person_no_access`, `commit_missing` and `over_limit` log at INFO. The stub token's text appears in no record.
-- [ ] T048 [P] [US3] In tests/unit_tests/automation/agent/test_context.py, assert that a `complete_checkout` that raises anyway is logged with `logger.exception`, and `set_runtime_ctx` still yields with `CheckoutReport.EMPTY` on that handle (FR-008).
+- [ ] T090 [US4] In tests/unit_tests/codebase/clients/test_checkout.py, use `caplog` to check levels:
+  - `daiv_no_access` and `fetch_failed` log at ERROR, naming the repository and the submodule's path;
+  - `outside_platform`, `person_no_access`, `commit_missing`, `over_limit`, `daiv_no_write` and `person_no_write` log at INFO;
+  - `published_elsewhere` and `parent_not_published` don't log;
+  - the stub token's text appears in no record.
+- [ ] T091 [P] [US4] In tests/unit_tests/automation/agent/test_context.py, assert that a `complete_checkout` that raises anyway is logged with `logger.exception`, and `set_runtime_ctx` still yields with `CheckoutReport.EMPTY` and no submodule handles on that handle (FR-008).
 
-### Implementation for User Story 3
+### Implementation for User Story 4
 
-- [ ] T049 [US3] In daiv/codebase/clients/checkout.py, classify failures and log them as research R10 says:
+- [ ] T092 [US4] In daiv/codebase/clients/checkout.py, classify failures and log them as research R10 says:
   - commit missing: git's "did not contain" or "not our ref" texts, through a new `codebase.utils.is_git_object_missing_text`;
   - auth: `codebase.utils.is_git_auth_error_text`;
   - any other failure is a fetch failure.
 
-  Wrap each submodule and each LFS batch so one failure never stops the rest, and make `complete` catch anything left with `logger.exception`. Log messages carry no environment and no URL user info.
-- [ ] T050 [US3] In daiv/automation/agent/context.py, wrap the per-handle completion of T020 so an exception from `complete_checkout` is logged with `logger.exception` and leaves `CheckoutReport.EMPTY` on that handle. Note in a one-line comment why continuing is safe: the clone itself is intact (errors rule 2).
+  Wrap each submodule, each branch hint or pin, and each LFS batch, so one failure never stops the rest. Make `complete` catch anything left with `logger.exception`. Log messages carry no environment and no URL user info.
+- [ ] T093 [US4] In daiv/automation/agent/context.py, wrap the per-handle completion of T022 so an exception from `complete_checkout` is logged with `logger.exception` and leaves `CheckoutReport.EMPTY` on that handle. Note in a one-line comment why continuing is safe: the clone itself is intact (errors rule 2).
 
-**Checkpoint**: all three stories work. Quickstart scenario 10 passes.
+**Checkpoint**: all four stories work. Quickstart scenario 16 passes.
 
 ---
 
-## Phase 6: Polish & Cross-Cutting Concerns
+## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T051 [P] Document the feature in docs/customization/repository-config.md:
+- [ ] T094 [P] Document the feature in docs/customization/repository-config.md:
   - a `checkout` row group (keys, types, defaults and behaviour from contracts/repository-config.md), and a `checkout` block in the full example;
-  - a short section on what DAIV fetches and with whose access, the member-only rule (SR1), what it does not publish, and how to change a submodule, linking to [Start a chat over several repositories](../features/sessions.md#start-a-chat-over-several-repositories).
+  - a section on what DAIV fetches and with whose access, and the member-only rule (SR1);
+  - which submodule changes it publishes and how: who must be able to write, DAIV's catalog, innermost first, the parent recording the pushed commit, the merge-first note, and what happens after a squash or rebase merge;
+  - what it does not publish: LFS-tracked files, read-only submodules, adding or removing a submodule.
 
   `test_docs_reference.py` must pass.
-- [ ] T052 [P] Add `CODEBASE_LFS_MAX_CLONE_BYTES` with its default and meaning to docs/reference/env-variables.md; `test_env_variables_doc.py` must pass.
-- [ ] T053 [P] In docs/getting-started/deployment.md, state that DAIV's image ships `git-lfs`, and that a custom image needs the `git-lfs` package for `checkout.lfs`.
-- [ ] T054 Add one line under **Unreleased** → **Added** in CHANGELOG.md, linking the implementation pull request, e.g. "Check out a repository's submodules and Git LFS content when its `.daiv.yml` turns them on ([#NNNN](…))".
-- [ ] T055 Run `make lint-fix`, `make lint`, `make lint-typing`, `make test` and `uv run --only-group=docs mkdocs build --clean --strict`, and fix what they report. Record each command and its result for the pull request (tests rule 5).
-- [ ] T056 Run the quickstart scenarios of specs/006-submodules-and-lfs/quickstart.md on the local stack, both platforms where available. Report any scenario not run as unverified.
-- [ ] T057 Write the implementation pull request's body:
+- [ ] T095 [P] Update docs/features/sessions.md (submodule merge requests on the session page; a session that fetched a submodule is visible only to its readers and adds no memory) and docs/features/jobs-api.md (`merge_requests` and `publish_errors` include submodule repositories). Add `CODEBASE_LFS_MAX_CLONE_BYTES` with its default and meaning to docs/reference/env-variables.md; `test_env_variables_doc.py` must pass. In docs/getting-started/deployment.md, state that DAIV's image ships `git-lfs`, and that a custom image needs the `git-lfs` package for `checkout.lfs`.
+- [ ] T096 Add one line under **Unreleased** → **Added** in CHANGELOG.md, linking the implementation pull request, e.g. "Check out a repository's submodules and Git LFS content when its `.daiv.yml` turns them on, and publish changes inside submodules as their own merge requests ([#NNNN](…))".
+- [ ] T097 Run `make lint-fix`, `make lint`, `make lint-typing`, `make test` and `uv run --only-group=docs mkdocs build --clean --strict`, and fix what they report. Record each command and its result for the pull request (tests rule 5). Then write the implementation pull request's body:
   - the constitution check evidence of plan.md;
-  - the commands and results of T055 and T056;
-  - Principle V's statement that the prompt and notice changes are unmeasured, because no eval case opts in, so no claim about agent quality is made (agent-evals rule 2).
+  - the commands and results, and those of T098;
+  - Principle V's statement that the prompt, notice and post-merge prompt changes are unmeasured, because no eval case opts in, so no claim about agent quality is made (agent-evals rule 2).
+- [ ] T098 Run the quickstart scenarios of specs/006-submodules-and-lfs/quickstart.md on the local stack, both platforms where available. Report any scenario not run as unverified.
 
 ---
 
@@ -322,37 +476,55 @@ at ERROR, without secrets.
 
 ### Phase dependencies
 
-- **Setup (Phase 1)**: none; T001 and T002 are done.
+- **Setup (Phase 1)**: T001 and T002 are done. T003, the approval of the revision, blocks everything after it.
 - **Foundational (Phase 2)**: depends on Setup and blocks every story.
-- **US1 (Phase 3)** and **US2 (Phase 4)**: each depends only on Phase 2. Both edit daiv/codebase/clients/checkout.py and daiv/automation/agent/workspace/git_manager.py, so they run one after the other, US1 first.
-- **US3 (Phase 5)**: depends on US1 and US2, whose checkout paths it hardens.
-- **Polish (Phase 6)**: depends on the stories it documents; T051–T053 can start once Phase 2 fixes the settings' names.
+- **US1 (Phase 3)**: depends on Phase 2.
+- **US2 (Phase 4)**: depends on US1, whose checkout it extends.
+- **US3 (Phase 5)**: depends only on Phase 2. It edits daiv/codebase/clients/checkout.py and daiv/automation/agent/workspace/git_manager.py like US1 and US2, so it runs after them. Its last T082 case needs US2.
+- **US4 (Phase 6)**: depends on US1, US2 and US3, whose checkout paths it hardens.
+- **Polish (Phase 7)**: depends on the stories it documents; T094 and T095 can start once Phase 2 fixes the settings' names.
 
 ### Within each phase
 
 - Tests first; they must fail before the implementation tasks start.
-- T015 before T016; T016 before T017 and T018; T013–T016 before T020; T019 before T021; T022 before T023 before T024.
-- In US1: T032 before T033. In US2: T042 before T043.
+- Phase 2:
+  - T017 before T018, and T018 before T019 and T020;
+  - T015 to T018 before T022, and T021 before T023;
+  - T024 before T025, and T025 before T026.
+- US1: T034 before T035.
+- US2:
+  - T057 and T058 before T060, and T059 before T076;
+  - T060 before T064, T065 and T071; T061 and T062 before T065; T063 before T064;
+  - T065 and T066 before T067 and T068;
+  - T069 before T070 to T077, and T070 before T071; T075 and T076 before T077.
+- US3: T085 before T086.
 
 ### Parallel opportunities
 
-- Phase 2 tests T004–T012 are all [P].
-- Phase 2 implementation: T013, T014, T015, T018 and T019 are [P].
-- Within US1, T025, T029, T030 and T031 are [P] (one per test file); T026–T028 share T025's file. Within US2, T035 and
-  T037–T039 are [P] (T036 shares T035's file), and so are implementation tasks T040, T041 and T044. In US3, T046 and
-  T048 are [P].
-- Docs T051–T053 are [P].
+- **Phase 2:** tests T005–T014 are all [P]. Implementation tasks T015, T016, T017, T020 and T021 are [P].
+- **US1:** T027, T031, T032 and T033 are [P], one per test file. T028–T030 share T027's file.
+- **US2:**
+  - tests T037, T039–T041, T043–T051 and T053–T056 are [P]. T038 shares T037's file, and T042 shares T041's;
+  - implementation tasks T059, T072, T073 and T074 are [P].
+- **US3:** T078 and T080–T082 are [P], and T079 shares T078's file. Implementation tasks T083, T084 and T087 are [P].
+- **US4:** T089 and T091 are [P].
+- **Docs:** T094 and T095 are [P].
 
 ---
 
-## Parallel Example: User Story 1
+## Parallel Example: User Story 2
 
 ```bash
-# The US1 tests, one per file, together; T026–T028 follow T025 in test_checkout.py:
-T025 test_checkout.py — URL resolution (then T026 checkout, T027 access, T028 credentials)
-T029 test_git_manager.py — submodule scope
-T030 test_publishers.py — only-submodule publish, FR-014
-T031 test_session.py — archive keeps .git/modules
+# The US2 tests, one per file, together; T038 follows T037 in test_checkout.py, T042 follows T041:
+T037 test_checkout.py — publish verdicts and targets (then T038 branch hints and pins)
+T039 gitlab/github test_client.py — merged commit, ancestry
+T040 test_context.py — submodule handles
+T041 test_git_manager.py — record (then T042 remote moved a pointer)
+T043 test_publishers.py — apublish_submodules
+T044 test_sibling_links.py — relation groups
+T045 middlewares/test_git.py — order, prompt, notice, links
+T046 test_sandbox.py, test_session.py — credential added before a submodule's publish
+T047–T056 sessions, memory, inbox, webhooks
 ```
 
 ---
@@ -362,14 +534,17 @@ T031 test_session.py — archive keeps .git/modules
 ### MVP first (US1)
 
 1. Phase 1, then Phase 2: nothing changes for any repository yet.
-2. Phase 3: submodules for repositories that opt in.
-3. Stop and validate with quickstart scenarios 1–7 and 9 before starting US2.
+2. Phase 3: read-only submodules for repositories that opt in.
+3. Stop and validate with quickstart scenarios 1, 2, 4, 7 and 12 before starting US2.
 
 ### Incremental delivery
 
-1. Foundation + US1 → submodules, safe publishing, the agent told.
-2. + US2 → LFS content, clean sandboxes, LFS kept out of publishes.
-3. + US3 → failures degrade, and operator logs.
-4. Polish → docs, changelog, gates, quickstart, PR statement.
+1. Foundation + US1 → submodules read-only, safe publishing, the agent told.
+2. + US2 → submodule changes published as their own merge requests, linked, repaired after squash or rebase merges;
+   sessions hidden from non-readers of their submodules.
+3. + US3 → LFS content, clean sandboxes, LFS kept out of publishes.
+4. + US4 → failures degrade, and operator logs.
+5. Polish → docs, changelog, gates, quickstart, PR statement.
 
-One pull request carries all of it, as the spec describes one feature. The phases are the order of work and review.
+One pull request carries all of it, as the spec describes one feature: the reporter needs US2 before DAIV can replace
+their stopgap, so no read-only version ships on its own. The phases are the order of work and review.
