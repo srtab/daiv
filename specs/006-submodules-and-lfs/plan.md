@@ -13,11 +13,12 @@ own repositories, with the parent pointing at them, and keeps everything else it
 1. **Completing the clone (US1, US3).**
    - **Where:** a new `RepoCheckout` in `codebase.clients` runs after `load_repo` for the main and each extra
      repository, and returns a `CheckoutReport` ([R1](research.md#r1-the-checkout-completes-in-codebaseclients-after-the-clone)).
-   - **Submodules:** checked out one at a time and recursively, each only after three checks: its URL resolves to a
-     repository on the platform's host ([R2](research.md#r2-which-submodule-urls-daiv-follows)), DAIV's account can
-     read it, and the run's person can read it per DAIV's repository access mirror
-     ([R4](research.md#r4-whose-access-decides-fr-005)). Each is fetched with a credential minted for it alone, never
-     beside the main token ([R3](research.md#r3-each-submodule-is-fetched-alone-with-its-own-credential)).
+   - **Submodules:** checked out one at a time and recursively, each only after four checks: its URL resolves to a
+     repository on the platform's host ([R2](research.md#r2-which-submodule-urls-daiv-follows)), that repository is
+     in DAIV's catalog, DAIV's account can read it, and the run's person can read it per DAIV's repository access
+     mirror ([R4](research.md#r4-whose-access-decides-fr-005)). Each is fetched with a credential minted for it alone,
+     never the main token and never GitLab's PAT
+     ([R3](research.md#r3-each-submodule-is-fetched-alone-with-its-own-credential)).
    - **LFS:** pointers are read with git. Files are selected in path order under `CODEBASE_LFS_MAX_CLONE_BYTES`
      (256 MiB by default) and fetched with `git lfs pull` from the platform's own LFS endpoint
      ([R5](research.md#r5-which-lfs-files-are-fetched-and-how)).
@@ -26,15 +27,17 @@ own repositories, with the parent pointing at them, and keeps everything else it
      LFS object store ([R6](research.md#r6-a-clean-git-status-after-the-copy-into-the-sandbox-fr-011),
      [R7](research.md#r7-the-sandbox-copy-carries-lfs-content-once-fr-015)).
 2. **Publishing submodules (US2).**
-   - **Which:** the checkout settles, per submodule, whether DAIV publishes it. It does when the person can write the
-     repository, DAIV's catalog holds it, its parent is published, and no other checkout of the session publishes that
-     repository ([R14](research.md#r14-which-submodules-daiv-publishes-fr-019-fr-024)).
+   - **Which:** each submodule gets a publish verdict. DAIV publishes it when the person can write the repository,
+     its parent is published, and no other checkout in the whole session publishes that repository. `set_runtime_ctx`
+     decides the last two after every clone is complete
+     ([R14](research.md#r14-which-submodules-daiv-publishes-fr-019-fr-024)).
    - **How:** a published submodule is a `RepoHandle` of its parent at its own workspace path, never an extra
      repository ([R15](research.md#r15-a-submodule-is-a-handle-of-its-parent-not-an-extra-repository)). Before each
      repository's publish, its submodules publish deepest first through the existing publisher. The parent then
      records each one at the commit DAIV pushed, with `update-index --cacheinfo`
      ([R16](research.md#r16-publish-order-and-the-recorded-commit-fr-021)). The merge request targets the branch
-     `.gitmodules` names, else the default branch ([R17](research.md#r17-the-branch-and-target-of-a-submodules-merge-request-fr-020)).
+     `.gitmodules` names, if the submodule's remote has it, else the default branch
+     ([R17](research.md#r17-the-branch-and-target-of-a-submodules-merge-request-fr-020)).
    - **Credentials:** in a sandbox, each submodule's credential is added to the egress just before its publish
      ([R18](research.md#r18-the-credential-for-a-submodules-publish-in-a-sandbox-fr-004)).
    - **Later turns:** they check out the submodule's working branch when it still contains the recorded commit
@@ -42,10 +45,12 @@ own repositories, with the parent pointing at them, and keeps everything else it
      pointer wins the rebase ([R20](research.md#r20-a-remote-that-moved-a-pointer-daiv-also-moves-fr-014)).
    - **Links:** the merge requests link each other, and the parent's says which merge first
      ([R23](research.md#r23-linking-the-merge-requests-fr-022)).
-3. **After a submodule's merge request merges (US2).** The merge callback hands sessions that hold it to a task. The
-   task asks the platform for the merged commit and whether it contains the commit DAIV pushed. If it doesn't, the
-   task wakes the session with a new `submodule_merged` inbox event, whose run records the merged commit in the
-   parent's open merge request, or in a new one ([R21](research.md#r21-pointing-the-parent-at-the-merged-commit-fr-025)).
+3. **After a submodule's merge request merges (US2).** The merge callback marks the sessions that hold it
+   `merge_pending`, which holds off archiving, and hands them to a task. The task asks the platform for the merged
+   commit, and whether it contains the commit the parent records. If it doesn't, the task wakes the session with a new
+   `submodule_merged` inbox event. That event's run, of a new DAIV-authored trigger type, records the merged commit
+   in the parent's open merge request, or in a new one from the default branch when the parent's merge request has
+   merged ([R21](research.md#r21-pointing-the-parent-at-the-merged-commit-fr-025)).
 4. **Session state (US2, FR-027).** A new `SessionSubmodule` table holds each fetched submodule repository, its path,
    and once published its branch and merge request. Visibility, the memory skip, the merge lookup, the session page
    and the inbox's access check read it. The `SessionRepository` readers, which assume extra repositories, are left
@@ -71,8 +76,9 @@ own repositories, with the parent pointing at them, and keeps everything else it
 - **pydantic and pydantic-settings**: the `.daiv.yml` section and the operator setting.
 - **python-gitlab and PyGithub**: two new client calls each, for the merged commit and for ancestry (R21).
 
-**Storage**: PostgreSQL. One new table, `SessionSubmodule`, and one new `EventKind` value, whose check constraint
-needs a migration ([data-model.md](data-model.md#database)). No existing column changes.
+**Storage**: PostgreSQL. One new table, `SessionSubmodule`, plus one new `EventKind` value and one new
+`SessionOrigin` value, whose check constraints need a migration ([data-model.md](data-model.md#database)). No
+existing column changes.
 
 **Testing**: pytest and pytest-django; real git on temporary local repositories, as in `test_git_manager.py`.
 
@@ -126,7 +132,7 @@ maintainer's approval are listed below.*
 
 | Principle | How the plan complies | Evidence at review |
 |---|---|---|
-| I. Secure and isolated | Submodules come only from the platform's host over HTTPS (`GIT_ALLOW_PROTOCOL`), and only after DAIV's and the person's access is checked. Each is fetched with its own minted credential, and the main token is never in its environment. LFS comes only from the platform's endpoint, overriding `.lfsconfig`. No repository-supplied command runs on the worker: hooks are off, `--checkout` overrides `update` modes, and filters are DAIV's own. A submodule is published only where the person can write and DAIV's catalog holds the repository. Its credential reaches the sandbox only for its publish, scoped to its path (R18). A session that fetched a submodule is hidden from people who can't read it, and feeds no memory (FR-027) | Tests: an SSH URL on another host, a `file://` URL and an `ext::` URL are not fetched. The submodule fetch's environment holds only its own token. A person without access gets an empty directory. A person without write access gets a read-only submodule. `.lfsconfig` cannot redirect LFS. The egress list gains the submodule's rule only at its publish. A non-reader can't list or open the session |
+| I. Secure and isolated | Submodules come only from the platform's host over HTTPS (`GIT_ALLOW_PROTOCOL`), only from repositories in DAIV's catalog, and only after DAIV's and the person's access is checked. Each is fetched with its own minted credential; the main token is never in its environment, and GitLab never falls back to the PAT for a submodule. LFS comes only from the platform's endpoint, overriding `.lfsconfig`. No repository-supplied command runs on the worker: hooks are off, `--checkout` overrides `update` modes, and filters are DAIV's own. A submodule is published only where the person can write and DAIV's catalog holds the repository. Its credential reaches the sandbox only for its publish, scoped to its path (R18). A session that fetched a submodule is hidden from people who can't read it, and feeds no memory (FR-027) | Tests: an SSH URL on another host, a `file://` URL and an `ext::` URL are not fetched. A submodule outside the catalog is not fetched, and a failed project-token mint never yields the PAT. The submodule fetch's environment holds only its own token. A person without access gets an empty directory. A person without write access gets a read-only submodule. `.lfsconfig` cannot redirect LFS. The egress list gains the submodule's rule only at its publish. A non-reader can't list or open the session |
 | II. Architecture boundaries | The checkout is a class in `codebase.clients`; `automation` calls it. `sessions` builds the access predicate from `codebase.authorization` and owns `SessionSubmodule`, the merge task and the inbox kind. `webhooks` calls `sessions`, and `memory` asks `Session`. Every import points down, with no new `ignore_imports`. `GitManager` and the publisher serve both run modes, so no code branches on run mode. Submodule handles are a separate collection, so `SessionRepository` and `extra_repos` keep their meaning (R15, R22). The merge follow-up uses the inbox, the existing way a session acts on its own (R21) | `make lint-imports`; review |
 | III. Platform and provider neutrality | One implementation on `RepoClient` uses `get_repository`, `get_git_auth_env` and the new `with_git_auth`, `get_merged_commit` and `is_ancestor`, which both clients implement. GitLab keeps its token propagation retry inside its override. No model or provider is chosen by the feature | Paired GitLab and GitHub client tests for each new method; quickstart scenario 17 |
 | IV. Tests prove behaviour | Failing-first tests for every FR in the mirror test files (Project Structure). Reproduced first: the two verified failures (the LFS binary committed in the sandbox, the empty commit from a submodule edit), a parent recording a commit before its child is pushed, and a session visible to a non-reader of its submodule | `make test` output in the pull request |
@@ -149,11 +155,15 @@ maintainer's approval are listed below.*
   submodules the person can write. A repository that wants read-only submodules leaves its people without write
   access to them (spec Assumptions, [R14](research.md#r14-which-submodules-daiv-publishes-fr-019-fr-024)). The
   alternative is a second key, for example `checkout.publish_submodules`.
-- **Needs approval: DAIV's catalog decides where it publishes.** A submodule outside the catalog (on GitLab, a project
-  where DAIV's account is not Maintainer) is read-only, and the agent is told so up front
-  ([R14](research.md#r14-which-submodules-daiv-publishes-fr-019-fr-024)).
-- **Needs approval: the post-merge repair runs the agent.** A `submodule_merged` run has the harness move the pointer
-  and the model report it, costing one model call per repair. It runs only after a squash or rebase merge (or a
+- **Needs approval: DAIV's catalog decides which submodules it fetches.** A submodule outside the catalog (on GitLab,
+  a project where DAIV's account is not Maintainer) is not checked out, and the agent is told why. Only in the catalog
+  can DAIV mint a credential for that repository alone; anything else would fall back to a broader credential
+  ([R3](research.md#r3-each-submodule-is-fetched-alone-with-its-own-credential)). Inside the catalog, every
+  submodule DAIV fetches is one it can also publish to.
+- **Needs approval: the post-merge repair runs the agent.** A `submodule_merged` run, of a new DAIV-authored trigger
+  type, has the harness move the pointer and report it, while the model only confirms, costing one model call per
+  repair. When the session's owner has no DAIV user, the run acts with the session's platform account's access
+  ([R4](research.md#r4-whose-access-decides-fr-005)). It runs only after a squash or rebase merge (or a
   merge-commit merge whose result doesn't contain DAIV's commit). DAIV does not block the parent's merge, and does not
   mark the parent's merge request draft
   ([R21](research.md#r21-pointing-the-parent-at-the-merged-commit-fr-025)).
@@ -205,7 +215,7 @@ daiv/
 │   ├── context.py                      # completes each clone; RepoHandle.checkout, workspace_path, submodules, submodule
 │   ├── publishers.py                   # PublishScope.record; apublish_submodules; run_base_branch for submodules
 │   ├── git_state.py                    # RepoPublish.kept_out, submodule_path, parent_repo_id
-│   ├── sibling_links.py                # RelatedMergeRequest.relation; grouped block
+│   ├── sibling_links.py                # RelatedMergeRequest.parent_repo_id; groups per viewer
 │   ├── middlewares/git.py              # prompt section; submodules before each repository's publish; notice; links
 │   └── workspace/
 │       ├── git_manager.py              # PublishScope, KeptOut; scope in status_snapshot, commit_all, fast_forward,
@@ -214,14 +224,15 @@ daiv/
 │       ├── disk.py, sandbox.py         # for_repo at handle.workspace_path; fast_forward passes the scope
 │       └── session.py                  # seed archives leave out <gitdir>/lfs; aadd_repository (R18)
 ├── sessions/
-│   ├── models.py                       # + SessionSubmodule; EventKind.SUBMODULE_MERGED (+ migrations)
-│   ├── managers.py                     # visibility and on_merge_request read SessionSubmodule
-│   ├── multi_repo.py                   # apersist_submodule_state; Session.aholds_other_repositories
+│   ├── models.py                       # + SessionSubmodule; EventKind.SUBMODULE_MERGED; SessionOrigin.SUBMODULE_MERGE;
+│   │                                   #   Session.aholds_other_repositories (+ migrations)
+│   ├── managers.py                     # visibility, without_live_work and on_merge_request read SessionSubmodule
+│   ├── multi_repo.py                   # apersist_submodule_state, aload_submodules
 │   ├── page_state.py                   # submodule repository cards
 │   ├── submodule_merges.py             # new: SubmoduleMerges, settle_submodule_merge_task
-│   ├── executor/run.py                 # RunRepoAccess; rows written after checkout; branch and pin hints
+│   ├── executor/run.py                 # RunRepoAccess; rows written after checkout; branch and pin hints; parent MR state
 │   ├── executor/recovery.py            # submodules before each repository's recovered publish
-│   └── inbox/                          # kinds.py payload and triggers; render.py prompt; drain.py access check
+│   └── inbox/                          # kinds.py payload and trigger; render.py prompt; drain.py access checks
 ├── webhooks/gitlab/callbacks.py        # merge → SubmoduleMerges before MergeArchive
 ├── webhooks/github/callbacks.py        # same
 └── memory/tasks.py                     # skip asks aholds_other_repositories
@@ -249,7 +260,7 @@ tests/unit_tests/
 ├── automation/agent/
 │   ├── test_context.py                 # completion; submodule handles and workspace paths
 │   ├── test_publishers.py              # kept_out; submodules publish first and are recorded; failures
-│   ├── test_sibling_links.py           # relation groups
+│   ├── test_sibling_links.py           # groups per viewer
 │   ├── middlewares/test_git.py         # prompt section; notice; order of publishes
 │   └── workspace/
 │       ├── test_git_manager.py         # scope; record; FR-014; R20 conflict resolution
@@ -257,7 +268,7 @@ tests/unit_tests/
 │       └── test_session.py             # archives; aadd_repository
 ├── sessions/
 │   ├── test_models.py                  # SessionSubmodule constraints
-│   ├── test_managers.py                # visibility; on_merge_request
+│   ├── test_managers.py                # visibility; without_live_work; on_merge_request
 │   ├── test_multi_repo.py              # apersist_submodule_state; aholds_other_repositories
 │   ├── test_auto_archive.py            # a submodule merge is left to the task
 │   ├── test_submodule_merges.py        # new: the task's outcomes
