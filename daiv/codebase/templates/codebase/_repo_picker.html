@@ -39,6 +39,7 @@ Parameters:
         repoPickerUrl: "{{ repo_picker_url|escapejs }}",
         branchPickerTemplate: "{{ branch_picker_template|escapejs }}",
         conflictMessageTemplate: "{{ conflict_message_template|escapejs }}",
+        {% include "codebase/_repo_picker_labels.html" %}
         onChangeEvent: "{{ on_change_event|default:''|escapejs }}"
      })'
      class="relative">
@@ -148,7 +149,12 @@ Parameters:
                hx-trigger="refresh, input changed delay:200ms, search"
                hx-sync="this:replace"
                hx-target="#repo-picker-list"
+               :hx-vals="JSON.stringify({ language, topic, selected: repos.map((repo) => repo.slug).join(',') })"
                class="picker-popover__search">
+        <div x-ref="repoFilters" class="repo-picker__filters"
+             hx-get="{% url 'codebase:picker-repository-facets' %}"
+             hx-trigger="refresh"
+             :hx-vals="JSON.stringify({ language, topic })"></div>
         <div x-show="repoLoading" class="animate-pulse py-1">
             <div class="picker-popover__skeleton-row">
                 <div class="picker-popover__skeleton-line w-3/4"></div>
@@ -170,12 +176,20 @@ Parameters:
                 <div class="picker-popover__skeleton-line--sub w-2/5"></div>
             </div>
         </div>
+        <template x-if="selectAllRow && !repoLoading">
+            <button type="button" @click="selectAllMatching()" :disabled="selectAllRow.disabled"
+                    class="picker-popover__option repo-picker__select-all">
+                <span x-show="!selectAllRow.disabled">{% icon "squares-plus" "h-4 w-4" %}</span>
+                <span x-show="selectAllRow.disabled">{% icon "check" "h-4 w-4" %}</span>
+                <span x-text="selectAllRow.label"></span>
+            </button>
+        </template>
         <div id="repo-picker-list" x-ref="repoPickerList" x-show="!repoLoading"
              data-error-message="{% translate 'Could not load repositories.' %}"
              class="picker-popover__list scrollbar-thin"></div>
         <div x-show="isAddingRepos" x-cloak class="repo-picker__footer">
             <span aria-live="polite" aria-atomic="true" class="repo-picker__count">
-                <span x-text="repos.length">0</span> / <span x-text="maxRepos">{{ max_repos|default:1 }}</span> {% translate "selected" %}
+                <span x-text="repos.length">0</span> / <span x-text="maxRepos">{{ max_repos|default:1 }}</span> {% translate "selected" %}<span x-show="selectAllNote" x-cloak class="repo-picker__count-note"> · <span x-text="selectAllNote"></span></span>
             </span>
             <button type="button" @click="closePopover()" class="repo-picker__done">{% translate "Done" %}</button>
         </div>

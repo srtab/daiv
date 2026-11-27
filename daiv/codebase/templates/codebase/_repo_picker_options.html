@@ -5,15 +5,16 @@
     <button type="button"
             class="picker-popover__option repo-picker__option"
             :class="isRepoSelected('{{ repo.slug|escapejs }}') ? 'repo-picker__option--selected' : ''"
-            :disabled="!canSelectRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')"
-            @click="setRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')">
+            :disabled="!canToggleRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')"
+            :aria-pressed="isRepoSelected('{{ repo.slug|escapejs }}').toString()"
+            @click="toggleRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')">
       <span class="repo-picker__body">
         <span class="repo-picker__slug">{{ repo.slug }}</span>
         {% if repo.name and repo.name != repo.slug %}
         <span class="repo-picker__name">{{ repo.name }}</span>
         {% endif %}
-        <span x-show="isRepoSelected('{{ repo.slug|escapejs }}')" x-cloak class="repo-picker__selection">
-          {% translate "Selected:" %} <span x-text="selectedBranches('{{ repo.slug|escapejs }}', '{{ default_branch_label|escapejs }}')"></span>
+        <span x-show="selectionNote('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}', '{{ default_branch_label|escapejs }}')" x-cloak class="repo-picker__selection">
+          {% translate "Selected:" %} <span x-text="selectionNote('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}', '{{ default_branch_label|escapejs }}')"></span>
         </span>
       </span>
       {% if language_label %}<span class="repo-picker__lang">{{ language_label }}</span>{% endif %}

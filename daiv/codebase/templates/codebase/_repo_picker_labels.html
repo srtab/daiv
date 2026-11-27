@@ -1,0 +1,6 @@
+{% load i18n %}{% translate "Select all __TOTAL__ matching" as select_all_template %}{% translate "Select first __COUNT__ of __TOTAL__" as select_first_template %}{% translate "All __TOTAL__ selected" as all_selected_template %}{% translate "Limit reached" as limit_reached_label %}{% translate "__COUNT__ matching didn't fit" as didnt_fit_template %}
+        selectAllTemplate: "{{ select_all_template|escapejs }}",
+        selectFirstTemplate: "{{ select_first_template|escapejs }}",
+        allSelectedTemplate: "{{ all_selected_template|escapejs }}",
+        limitReachedLabel: "{{ limit_reached_label|escapejs }}",
+        didntFitTemplate: "{{ didnt_fit_template|escapejs }}",
