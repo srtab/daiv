@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Answer a mention on a diff line or file of any merge request, telling the agent which file and line it is on ([#1869](https://github.com/srtab/daiv/pull/1869))
 - Keep a draft merge or pull request that someone else opened as a draft when DAIV pushes to it; DAIV marks ready only the drafts it opened ([#1872](https://github.com/srtab/daiv/pull/1872))
+- Filter the repository picker by language and topic, select every match at once, unselect a repository from the list, and list only repositories you can run on; the MCP `list_repositories` tool also filters by `language`
 
 ### Fixed
 
