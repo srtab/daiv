@@ -5,7 +5,7 @@ import pytest
 import requests
 from git import GitCommandError
 from gitlab import Gitlab
-from gitlab.exceptions import GitlabCreateError, GitlabGetError
+from gitlab.exceptions import GitlabCreateError, GitlabDeleteError, GitlabGetError
 
 from codebase.base import GitPlatform, MergeRequestCommit, MergeRequestDiffStats, Repository, User
 from codebase.clients.base import Emoji, GitAuthEnv
@@ -89,6 +89,16 @@ class TestGitLabClient:
             client = GitLabClient(auth_token="test-token", url="https://gitlab.com")  # noqa: S106
             yield client
 
+    def test_get_repository_id_resolves_paths_and_passes_through_numeric_ids(self, gitlab_client):
+        projects = gitlab_client.client.projects
+        projects.get.return_value.id = 42
+
+        assert gitlab_client.get_repository_id("group/repo") == 42
+        assert gitlab_client.get_repository_id("42") == 42
+        projects.get.assert_called_once_with(
+            "group/repo", timeout=5, obey_rate_limit=False, retry_transient_errors=False, max_retries=0
+        )
+
     @pytest.mark.parametrize(
         ("award_emojis", "emoji", "expected"),
         [
@@ -116,6 +126,48 @@ class TestGitLabClient:
 
         result = gitlab_client.has_issue_reaction("group/repo", 123, emoji)
         assert result is expected
+
+    @pytest.fixture
+    def merge_request_award_manager(self, gitlab_client):
+        project = Mock()
+        gitlab_client.client.projects.get.return_value = project
+        return project.mergerequests.get.return_value.awardemojis
+
+    def test_create_merge_request_emoji_returns_new_award_id(self, gitlab_client, merge_request_award_manager):
+        merge_request_award_manager.create.return_value.id = 75
+
+        assert gitlab_client.create_merge_request_emoji("group/repo", 3, Emoji.EYES) == 75
+
+        gitlab_client.client.projects.get.assert_called_once_with("group/repo", lazy=True)
+        gitlab_client.client.projects.get.return_value.mergerequests.get.assert_called_once_with(3, lazy=True)
+        merge_request_award_manager.create.assert_called_once_with(
+            {"name": Emoji.EYES}, timeout=5, obey_rate_limit=False, retry_transient_errors=False, max_retries=0
+        )
+
+    def test_create_merge_request_emoji_ignores_only_known_duplicate(self, gitlab_client, merge_request_award_manager):
+        merge_request_award_manager.create.side_effect = [
+            GitlabCreateError(response_code=404, error_message="404 Award Emoji Name has already been taken"),
+            GitlabCreateError(response_code=404, error_message="404 Project Not Found"),
+        ]
+
+        assert gitlab_client.create_merge_request_emoji("group/repo", 3, Emoji.EYES) is None
+        with pytest.raises(GitlabCreateError, match="Project Not Found"):
+            gitlab_client.create_merge_request_emoji("group/repo", 3, Emoji.EYES)
+
+    def test_delete_merge_request_emoji_ignores_only_missing_awards(self, gitlab_client, merge_request_award_manager):
+        merge_request_award_manager.delete.side_effect = [
+            GitlabDeleteError(response_code=404, error_message="404 Not Found"),
+            GitlabDeleteError(response_code=403, error_message="403 Forbidden"),
+        ]
+
+        gitlab_client.delete_merge_request_emoji("group/repo", 3, 75)
+        with pytest.raises(GitlabDeleteError, match="Forbidden"):
+            gitlab_client.delete_merge_request_emoji("group/repo", 3, 75)
+
+        assert merge_request_award_manager.delete.call_args_list == [
+            call(75, timeout=5, obey_rate_limit=False, retry_transient_errors=False, max_retries=0),
+            call(75, timeout=5, obey_rate_limit=False, retry_transient_errors=False, max_retries=0),
+        ]
 
     @pytest.fixture
     def clone_setup(self, gitlab_client, monkeypatch):

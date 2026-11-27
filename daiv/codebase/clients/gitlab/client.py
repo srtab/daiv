@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, cast
 from git import GitCommandError, Repo
 from gitlab import Gitlab, GitlabCreateError, GitlabOperationError
 from gitlab.const import AccessLevel
-from gitlab.exceptions import GitlabError, GitlabGetError
+from gitlab.exceptions import GitlabDeleteError, GitlabError, GitlabGetError
 
 from codebase.base import (
     GitPlatform,
@@ -30,6 +30,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
+from codebase.clients.base import is_not_found
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
 from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE, title_in_draft_state
 from codebase.conf import settings as codebase_settings
@@ -56,7 +57,7 @@ if TYPE_CHECKING:
 
     from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult
 
-    AwardEmojiTarget = ProjectIssue | ProjectIssueNote | ProjectMergeRequestNote
+    AwardEmojiTarget = ProjectIssue | ProjectIssueNote | ProjectMergeRequest | ProjectMergeRequestNote
 
 logger = logging.getLogger("daiv.clients")
 
@@ -81,6 +82,14 @@ CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
 # tail capped: doubling past a few seconds would spend longer *asleep* past a synced ref than the
 # ref took to sync, and the publish holds a worker and a sandbox session while it waits.
 MERGE_REQUEST_HEAD_REF_SYNC_RETRY_BACKOFF_SECONDS = (0.5, 1.0, 2.0, 4.0, *([6.0] * 9))
+
+# Merge request reactions are best-effort and may run while holding a distributed lock.
+_MERGE_REQUEST_EMOJI_REQUEST_OPTIONS = {
+    "timeout": 5,
+    "obey_rate_limit": False,
+    "retry_transient_errors": False,
+    "max_retries": 0,
+}
 
 
 def _is_clone_auth_error(error: GitCommandError) -> bool:
@@ -120,13 +129,14 @@ def _is_award_emoji_taken_error(error: GitlabCreateError) -> bool:
     return error.response_code == 404 and "Award Emoji Name has already been taken" in str(error.error_message)
 
 
-def _create_award_emoji(target: AwardEmojiTarget, emoji: Emoji):
-    """Award `emoji` on an issue, MR or note, idempotently — an award already made is a success."""
+def _create_award_emoji(target: AwardEmojiTarget, emoji: Emoji, **request_options: Any) -> int | None:
+    """Return the new award ID, or None for GitLab's duplicate response."""
     try:
-        target.awardemojis.create({"name": emoji})
+        return cast("int", target.awardemojis.create({"name": emoji}, **request_options).id)
     except GitlabCreateError as e:
         if not _is_award_emoji_taken_error(e):
             raise
+        return None
 
 
 class GitLabClient(RepoClient):
@@ -193,6 +203,12 @@ class GitLabClient(RepoClient):
             git_platform=self.git_platform,
             topics=project.topics,
         )
+
+    def get_repository_id(self, repo_id: str) -> int:
+        if repo_id.isascii() and repo_id.isdecimal():
+            return int(repo_id)
+        project = self.client.projects.get(repo_id, **_MERGE_REQUEST_EMOJI_REQUEST_OPTIONS)
+        return int(project.id)
 
     def list_repositories(
         self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
@@ -1162,6 +1178,20 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         merge_request = project.mergerequests.get(merge_request_id, lazy=True)
         _create_award_emoji(merge_request.notes.get(note_id, lazy=True), emoji)
+
+    def create_merge_request_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji) -> int | None:
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        return _create_award_emoji(merge_request, emoji, **_MERGE_REQUEST_EMOJI_REQUEST_OPTIONS)
+
+    def delete_merge_request_emoji(self, repo_id: str, merge_request_id: int, award_id: int) -> None:
+        project = self.client.projects.get(repo_id, lazy=True)
+        merge_request = project.mergerequests.get(merge_request_id, lazy=True)
+        try:
+            merge_request.awardemojis.delete(award_id, **_MERGE_REQUEST_EMOJI_REQUEST_OPTIONS)
+        except GitlabDeleteError as error:
+            if not is_not_found(error):
+                raise
 
     def create_merge_request_inline_discussion(
         self, repo_id: str, merge_request_id: int, body: str, position: dict[str, Any]

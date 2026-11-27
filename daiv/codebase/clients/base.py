@@ -187,6 +187,10 @@ class RepoClient(abc.ABC):
     def get_repository(self, repo_id: str) -> Repository:
         pass
 
+    def get_repository_id(self, repo_id: str) -> int:
+        """Resolve a repository path to its stable platform ID."""
+        return self.get_repository(repo_id).pk
+
     @abc.abstractmethod
     def list_repositories(
         self, search: str | None = None, topics: list[str] | None = None, limit: int | None = None
@@ -524,6 +528,14 @@ class RepoClient(abc.ABC):
         `on_diff` says `note_id` names a comment on a diff line, which GitHub addresses apart from conversation
         comments.
         """
+
+    def create_merge_request_emoji(self, repo_id: str, merge_request_id: int, emoji: Emoji) -> int | None:
+        """Return the ID of a new merge request reaction, or None if the current user already added it."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not support merge request reactions")
+
+    def delete_merge_request_emoji(self, repo_id: str, merge_request_id: int, award_id: int) -> None:
+        """Delete the specified merge request reaction. An already absent reaction is a success."""
+        raise NotImplementedError(f"{self.__class__.__name__} does not support merge request reactions")
 
     # Implemented only on GitLab for now.
     def create_merge_request_inline_discussion(

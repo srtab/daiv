@@ -209,7 +209,7 @@ async def _execute_run_call(thread_id: str, **task_kwargs) -> dict:
     captured: dict = {}
 
     async def _execute_run(spec, hooks=None, *, should_stop=None):
-        captured.update(spec=spec, should_stop=should_stop)
+        captured.update(spec=spec, hooks=hooks, should_stop=should_stop)
         return SimpleNamespace(agent_result={"response": "ok"})
 
     with patch("sessions.executor.run.execute_run", _execute_run):
@@ -352,6 +352,26 @@ class TestInboxRun:
         context, _request = await spec.input_factory("advanced")
 
         assert "Your working copy was fast-forwarded." in context.content
+
+    async def test_the_reaction_targets_the_merge_request_of_the_secondary_repository(self):
+        run = await self._inbox_run()
+        await InboxEvent.objects.acreate(
+            session_id=run.session_id,
+            kind=EventKind.MERGE_REQUEST_JOB,
+            source_key="job:1",
+            payload={"prompt": "/code-review", "trigger_type": SessionOrigin.API_JOB},
+            wake=True,
+            ref="main",
+            repo_id="group/sibling",
+            merge_request_iid=42,
+            state=EventState.TAKEN,
+            run=run,
+        )
+        call = await _execute_run_call(run.session_id, run_id=str(run.pk), inbox=True)
+        with patch("sessions.merge_request_runs.reactions.ReviewReactions.start") as start:
+            await call["hooks"].on_context_ready("main")
+
+        start.assert_called_once_with(str(run.pk), "group/sibling", 42)
 
     @pytest.mark.parametrize(("ref", "falls_back"), [("main", True), ("feat/other", False)])
     async def test_a_run_on_the_sessions_branch_falls_back_when_the_branch_is_gone(self, member_user, ref, falls_back):

@@ -473,6 +473,8 @@ Store `DAIV_URL` and `DAIV_API_KEY` as CI/CD variables in your GitLab project se
 
 These CI jobs ask DAIV to run `/code-review` on the pipeline's merge request at every push, with the pipeline's [CI identity token](#ci-identity-tokens), so you store no DAIV key. Each review is posted on the merge request and covers only the commits since the previous one; see [Review reports](pull-request-assistant.md#review-reports). Replace `https://daiv.example.com` with DAIV's address.
 
+On GitLab installations with Redis configured, DAIV adds temporary 👀 to the merge request when the API review starts. Overlapping reviews share the reaction until the last one ends. An unavailable reaction has no effect on the review.
+
 In GitLab CI:
 
 ```yaml

@@ -36,16 +36,20 @@ from tests.unit_tests.sessions.conftest import amake_owned_merge_request
 from tests.unit_tests.sessions.inbox.conftest import make_event
 
 
-def test_sync_stuck_runs_cron_task_dispatches_command():
+def test_sync_stuck_runs_cron_task_dispatches_command_and_reconciles_reactions():
     """The cron task dispatches the sync_stuck_runs management command.
 
     Guards the wiring (command name + the ``@locked_task`` decorator that ``.func()``
     exercises), not crontask/django.tasks framework behavior.
     """
-    with patch("sessions.tasks.call_command") as mock_call_command:
+    with (
+        patch("sessions.tasks.call_command") as mock_call_command,
+        patch("sessions.merge_request_runs.reactions.ReviewReactions.reconcile") as reconcile,
+    ):
         sync_stuck_runs_cron_task.func()
 
     mock_call_command.assert_called_once_with("sync_stuck_runs")
+    reconcile.assert_called_once_with()
 
 
 def test_resume_stalled_batches_cron_task_runs_the_sweep():
