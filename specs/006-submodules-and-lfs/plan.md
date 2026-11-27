@@ -1,6 +1,6 @@
 # Implementation Plan: Submodules and Git LFS
 
-**Branch**: `claude/magical-hypatia-atqoxm` | **Date**: 2026-11-27 | **Spec**: [spec.md](spec.md) | **Status**: Revised on 2026-11-27 for the widened scope: publishing changes inside submodules (US2, FR-019 to FR-026) and session visibility and memory (FR-027). **The revision awaits the maintainer's approval.** The approval recorded the same day, including spec refinement [SR1](research.md#r4-whose-access-decides-fr-005), and the `/speckit-analyze` fixes C1, H1 and M1–M4, cover the read-only parts, which are unchanged
+**Branch**: `claude/magical-hypatia-atqoxm` | **Date**: 2026-11-27 | **Spec**: [spec.md](spec.md) | **Status**: Approved by the maintainer on 2026-11-27, revision included. That covers the widened scope (publishing changes inside submodules, US2, FR-019 to FR-026, and session visibility and memory, FR-027), its five decisions under **For the maintainer's eye**, and the analysis fixes of the same day. The earlier approval, including spec refinement [SR1](research.md#r4-whose-access-decides-fr-005) and the `/speckit-analyze` fixes C1, H1 and M1–M4, covers the read-only parts, which are unchanged
 
 **Input**: Feature specification from `specs/006-submodules-and-lfs/spec.md`
 
@@ -151,25 +151,25 @@ maintainer's approval are listed below.*
   ([R5](research.md#r5-which-lfs-files-are-fetched-and-how)).
 - **`core.checkStat=minimal`:** set only in repositories where LFS content was fetched. Git then trusts whole-second
   mtime and size for every file in them, not only LFS files ([R6](research.md#r6-a-clean-git-status-after-the-copy-into-the-sandbox-fr-011)).
-- **Needs approval: no separate publish switch.** `checkout.submodules: true` also publishes changes inside
+- **Approved: no separate publish switch.** `checkout.submodules: true` also publishes changes inside
   submodules the person can write. A repository that wants read-only submodules leaves its people without write
   access to them (spec Assumptions, [R14](research.md#r14-which-submodules-daiv-publishes-fr-019-fr-024)). The
   alternative is a second key, for example `checkout.publish_submodules`.
-- **Needs approval: DAIV's catalog decides which submodules it fetches.** A submodule outside the catalog (on GitLab,
+- **Approved: DAIV's catalog decides which submodules it fetches.** A submodule outside the catalog (on GitLab,
   a project where DAIV's account is not Maintainer) is not checked out, and the agent is told why. Only in the catalog
   can DAIV mint a credential for that repository alone; anything else would fall back to a broader credential
   ([R3](research.md#r3-each-submodule-is-fetched-alone-with-its-own-credential)). Inside the catalog, every
   submodule DAIV fetches is one it can also publish to.
-- **Needs approval: the post-merge repair runs the agent.** A `submodule_merged` run, of a new DAIV-authored trigger
+- **Approved: the post-merge repair runs the agent.** A `submodule_merged` run, of a new DAIV-authored trigger
   type, has the harness move the pointer and report it, while the model only confirms, costing one model call per
   repair. When the session's owner has no DAIV user, the run acts with the session's platform account's access
   ([R4](research.md#r4-whose-access-decides-fr-005)). It runs only after a squash or rebase merge (or a
   merge-commit merge whose result doesn't contain DAIV's commit). DAIV does not block the parent's merge, and does not
   mark the parent's merge request draft
   ([R21](research.md#r21-pointing-the-parent-at-the-merged-commit-fr-025)).
-- **Needs approval: a separate table.** `SessionSubmodule` rather than more `SessionRepository` rows, so no reader of
+- **Approved: a separate table.** `SessionSubmodule` rather than more `SessionRepository` rows, so no reader of
   those rows needs a filter ([R22](research.md#r22-session-state-for-submodules-fr-023-fr-026-fr-027)).
-- **Needs approval: who may continue a session.** The inbox drain asks a non-mention requester for read access to the
+- **Approved: who may continue a session.** The inbox drain asks a non-mention requester for read access to the
   session's submodule repositories, as it asks for write access to extra repositories. A mention on a merge request
   stays exempt, as today for extra repositories. Its run fetches only what its author can read (FR-005), but the
   session's earlier turns are still in the thread. That residual gap exists today for extra repositories, and this

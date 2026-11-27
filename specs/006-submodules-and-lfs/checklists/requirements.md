@@ -32,7 +32,7 @@
 ## Notes
 
 - The three markers are resolved (2026-11-26): both settings are opt-in (FR-001), the run's person must be able to read a submodule's repository (FR-005), and the feature was read-only (FR-012, FR-013).
-- Re-checked 2026-11-27 after the scope widened: changes inside submodules the person can write are published (US2, FR-019 to FR-026), and session visibility and memory cover fetched submodules (FR-027). No marker was added; the choices the maintainer has not yet confirmed are listed in plan.md under **For the maintainer's eye**.
+- Re-checked 2026-11-27 after the scope widened: changes inside submodules the person can write are published (US2, FR-019 to FR-026), and session visibility and memory cover fetched submodules (FR-027). No marker was added. The five choices listed in plan.md under **For the maintainer's eye** were approved on 2026-11-27.
 - The spec names git submodules, Git LFS, `.gitmodules`, HTTPS and SSH URLs and git status. They are what the feature is about and what users configure and see, not implementation choices.
 - FR-003, FR-004 and FR-006 name hosts, protocols and credentials because they are the security requirement itself (constitution principle I).
 - Items marked incomplete require spec updates before `/speckit-clarify` or `/speckit-plan`

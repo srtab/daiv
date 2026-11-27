@@ -4,7 +4,7 @@
 
 **Created**: 2026-11-26
 
-**Status**: Draft (scope widened 2026-11-27 to publish changes inside submodules)
+**Status**: Approved with the plan on 2026-11-27 (scope widened the same day to publish changes inside submodules)
 
 **Input**: User description: "Support git submodules and Git LFS in the repositories DAIV works on" ([#1875](https://github.com/srtab/daiv/issues/1875)). A team evaluating DAIV on GitLab could not use it on their issues: their repositories use submodules heavily and keep some files in LFS. DAIV's checkout leaves submodule directories empty and LFS-tracked files holding only their pointer text. The reporter patched their instance to clone submodules recursively and fetch LFS content, and asked how a change that spans a submodule and its superproject would be published, since that needs a merge request in each repository. The description also recorded what the current code means for the feature:
 
@@ -30,6 +30,7 @@ The reporter's follow-up on 2026-11-27: their issues need changes inside the sub
 - Q: Does the spec adopt the refinement from planning? → A: Yes, SR1, approved with the plan: a person's access to a submodule's repository is what DAIV's repository access records, which list members only, so a public or internal repository counts only for its members (FR-005).
 - Q: May LFS content come from a host other than the platform's? → A: Only where the platform's own LFS API sends DAIV, such as the platform's object storage; never where the repository's configuration points (FR-006, from the `/speckit-analyze` review).
 - Q: Should publishing changes inside submodules wait for a later feature, with a read-only first version? → A: No. This feature publishes them too, as merge requests in the submodules' repositories with the superproject pointing at them: the reporter needs those changes and runs a stopgap until then. Changes to LFS-tracked files stay unpublished (US2, FR-019 to FR-026).
+- Q: Does the spec adopt the decisions of the revised plan? → A: Yes, all five, approved with the plan. Two of them shape the spec. DAIV fetches submodules only from repositories it works on, where it can mint a credential for one repository (FR-004). Turning submodule checkout on also turns on publishing (Assumptions).
 - Q: Can someone see a session whose agent read a submodule they can't read? → A: No. The session's visibility and repository memory treat a fetched submodule's repository like an extra repository's (FR-027), found in review: a teammate who can read the superproject only would otherwise read the submodule's code in the transcript.
 
 ## User Scenarios & Testing *(mandatory)*

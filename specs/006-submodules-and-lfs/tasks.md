@@ -54,7 +54,7 @@ change unmeasured (T097).
 
 - [X] T001 Record the maintainer's approval of plan.md and refinement SR1 in the **Status** line of specs/006-submodules-and-lfs/plan.md (done 2026-11-27, for the read-only plan).
 - [X] T002 Apply SR1 from specs/006-submodules-and-lfs/research.md (R4) to FR-005 of specs/006-submodules-and-lfs/spec.md, and record it under **Clarifications** (done 2026-11-27).
-- [ ] T003 Record the maintainer's approval of the 2026-11-27 revision: the **Status** line of specs/006-submodules-and-lfs/plan.md and the five **Needs approval** items under **For the maintainer's eye**. Apply any change the approval asks for to the spec, the research and these tasks before Phase 2 starts.
+- [X] T003 Record the maintainer's approval of the 2026-11-27 revision: the **Status** line of specs/006-submodules-and-lfs/plan.md and the five decisions under **For the maintainer's eye** (done 2026-11-27; approved without changes).
 - [ ] T004 Run `make test` once before any change and note pre-existing failures, so later ones can be told apart.
 
 ---
@@ -510,7 +510,7 @@ at ERROR, without secrets.
 
 ### Phase dependencies
 
-- **Setup (Phase 1)**: T001 and T002 are done. T003, the approval of the revision, blocks everything after it.
+- **Setup (Phase 1)**: T001 to T003 are done; T004 is the baseline before any change.
 - **Foundational (Phase 2)**: depends on Setup and blocks every story.
 - **US1 (Phase 3)**: depends on Phase 2.
 - **US2 (Phase 4)**: depends on US1, whose checkout it extends.
