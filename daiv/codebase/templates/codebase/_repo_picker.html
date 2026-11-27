@@ -138,7 +138,7 @@ Parameters:
     {% include "core/_sheet_backdrop.html" with show_expr="popover === 'repo'" %}
     <div x-show="popover === 'repo'" x-cloak
          @click.outside="closePopover()"
-         @keydown.escape.window="closePopover()"
+         @keydown.escape.window="escapeRepoPopover()"
          data-surface
          class="picker-popover picker-popover--inset">
         {% include "core/_sheet_head.html" with title=_("Repository") close_expr="closePopover()" %}

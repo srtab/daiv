@@ -200,7 +200,9 @@ def _sync_catalog_languages(client: RepoClient, provider: str, universe: list[Re
     try:
         rows = {
             row.slug: row
-            for row in RepositoryCatalog.objects.filter(provider=provider, slug__in=[repo.slug for repo in universe])
+            for row in RepositoryCatalog.objects.filter(
+                provider=provider, slug__in=[repo.slug for repo in universe]
+            ).only("pk", "slug", "languages_synced_at", "languages_activity_at")
         }
     except Exception:
         logger.exception("Repository access sync: failed to load catalog rows for the language sync")

@@ -28,10 +28,15 @@ ACCESS_LEVEL_CHOICES = [(level.value, _ACCESS_LEVEL_LABELS[level]) for level in 
 LANGUAGE_MATCH_MIN_SHARE = 10.0
 
 
-def language_share(languages: dict[str, float], language: str) -> float:
-    """Percentage of the code in ``language`` (case-insensitive), ``0.0`` when absent."""
+def language_entry(languages: dict[str, float], language: str) -> tuple[str, float] | None:
+    """The stored ``(name, share)`` for ``language``, matched case-insensitively."""
     wanted = language.casefold()
-    return next((share for name, share in languages.items() if name.casefold() == wanted), 0.0)
+    return next(((name, share) for name, share in languages.items() if name.casefold() == wanted), None)
+
+
+def matches_language(languages: dict[str, float], language: str) -> bool:
+    entry = language_entry(languages, language)
+    return entry is not None and entry[1] >= LANGUAGE_MATCH_MIN_SHARE
 
 
 def matched_languages(languages: dict[str, float]) -> list[str]:
@@ -229,26 +234,13 @@ class RepositoryCatalog(models.Model):
     def __str__(self) -> str:
         return f"{self.provider}:{self.slug}"
 
-    def _language_entry(self, language: str) -> tuple[str, float] | None:
-        wanted = language.casefold()
-        return next(((name, share) for name, share in self.languages.items() if name.casefold() == wanted), None)
-
-    def language_share(self, language: str) -> float:
-        return language_share(self.languages, language)
-
-    def matches_language(self, language: str) -> bool:
-        return self.language_share(language) >= LANGUAGE_MATCH_MIN_SHARE
-
-    def matched_languages(self) -> list[str]:
-        return matched_languages(self.languages)
-
     @property
     def primary_language(self) -> str:
         return max(self.languages, key=self.languages.__getitem__, default="")
 
     def language_label(self, language: str = "") -> str:
         """``"Python 41%"`` when ``language`` matches, else the primary language."""
-        entry = self._language_entry(language) if language else None
+        entry = language_entry(self.languages, language) if language else None
         if entry and entry[1] >= LANGUAGE_MATCH_MIN_SHARE:
             return f"{entry[0]} {round(entry[1])}%"
         return self.primary_language

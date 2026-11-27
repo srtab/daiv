@@ -70,11 +70,6 @@ for (const [method, ...params] of actions) {
     listeners["htmx:afterSwap"]({ target: refs.repoPickerList });
   } else if (method === "scroll") refs.repoPickerList.scrollTop = params[0];
   else if (method === "set") picker[params[0]] = params[1];
-  else if (method === "key") {
-    const event = { stopped: false, stopPropagation() { this.stopped = true; } };
-    picker[params[0]](event);
-    observations.push(event.stopped);
-  }
   else if (method === "event") {
     listeners[params[0]]({ target: params[1] === "sentinel" ? sentinel : refs[params[1]] });
   } else if (method === "observe") {
@@ -497,19 +492,25 @@ def test_select_all_row_is_hidden_without_data_or_for_a_single_choice():
     assert drive([["applySelectAll", _select_all(3, ["p/1"])]], maxRepos=1)["selectAllRow"] is None
 
 
-def test_picking_a_filter_refreshes_list_and_facets_and_clears_select_all():
-    state = drive([
-        ["applySelectAll", _select_all(3, ["p/1"])],
-        ["toggleFilterMenu", "language"],
-        ["pickFilter", "language", "Python"],
-    ])
+def test_picking_a_filter_refreshes_list_and_facets():
+    state = drive([["toggleFilterMenu", "language"], ["pickFilter", "language", "Python"]])
 
     assert state["language"] == "Python"
     assert state["filterMenu"] is None
-    assert state["selectAllData"] is None
     assert state["requests"][-1]["picker"] == "repo"
     assert state["requests"][-1]["event"] == "refresh"
     assert state["filterRequests"] == ["refresh"]
+
+
+def test_a_new_list_request_hides_old_rows_and_drops_select_all():
+    state = drive([
+        ["openRepoPicker"],
+        ["loaded"],
+        ["applySelectAll", _select_all(3, ["p/1"])],
+        ["event", "htmx:beforeRequest", "repoSearch"],
+    ])
+
+    assert (state["repoLoading"], state["selectAllData"]) == (True, None)
 
 
 def test_opening_loads_the_filters_once():
@@ -540,7 +541,11 @@ def test_opening_a_filter_menu_clears_its_find_box():
 
 @pytest.mark.parametrize("event", ["htmx:sendError", "htmx:responseError"])
 def test_a_failed_search_drops_the_previous_select_all(event):
-    state = drive([["applySelectAll", _select_all(3, ["p/1"])], ["event", event, "repoSearch"]])
+    state = drive([
+        ["applySelectAll", _select_all(3, ["p/1"])],
+        ["event", "htmx:beforeRequest", "repoSearch"],
+        ["event", event, "repoSearch"],
+    ])
 
     assert state["selectAllRow"] is None
 
@@ -560,22 +565,11 @@ def test_select_all_re_adds_a_matching_repo_unselected_after_the_list_loaded():
     assert state["selectAllNote"] == ""
 
 
-def test_escape_closes_an_open_filter_menu_and_keeps_the_picker():
-    state = drive([["openRepoPicker"], ["toggleFilterMenu", "language"], ["key", "closeFilterMenu"]])
+def test_escape_closes_an_open_filter_menu_before_the_picker():
+    state = drive([["openRepoPicker"], ["toggleFilterMenu", "language"], ["escapeRepoPopover"]])
+    assert (state["filterMenu"], state["popover"]) == (None, "repo")
 
-    assert (state["filterMenu"], state["popover"], state["observations"]) == (None, "repo", [True])
-
-
-def test_escape_without_an_open_filter_menu_reaches_the_picker():
-    state = drive([["openRepoPicker"], ["key", "closeFilterMenu"]])
-
-    assert state["observations"] == [False]
-
-
-def test_picking_a_filter_hides_the_old_rows_while_loading():
-    state = drive([["openRepoPicker"], ["loaded"], ["pickFilter", "topic", "api"]])
-
-    assert state["repoLoading"] is True
+    assert drive([["openRepoPicker"], ["escapeRepoPopover"]])["popover"] is None
 
 
 @pytest.mark.parametrize(

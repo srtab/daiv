@@ -38,6 +38,7 @@ from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
 from codebase.base import RepoId  # noqa: TC001 - runtime type for MCPServer
+from codebase.models import LANGUAGE_MATCH_MIN_SHARE
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
 from daiv import __version__
@@ -703,7 +704,8 @@ async def list_repositories(
         str | None,
         Field(
             description=(
-                "Filter by programming language: repositories where it is at least 10% of the code (case-insensitive)."
+                f"Filter by programming language: repositories where it is at least {LANGUAGE_MATCH_MIN_SHARE:g}% of"
+                " the code (case-insensitive)."
             )
         ),
     ] = None,

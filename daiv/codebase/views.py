@@ -24,6 +24,7 @@ from codebase.authorization import (
     runnable_repository_matches,
     search_runnable_repositories,
 )
+from codebase.base import MAX_REPOS_PER_BATCH
 from codebase.clients import RepoClient
 from codebase.clients.base import PLATFORM_ERRORS
 
@@ -33,13 +34,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger("daiv.codebase")
 
 PICKER_LIMIT = 10
-# Covers the largest picker field (``sessions.validators.MAX_REPOS_PER_BATCH``), which ``codebase``
-# may not import; a test pins the two together.
-SELECT_ALL_CANDIDATES = 20
 
 
 def _selected_slugs(raw: str) -> list[str]:
-    return [slug for slug in (part.strip() for part in raw.split(",")) if slug][:SELECT_ALL_CANDIDATES]
+    return [slug for slug in (part.strip() for part in raw.split(",")) if slug][:MAX_REPOS_PER_BATCH]
 
 
 @login_required
@@ -63,13 +61,9 @@ def picker_repositories_view(request: HttpRequest) -> HttpResponse:
     after = request.GET.get("after", "").strip()
     language = request.GET.get("language", "").strip()
     topic = request.GET.get("topic", "").strip()
+    topics = [topic] if topic else None
     rows = search_runnable_repositories(
-        request.user,
-        search=query or None,
-        topics=[topic] if topic else None,
-        language=language or None,
-        limit=PICKER_LIMIT + 1,
-        after_slug=after or None,
+        request.user, search=query, topics=topics, language=language, limit=PICKER_LIMIT + 1, after_slug=after
     )
     repos = rows[:PICKER_LIMIT]
     next_url = None
@@ -80,11 +74,11 @@ def picker_repositories_view(request: HttpRequest) -> HttpResponse:
     if not after and (query or language or topic):
         matches = runnable_repository_matches(
             request.user,
-            search=query or None,
-            topic=topic or None,
-            language=language or None,
+            search=query,
+            topics=topics,
+            language=language,
             selected=_selected_slugs(request.GET.get("selected", "")),
-            candidate_limit=SELECT_ALL_CANDIDATES,
+            candidate_limit=MAX_REPOS_PER_BATCH,
         )
         select_all = json.dumps({
             "total": matches.total,
@@ -105,7 +99,7 @@ def picker_repository_facets_view(request: HttpRequest) -> HttpResponse:
     """HTMX fragment: the picker's Language and Topic dropdowns, each option with how many repositories it keeps."""
     language = request.GET.get("language", "").strip()
     topic = request.GET.get("topic", "").strip()
-    facets = runnable_repository_facets(request.user, topic=topic or None, language=language or None)
+    facets = runnable_repository_facets(request.user, topics=[topic] if topic else None, language=language)
     return render(
         request, "codebase/_repo_picker_filters.html", {"facets": facets, "language": language, "topic": topic}
     )

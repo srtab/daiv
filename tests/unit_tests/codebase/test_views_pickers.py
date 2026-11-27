@@ -15,7 +15,6 @@ from sessions.validators import MAX_REPOS_PER_BATCH
 
 from accounts.models import User
 from codebase.authorization import RepositoryFacets, RepositoryMatches
-from codebase.views import SELECT_ALL_CANDIDATES
 
 
 def _cat(slug: str, name: str | None = None, default_branch: str = "main", languages: dict | None = None):
@@ -55,7 +54,7 @@ class TestRepoPickerView:
         resp = logged_in_client.get(reverse("codebase:picker-repositories"))
 
         assert resp.status_code == 200
-        mock_search.assert_called_once_with(ANY, search=None, topics=None, language=None, limit=11, after_slug=None)
+        mock_search.assert_called_once_with(ANY, search="", topics=None, language="", limit=11, after_slug="")
         assert b"acme/api" in resp.content
         assert b"acme/web" in resp.content
 
@@ -66,7 +65,7 @@ class TestRepoPickerView:
 
         logged_in_client.get(reverse("codebase:picker-repositories") + "?q=foo")
 
-        mock_search.assert_called_once_with(ANY, search="foo", topics=None, language=None, limit=11, after_slug=None)
+        mock_search.assert_called_once_with(ANY, search="foo", topics=None, language="", limit=11, after_slug="")
 
     @patch("codebase.views.search_runnable_repositories", autospec=True)
     def test_renders_rows_in_returned_order(self, mock_search, logged_in_client):
@@ -120,7 +119,7 @@ class TestRepoPickerView:
         resp = logged_in_client.get(reverse("codebase:picker-repositories") + "?q=acme&after=acme/r09")
 
         mock_search.assert_called_once_with(
-            ANY, search="acme", topics=None, language=None, limit=11, after_slug="acme/r09"
+            ANY, search="acme", topics=None, language="", limit=11, after_slug="acme/r09"
         )
         body = resp.content.decode()
         assert "<ul>" not in body
@@ -158,9 +157,7 @@ class TestRepoPickerFilters:
 
         logged_in_client.get(reverse("codebase:picker-repositories") + "?language=Python&topic=api")
 
-        mock_search.assert_called_once_with(
-            ANY, search=None, topics=["api"], language="Python", limit=11, after_slug=None
-        )
+        mock_search.assert_called_once_with(ANY, search="", topics=["api"], language="Python", limit=11, after_slug="")
 
     @patch("codebase.views.runnable_repository_matches", autospec=True)
     @patch("codebase.views.search_runnable_repositories", autospec=True)
@@ -214,10 +211,7 @@ class TestRepoPickerFilters:
 
         first, second = mock_matches.call_args_list
         assert first.kwargs["selected"] == ["a/1", "a/2"]
-        assert len(second.kwargs["selected"]) == SELECT_ALL_CANDIDATES
-
-    def test_select_all_candidates_cover_the_largest_field(self):
-        assert SELECT_ALL_CANDIDATES >= MAX_REPOS_PER_BATCH
+        assert len(second.kwargs["selected"]) == MAX_REPOS_PER_BATCH
 
     @patch("codebase.views.runnable_repository_matches", autospec=True)
     @patch("codebase.views.search_runnable_repositories", autospec=True)
@@ -249,7 +243,7 @@ class TestRepoFacetsView:
         assert "pickFilter('language', 'Python')" in body
         assert ">3</span>" in body
         assert "toggleFilterMenu('topic')" not in body
-        mock_facets.assert_called_once_with(ANY, topic=None, language=None)
+        mock_facets.assert_called_once_with(ANY, topics=None, language="")
 
     @patch("codebase.views.runnable_repository_facets", autospec=True)
     def test_keeps_a_set_dimension_without_options(self, mock_facets, logged_in_client):
@@ -258,7 +252,7 @@ class TestRepoFacetsView:
         resp = logged_in_client.get(reverse("codebase:picker-repository-facets") + "?topic=api")
 
         assert "toggleFilterMenu('topic')" in resp.content.decode()
-        mock_facets.assert_called_once_with(ANY, topic="api", language=None)
+        mock_facets.assert_called_once_with(ANY, topics=["api"], language="")
 
     @patch("codebase.views.runnable_repository_facets", autospec=True)
     def test_both_menus_offer_a_find_box_that_never_submits_the_form(self, mock_facets, logged_in_client):
@@ -266,7 +260,7 @@ class TestRepoFacetsView:
 
         resp = logged_in_client.get(reverse("codebase:picker-repository-facets"))
 
-        finds = BeautifulSoup(resp.content, "html.parser").select(".filter-menu__find")
+        finds = BeautifulSoup(resp.content, "html.parser").select(".filter-menu__search")
         assert len(finds) == 2
         assert all(find["x-model"] == "filterFind" and "@keydown.enter.prevent" in find.attrs for find in finds)
         assert "matchesFilterFind('Python')" in resp.content.decode()

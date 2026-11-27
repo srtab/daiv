@@ -510,7 +510,7 @@ class TestRunnableRepositoryFacets:
         _catalog("a/two", topics=["etl"], languages={"Python": 70.0})
         _catalog("a/three", topics=["api"], languages={"Go": 90.0})
 
-        assert runnable_repository_facets(admin_user, topic="api").languages == [("Go", 1), ("Python", 1)]
+        assert runnable_repository_facets(admin_user, topics=["api"]).languages == [("Go", 1), ("Python", 1)]
         assert runnable_repository_facets(admin_user, language="Python").topics == [("api", 1), ("etl", 1)]
 
     def test_languages_below_threshold_are_not_listed(self, admin_user, fresh_sync):
@@ -535,7 +535,7 @@ class TestRunnableRepositoryFacets:
         _catalog("a/one", topics=["api"], languages={"Python": 80.0})
 
         with patch.object(RepositoryCatalog, "from_db", side_effect=AssertionError("row instantiated")):
-            facets = runnable_repository_facets(admin_user, topic="api", language="Python")
+            facets = runnable_repository_facets(admin_user, topics=["api"], language="Python")
 
         assert (facets.languages, facets.topics) == ([("Python", 1)], [("api", 1)])
 
@@ -575,7 +575,7 @@ class TestRunnableRepositoryMatches:
         _catalog("a/one", topics=["Django"])
         _catalog("a/two", topics=["django"])
 
-        result = runnable_repository_matches(admin_user, topic="django", candidate_limit=20)
+        result = runnable_repository_matches(admin_user, topics=["django"], candidate_limit=20)
 
         assert result.total == 2
 

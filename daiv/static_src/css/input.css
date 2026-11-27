@@ -4872,9 +4872,6 @@ html {
   .repo-picker__filters .filter-control { @apply h-[34px] rounded-[10px] bg-transparent; }
   .repo-picker__filters .filter-control--active { @apply bg-surface-3; }
   .repo-picker__filters .filter-menu { @apply left-0 top-full; }
-  .filter-menu__find {
-    @apply mb-1 h-[30px] w-full rounded-lg border border-white/[0.1] bg-white/[0.02] px-2.5 text-[13px] text-white placeholder-gray-500 focus:border-white/[0.18] focus:outline-none;
-  }
   .repo-picker__lang { @apply mt-0.5 shrink-0 font-mono text-[12px] text-text-faint; }
   .repo-picker__select-all {
     @apply mb-0.5 flex items-center gap-2.5 rounded-b-none border-b border-border text-[14px] text-accent-bright;

@@ -5,7 +5,6 @@ from django.urls import reverse
 
 from bs4 import BeautifulSoup
 
-from codebase.authorization import RepositoryFacets
 from codebase.models import RepositoryCatalog
 
 CONTEXT = {"initial_repos": "[]", "max_repos": 1, "field_name": "", "required": False}
@@ -98,10 +97,7 @@ def test_rows_announce_pressed_from_what_a_click_would_do():
     assert ":aria-pressed=\"isRepoPressed('acme/api', 'main').toString()\"" in html
 
 
-def test_escape_in_a_filter_closes_only_the_filter():
-    html = render_to_string(
-        "codebase/_repo_picker_filters.html",
-        {"facets": RepositoryFacets(languages=[("Python", 1)], topics=[]), "language": "", "topic": ""},
-    )
+def test_escape_goes_through_the_layered_handler():
+    html = render_to_string("codebase/_repo_picker.html", CONTEXT | {"max_repos": 20})
 
-    assert '@keydown.escape="closeFilterMenu($event)"' in html
+    assert '@keydown.escape.window="escapeRepoPopover()"' in html

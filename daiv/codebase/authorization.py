@@ -15,12 +15,11 @@ from asgiref.sync import sync_to_async
 from codebase.base import RepoAccessLevel
 from codebase.conf import settings
 from codebase.models import (
-    LANGUAGE_MATCH_MIN_SHARE,
     RepositoryAccess,
     RepositoryAccessSyncState,
     RepositoryCatalog,
-    language_share,
     matched_languages,
+    matches_language,
 )
 
 if TYPE_CHECKING:
@@ -229,17 +228,15 @@ def can_run(user: User, repo_id: str) -> bool:
 
 
 def _listable_rows(user: User, *, min_level: RepoAccessLevel):
-    """Fresh catalog rows ``user`` holds at least ``min_level`` on; admins get the whole fresh catalog.
-
-    ``None`` when a member has no linked platform identity.
-    """
+    """Fresh catalog rows ``user`` holds at least ``min_level`` on; admins get the whole fresh catalog, a member with
+    no linked platform identity none."""
     _maybe_enqueue_backstop()
     rows = RepositoryCatalog.objects.fresh().filter(provider=_provider())
     if user.is_admin:
         return rows
     uid = _identity(user)
     if uid is None:
-        return None
+        return rows.none()
     access = _fresh_rows(uid)
     if min_level == RepoAccessLevel.WRITE:
         access = access.filter(access_level=RepoAccessLevel.WRITE)
@@ -260,7 +257,7 @@ def _row_matches(
         have = {topic.casefold() for topic in row_topics}
         if any(topic.casefold() not in have for topic in topics):
             return False
-    return not language or language_share(row_languages, language) >= LANGUAGE_MATCH_MIN_SHARE
+    return not language or matches_language(row_languages, language)
 
 
 def _search_catalog(
@@ -274,8 +271,6 @@ def _search_catalog(
     after_slug: str | None,
 ) -> list[RepositoryCatalog]:
     rows = _listable_rows(user, min_level=min_level)
-    if rows is None:
-        return []
     if after_slug:
         rows = rows.filter(slug__gt=after_slug)
     rows = _text_filtered(rows, search)
@@ -358,30 +353,22 @@ def _ranked(counts: Counter[str]) -> list[tuple[str, int]]:
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
 
-def _most_common_spelling(spellings: Counter[str]) -> str:
-    return min(spellings.items(), key=lambda item: (-item[1], item[0]))[0]
-
-
 def runnable_repository_facets(
-    user: User, *, topic: str | None = None, language: str | None = None
+    user: User, *, topics: list[str] | None = None, language: str | None = None
 ) -> RepositoryFacets:
-    """Each dimension's counts honour the other dimension's selection, never the typed search."""
+    """Each dimension's counts honour the other dimension's selection, never the typed search; a topic's spellings
+    count together under the most common one."""
     rows = _listable_rows(user, min_level=RepoAccessLevel.WRITE)
-    if rows is None:
-        return RepositoryFacets(languages=[], topics=[])
     languages: Counter[str] = Counter()
-    topic_counts: Counter[str] = Counter()
     spellings: defaultdict[str, Counter[str]] = defaultdict(Counter)
     for row_topics, row_languages in rows.values_list("topics", "languages").iterator():
-        if _row_matches(row_topics, row_languages, [topic] if topic else None, None):
+        if _row_matches(row_topics, row_languages, topics, None):
             languages.update(matched_languages(row_languages))
         if _row_matches(row_topics, row_languages, None, language):
-            row_spellings = {name.casefold(): name for name in reversed(row_topics)}
-            topic_counts.update(row_spellings.keys())
-            for key, name in row_spellings.items():
+            for key, name in {name.casefold(): name for name in reversed(row_topics)}.items():
                 spellings[key][name] += 1
-    topics = Counter({_most_common_spelling(spellings[key]): count for key, count in topic_counts.items()})
-    return RepositoryFacets(languages=_ranked(languages), topics=_ranked(topics))
+    topic_counts = Counter({_ranked(variants)[0][0]: variants.total() for variants in spellings.values()})
+    return RepositoryFacets(languages=_ranked(languages), topics=_ranked(topic_counts))
 
 
 @dataclass(frozen=True)
@@ -398,19 +385,16 @@ def runnable_repository_matches(
     user: User,
     *,
     search: str | None = None,
-    topic: str | None = None,
+    topics: list[str] | None = None,
     language: str | None = None,
     selected: Sequence[str] = (),
     candidate_limit: int,
 ) -> RepositoryMatches:
     """Candidates include selected matches, so one unselected after the list loaded can still be re-added."""
-    rows = _listable_rows(user, min_level=RepoAccessLevel.WRITE)
-    if rows is None:
-        return RepositoryMatches(total=0, candidates=[], matching_selected=[])
-    rows = _text_filtered(rows, search)
+    rows = _text_filtered(_listable_rows(user, min_level=RepoAccessLevel.WRITE), search)
     selected_set = set(selected)
     limit = candidate_limit + len(selected_set)
-    if not topic and not language:
+    if not topics and not language:
         return RepositoryMatches(
             total=rows.count(),
             candidates=list(rows.values_list("slug", "default_branch")[:limit]),
@@ -422,7 +406,7 @@ def runnable_repository_matches(
     for slug, default_branch, row_topics, row_languages in rows.values_list(
         "slug", "default_branch", "topics", "languages"
     ).iterator():
-        if not _row_matches(row_topics, row_languages, [topic] if topic else None, language):
+        if not _row_matches(row_topics, row_languages, topics, language):
             continue
         total += 1
         if slug in selected_set:

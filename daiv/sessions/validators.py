@@ -1,6 +1,4 @@
-from codebase.base import normalize_repo_id
-
-MAX_REPOS_PER_BATCH = 20
+from codebase.base import MAX_REPOS_PER_BATCH, normalize_repo_id
 
 
 def validate_repo_list(raw) -> list[dict]:

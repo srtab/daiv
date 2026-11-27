@@ -28,7 +28,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult
+from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult, is_not_found
 from codebase.exceptions import CloneRefNotFoundError
 from codebase.utils import is_git_ref_not_found_text
 
@@ -169,7 +169,7 @@ class GitHubClient(RepoClient):
         try:
             byte_counts = self.client.get_repo(repo_id, lazy=True).get_languages()
         except GithubException as exc:
-            if exc.status == 404:
+            if is_not_found(exc):
                 return {}
             raise
         total = sum(byte_counts.values())

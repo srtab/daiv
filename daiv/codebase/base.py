@@ -6,6 +6,8 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
+MAX_REPOS_PER_BATCH = 20
+
 
 class GitPlatform(StrEnum):
     GITLAB = "gitlab"

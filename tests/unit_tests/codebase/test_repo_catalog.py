@@ -4,7 +4,7 @@ from django.utils import timezone
 
 import pytest
 
-from codebase.models import RepositoryCatalog
+from codebase.models import RepositoryCatalog, language_entry, matched_languages, matches_language
 
 
 def _cat(slug: str, synced_at):
@@ -37,14 +37,15 @@ def _row(languages, **kwargs):
 
 class TestRepositoryCatalogLanguages:
     def test_matches_language_at_threshold_inclusive(self):
-        assert _row({"Python": 10.0}).matches_language("Python")
-        assert not _row({"Python": 9.9}).matches_language("Python")
+        assert matches_language({"Python": 10.0}, "Python")
+        assert not matches_language({"Python": 9.9}, "Python")
 
-    def test_language_share_is_case_insensitive(self):
-        assert _row({"Python": 41.2}).language_share("python") == 41.2
+    def test_language_entry_is_case_insensitive_and_keeps_the_stored_spelling(self):
+        assert language_entry({"Python": 41.2}, "python") == ("Python", 41.2)
+        assert language_entry({"Python": 41.2}, "Go") is None
 
     def test_matched_languages_lists_stored_spellings_at_or_above_threshold(self):
-        assert _row({"TypeScript": 85.0, "Python": 10.0, "CSS": 5.0}).matched_languages() == ["TypeScript", "Python"]
+        assert matched_languages({"TypeScript": 85.0, "Python": 10.0, "CSS": 5.0}) == ["TypeScript", "Python"]
 
     def test_primary_language_is_largest_share(self):
         assert _row({"TypeScript": 52.0, "Python": 41.0}).primary_language == "TypeScript"
@@ -61,7 +62,7 @@ class TestRepositoryCatalogLanguages:
 
         assert row.primary_language == ""
         assert row.language_label("Python") == ""
-        assert not row.matches_language("Python")
+        assert not matches_language(row.languages, "Python")
 
     def test_needs_languages_refresh(self):
         t1 = timezone.now()

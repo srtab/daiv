@@ -3,10 +3,10 @@
 One filter dropdown of the repository picker. Context: key ("language" or "topic", also the `promptBox` state
 name), label, icon (shown while unset), all_label, find_label (the find box's placeholder), options ((name, count)
 pairs), current. Renders nothing with no options and no current value. Bound to `promptBox`: `filterMenu`,
-`toggleFilterMenu`, `closeFilterMenu`, `pickFilter`, `filterFind`, `matchesFilterFind`.
+`toggleFilterMenu`, `pickFilter`, `filterFind`, `matchesFilterFind`.
 {% endcomment %}
 {% if options or current %}
-<div class="relative" @click.outside="if (filterMenu === '{{ key }}') filterMenu = null" @keydown.escape="closeFilterMenu($event)">
+<div class="relative" @click.outside="if (filterMenu === '{{ key }}') filterMenu = null">
     <div class="filter-control" :class="{ 'filter-control--active': !!{{ key }} }">
         <button type="button" class="filter-control__toggle" @click="toggleFilterMenu('{{ key }}')"
                 aria-expanded="false" :aria-expanded="(filterMenu === '{{ key }}').toString()">
@@ -19,7 +19,7 @@ pairs), current. Renders nothing with no options and no current value. Bound to 
                 aria-label="{% blocktranslate %}Clear {{ label }} filter{% endblocktranslate %}">{% icon "x-mark" "h-3.5 w-3.5" %}</button>
     </div>
     <div data-surface class="filter-menu scrollbar-thin" x-show="filterMenu === '{{ key }}'" x-cloak>
-        <input type="search" autocomplete="off" x-model="filterFind" @keydown.enter.prevent class="filter-menu__find"
+        <input type="search" autocomplete="off" x-model="filterFind" @keydown.enter.prevent class="filter-menu__search"
                placeholder="{{ find_label }}" aria-label="{{ find_label }}">
         <button type="button" class="filter-menu-item" :class="{ 'filter-menu-item--active': !{{ key }} }"
                 @click="pickFilter('{{ key }}', '')">{{ all_label }}</button>

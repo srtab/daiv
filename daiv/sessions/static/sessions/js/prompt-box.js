@@ -68,6 +68,7 @@ document.addEventListener("alpine:init", () => {
                 if (e.target === this.$refs.repoSearch) {
                     this.repoLoading = true;
                     this._repoNeedsRefresh = true;
+                    this.applySelectAll(null);
                 }
                 if (e.target === this.$refs.branchSearch) this.branchLoading = true;
             });
@@ -89,7 +90,6 @@ document.addEventListener("alpine:init", () => {
             if (target === this.$refs.repoSearch) {
                 this.repoLoading = false;
                 this._repoNeedsRefresh = true;
-                this.applySelectAll(null);
                 pickerError.showIn(this.$refs.repoPickerList);
             } else if (target === this.$refs.repoFilters) {
                 this._filtersNeedRefresh = true;
@@ -168,18 +168,10 @@ document.addEventListener("alpine:init", () => {
             if (this.filterMenu) this.filterFind = "";
         },
 
-        closeFilterMenu(event) {
-            if (!this.filterMenu) return;
-            this.filterMenu = null;
-            event.stopPropagation();
-        },
-
         pickFilter(key, value) {
             if (key !== "language" && key !== "topic") return;
             this[key] = value;
             this.filterMenu = null;
-            this.applySelectAll(null);
-            this.repoLoading = true;
             this.$nextTick(() => {
                 window.htmx.trigger(this.$refs.repoSearch, "refresh");
                 window.htmx.trigger(this.$refs.repoFilters, "refresh");
@@ -224,9 +216,8 @@ document.addEventListener("alpine:init", () => {
             let added = 0;
             for (const { slug, default_branch: defaultBranch } of this.selectAllData.candidates) {
                 if (free <= 0) break;
-                const ref = defaultBranch || "";
-                if (this.isRepoSelected(slug) || this._findConflict(slug, ref, null, ref) !== -1) continue;
-                this.repos.push({ slug, ref });
+                if (this.isRepoSelected(slug)) continue;
+                this.repos.push({ slug, ref: defaultBranch || "" });
                 this._matchingSlugs.add(slug);
                 added += 1;
                 free -= 1;
@@ -289,6 +280,11 @@ document.addEventListener("alpine:init", () => {
             if (!input) return;
             input.value = "";
             window.htmx.trigger(input, "refresh");
+        },
+
+        escapeRepoPopover() {
+            if (this.filterMenu) this.filterMenu = null;
+            else this.closePopover();
         },
 
         closePopover() {
