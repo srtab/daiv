@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-27 01:23+0000\n"
+"POT-Creation-Date: 2026-11-27 01:49+0000\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -219,20 +219,23 @@ msgstr "Ramo"
 msgid "Clear %(label)s filter"
 msgstr "Limpar filtro %(label)s"
 
-msgid "Find a topic..."
-msgstr "Procurar um tópico..."
-
 msgid "Language"
 msgstr "Linguagem"
 
 msgid "All languages"
 msgstr "Todas as linguagens"
 
+msgid "Find a language..."
+msgstr "Procurar uma linguagem..."
+
 msgid "Topic"
 msgstr "Tópico"
 
 msgid "All topics"
 msgstr "Todos os tópicos"
+
+msgid "Find a topic..."
+msgstr "Procurar um tópico..."
 
 msgid "Select all __TOTAL__ matching"
 msgstr "Selecionar os __TOTAL__ correspondentes"

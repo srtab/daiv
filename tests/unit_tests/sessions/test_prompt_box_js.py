@@ -513,11 +513,43 @@ def test_opening_loads_the_filters_once():
     assert state["filterRequests"] == ["refresh"]
 
 
-def test_topic_find_matches_case_insensitively():
+def test_filter_find_matches_case_insensitively():
     state = drive([
-        ["set", "topicFind", "DJ"],
-        ["observe", "matchesTopicFind", "django"],
-        ["observe", "matchesTopicFind", "api"],
+        ["set", "filterFind", "DJ"],
+        ["observe", "matchesFilterFind", "django"],
+        ["observe", "matchesFilterFind", "api"],
     ])
 
     assert state["observations"] == [True, False]
+
+
+def test_opening_a_filter_menu_clears_its_find_box():
+    state = drive([
+        ["set", "filterFind", "py"],
+        ["toggleFilterMenu", "language"],
+        ["observe", "matchesFilterFind", "Go"],
+    ])
+
+    assert state["observations"] == [True]
+
+
+@pytest.mark.parametrize("event", ["htmx:sendError", "htmx:responseError"])
+def test_a_failed_search_drops_the_previous_select_all(event):
+    state = drive([["applySelectAll", _select_all(3, ["p/1"])], ["event", event, "repoSearch"]])
+
+    assert state["selectAllRow"] is None
+
+
+def test_select_all_re_adds_a_matching_repo_unselected_after_the_list_loaded():
+    state = drive(
+        [
+            ["openRepoPicker"],
+            ["applySelectAll", _select_all(3, ["a/1", "a/2", "x/1"], ["x/1"])],
+            ["toggleRepo", "x/1", "main"],
+            ["selectAllMatching"],
+        ],
+        initialRepos=[{"repo_id": "x/1", "ref": "main"}],
+    )
+
+    assert sorted(repo["slug"] for repo in state["repos"]) == ["a/1", "a/2", "x/1"]
+    assert state["selectAllNote"] == ""

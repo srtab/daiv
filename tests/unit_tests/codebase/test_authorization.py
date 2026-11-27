@@ -536,7 +536,7 @@ class TestRunnableRepositoryMatches:
         )
 
         assert result.total == 5
-        assert [r.slug for r in result.candidates] == ["p/1", "p/3"]
+        assert [r.slug for r in result.candidates] == ["p/1", "p/2", "p/3", "p/4"]
         assert result.matching_selected == ["p/2"]
 
     def test_applies_text_search(self, admin_user, fresh_sync):
@@ -554,3 +554,27 @@ class TestRunnableRepositoryMatches:
         assert runnable_repository_matches(member_user, language="Python", candidate_limit=20) == RepositoryMatches(
             total=0, candidates=[], matching_selected=[]
         )
+
+    def test_excludes_read_only_repos_for_members(self, linked_member, fresh_sync):
+        _catalog("a/read", languages={"Python": 90.0})
+        _catalog("a/write", languages={"Python": 90.0})
+        _grant("101", "a/read", RepoAccessLevel.READ)
+        _grant("101", "a/write", RepoAccessLevel.WRITE)
+
+        result = runnable_repository_matches(
+            linked_member, language="Python", selected=["a/read", "a/write"], candidate_limit=20
+        )
+
+        assert result.total == 1
+        assert result.matching_selected == ["a/write"]
+
+    def test_search_only_matches_run_in_sql(self, admin_user, fresh_sync):
+        _catalog("team/billing")
+        _catalog("team/etl")
+
+        with patch("codebase.authorization._row_matches", side_effect=AssertionError("rows iterated in Python")):
+            result = runnable_repository_matches(admin_user, search="team", selected=["team/etl"], candidate_limit=1)
+
+        assert result.total == 2
+        assert [r.slug for r in result.candidates] == ["team/billing", "team/etl"]
+        assert result.matching_selected == ["team/etl"]

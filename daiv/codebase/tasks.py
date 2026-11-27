@@ -139,9 +139,6 @@ def sync_repository_access_cron_task():
             logger.exception("Repository access sync: failed to sync %s (keeping previous rows)", repo.slug)
             continue
 
-    if catalog_upserted:
-        failures += _sync_catalog_languages(client, provider, universe)
-
     # Prune access rows for repos no longer in the universe, so a repo the bot lost access to
     # (or that was deleted/renamed) is revoked promptly rather than only after the hard TTL.
     # This trusts the listing to be complete: a *fully empty* listing is treated as a degraded
@@ -173,6 +170,9 @@ def sync_repository_access_cron_task():
     # guard self-terminating — once a genuinely member-less repo's stale rows expire and are
     # cleared, it no longer has "prior rows" and stops being flagged as degraded.
     RepositoryAccess.objects.filter(provider=provider).stale().delete()
+
+    if catalog_upserted:
+        failures += _sync_catalog_languages(client, provider, universe)
 
     if failures:
         state.status = RepositoryAccessSyncState.Status.FAILED

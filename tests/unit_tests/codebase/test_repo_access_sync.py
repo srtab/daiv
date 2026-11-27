@@ -385,3 +385,15 @@ class TestSyncCatalogLanguages:
         assert RepositoryAccess.objects.filter(repo_id="a/b", uid="1").exists()
         state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
         assert state.status == RepositoryAccessSyncState.Status.FAILED
+
+    def test_access_prune_runs_before_the_language_fetch(self, mock_repo_client):
+        _row("old/gone", "1")
+        mock_repo_client.list_repositories.return_value = [_repo("a/b", activity_at=T1)]
+        pruned_first = []
+        mock_repo_client.get_repository_languages.side_effect = lambda slug: (
+            pruned_first.append(not RepositoryAccess.objects.filter(repo_id="old/gone").exists()) or {}
+        )
+
+        sync_repository_access_cron_task.func()
+
+        assert pruned_first == [True]

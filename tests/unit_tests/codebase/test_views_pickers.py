@@ -261,6 +261,17 @@ class TestRepoFacetsView:
         mock_facets.assert_called_once_with(ANY, topic="api", language=None)
 
     @patch("codebase.views.runnable_repository_facets", autospec=True)
+    def test_both_menus_offer_a_find_box_that_never_submits_the_form(self, mock_facets, logged_in_client):
+        mock_facets.return_value = RepositoryFacets(languages=[("Python", 3)], topics=[("api", 2)])
+
+        resp = logged_in_client.get(reverse("codebase:picker-repository-facets"))
+
+        finds = BeautifulSoup(resp.content, "html.parser").select(".filter-menu__find")
+        assert len(finds) == 2
+        assert all(find["x-model"] == "filterFind" and "@keydown.enter.prevent" in find.attrs for find in finds)
+        assert "matchesFilterFind('Python')" in resp.content.decode()
+
+    @patch("codebase.views.runnable_repository_facets", autospec=True)
     def test_facets_escape_quotes_in_option_values(self, mock_facets, logged_in_client):
         mock_facets.return_value = RepositoryFacets(languages=[("Ren'Py", 1)], topics=[])
 

@@ -381,20 +381,29 @@ def runnable_repository_matches(
     selected: Sequence[str] = (),
     candidate_limit: int,
 ) -> RepositoryMatches:
+    """Candidates include selected matches, so one unselected after the list loaded can still be re-added."""
     rows = _listable_rows(user, min_level=RepoAccessLevel.WRITE)
     if rows is None:
         return RepositoryMatches(total=0, candidates=[], matching_selected=[])
+    rows = _text_filtered(rows, search)
     selected_set = set(selected)
+    limit = candidate_limit + len(selected_set)
+    if not topic and not language:
+        return RepositoryMatches(
+            total=rows.count(),
+            candidates=list(rows[:limit]),
+            matching_selected=list(rows.filter(slug__in=selected_set).values_list("slug", flat=True)),
+        )
     total = 0
     candidates: list[RepositoryCatalog] = []
     matching_selected: list[str] = []
-    for row in _text_filtered(rows, search).iterator():
+    for row in rows.only("slug", "default_branch", "topics", "languages").iterator():
         if not _row_matches(row, [topic] if topic else None, language):
             continue
         total += 1
         if row.slug in selected_set:
             matching_selected.append(row.slug)
-        elif len(candidates) < candidate_limit:
+        if len(candidates) < limit:
             candidates.append(row)
     return RepositoryMatches(total=total, candidates=candidates, matching_selected=matching_selected)
 

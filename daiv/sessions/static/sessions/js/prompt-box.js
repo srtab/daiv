@@ -56,7 +56,7 @@ document.addEventListener("alpine:init", () => {
         language: "",
         topic: "",
         filterMenu: null,
-        topicFind: "",
+        filterFind: "",
         _filtersNeedRefresh: true,
         selectAllData: null,
         selectAllNote: "",
@@ -89,6 +89,7 @@ document.addEventListener("alpine:init", () => {
             if (target === this.$refs.repoSearch) {
                 this.repoLoading = false;
                 this._repoNeedsRefresh = true;
+                this.applySelectAll(null);
                 pickerError.showIn(this.$refs.repoPickerList);
             } else if (target === this.$refs.repoFilters) {
                 this._filtersNeedRefresh = true;
@@ -160,7 +161,7 @@ document.addEventListener("alpine:init", () => {
 
         toggleFilterMenu(key) {
             this.filterMenu = this.filterMenu === key ? null : key;
-            if (this.filterMenu === "topic") this.topicFind = "";
+            if (this.filterMenu) this.filterFind = "";
         },
 
         pickFilter(key, value) {
@@ -174,8 +175,8 @@ document.addEventListener("alpine:init", () => {
             });
         },
 
-        matchesTopicFind(name) {
-            return name.toLowerCase().includes(this.topicFind.trim().toLowerCase());
+        matchesFilterFind(name) {
+            return name.toLowerCase().includes(this.filterFind.trim().toLowerCase());
         },
 
         applySelectAll(data) {
