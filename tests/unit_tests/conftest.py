@@ -714,6 +714,7 @@ def mock_repo_client():
         )
         mock_client.list_repositories.return_value = []
         mock_client.list_repository_members.return_value = []
+        mock_client.get_repository_languages.return_value = {}
         mock_client.get_repository_file.return_value = None
 
         # Mock repository modification operations

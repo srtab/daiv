@@ -200,6 +200,10 @@ class RepoClient(abc.ABC):
         """
 
     @abc.abstractmethod
+    def get_repository_languages(self, repo_id: str) -> dict[str, float]:
+        """Share of the repository's code per language, as percentages rounded to one decimal; ``{}`` when none."""
+
+    @abc.abstractmethod
     def list_repository_members(self, repo_id: str) -> list[RepoMember]:
         """
         List members of a repository with their normalized access level.

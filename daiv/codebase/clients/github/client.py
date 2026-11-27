@@ -115,6 +115,7 @@ class GitHubClient(RepoClient):
             default_branch=repo.default_branch,
             git_platform=self.git_platform,
             topics=repo.topics,
+            activity_at=repo.pushed_at,
         )
 
     def list_repositories(
@@ -147,6 +148,7 @@ class GitHubClient(RepoClient):
                     topics=repo.topics,
                     clone_url=repo.clone_url,
                     html_url=repo.html_url,
+                    activity_at=repo.pushed_at,
                 )
             )
             # Break early only when no search filter needs full scan
@@ -158,6 +160,14 @@ class GitHubClient(RepoClient):
             if limit is not None:
                 repos = repos[:limit]
         return repos
+
+    def get_repository_languages(self, repo_id: str) -> dict[str, float]:
+        """GitHub reports bytes per language; converted to percentages of the total."""
+        byte_counts = self.client.get_repo(repo_id, lazy=True).get_languages()
+        total = sum(byte_counts.values())
+        if not total:
+            return {}
+        return {name: round(count * 100 / total, 1) for name, count in byte_counts.items()}
 
     def list_repository_members(self, repo_id: str) -> list[RepoMember]:
         """

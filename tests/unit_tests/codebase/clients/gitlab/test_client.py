@@ -1,4 +1,5 @@
 import logging
+from datetime import UTC, datetime
 from unittest.mock import Mock, call, patch
 
 import pytest
@@ -43,6 +44,7 @@ def _gl_project(slug: str) -> Mock:
     project.web_url = f"https://gitlab.com/{slug}"
     project.default_branch = "main"
     project.topics = []
+    project.last_activity_at = "2026-11-20T10:00:00.000Z"
     return project
 
 
@@ -1051,6 +1053,20 @@ class TestGitLabClient:
         gitlab_client.client.projects.list.return_value = iter([_gl_project(s) for s in slugs])
 
         assert [r.slug for r in gitlab_client.list_repositories(limit=limit)] == expected
+
+    def test_list_repositories_carries_last_activity(self, gitlab_client):
+        gitlab_client.client.projects.list.return_value = iter([_gl_project("g/a")])
+
+        [repo] = gitlab_client.list_repositories()
+
+        assert repo.activity_at == datetime(2026, 11, 20, 10, tzinfo=UTC)
+
+    def test_get_repository_languages_rounds_percentages(self, gitlab_client):
+        project = gitlab_client.client.projects.get.return_value
+        project.languages.return_value = {"Python": 72.456, "HTML": 27.544}
+
+        assert gitlab_client.get_repository_languages("g/r") == {"Python": 72.5, "HTML": 27.5}
+        gitlab_client.client.projects.get.assert_called_once_with("g/r", lazy=True)
 
     def test_list_branches_passes_search_and_per_page(self, gitlab_client):
         """`list_branches` forwards `search` and caps `per_page` at `limit`."""
