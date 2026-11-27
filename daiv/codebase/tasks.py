@@ -1,5 +1,6 @@
 import logging
 from datetime import UTC
+from typing import TYPE_CHECKING
 
 from django.tasks import task
 
@@ -9,6 +10,9 @@ from codebase.clients import RepoClient
 from codebase.clients.base import PLATFORM_ERRORS
 from codebase.conf import settings as codebase_settings
 from core.utils import locked_task
+
+if TYPE_CHECKING:
+    from codebase.base import Repository
 
 logger = logging.getLogger("daiv.tasks")
 
@@ -70,6 +74,7 @@ def sync_repository_access_cron_task():
     # degraded but must not abort the access sync below. An empty universe yields an empty
     # bulk_create (no-op); the prune below is guarded on it.
     catalog_synced_at = timezone.now()
+    catalog_upserted = False
     try:
         RepositoryCatalog.objects.bulk_create(
             [
@@ -80,14 +85,16 @@ def sync_repository_access_cron_task():
                     default_branch=repo.default_branch or "",
                     html_url=repo.html_url,
                     topics=repo.topics,
+                    activity_at=repo.activity_at,
                     synced_at=catalog_synced_at,
                 )
                 for repo in universe
             ],
             update_conflicts=True,
             unique_fields=["provider", "slug"],
-            update_fields=["name", "default_branch", "html_url", "topics", "synced_at"],
+            update_fields=["name", "default_branch", "html_url", "topics", "activity_at", "synced_at"],
         )
+        catalog_upserted = True
     except Exception:
         failures += 1
         logger.exception("Repository access sync: failed to upsert repository catalog (%d repos)", len(universe))
@@ -132,6 +139,9 @@ def sync_repository_access_cron_task():
             logger.exception("Repository access sync: failed to sync %s (keeping previous rows)", repo.slug)
             continue
 
+    if catalog_upserted:
+        failures += _sync_catalog_languages(client, provider, universe)
+
     # Prune access rows for repos no longer in the universe, so a repo the bot lost access to
     # (or that was deleted/renamed) is revoked promptly rather than only after the hard TTL.
     # This trusts the listing to be complete: a *fully empty* listing is treated as a degraded
@@ -170,6 +180,41 @@ def sync_repository_access_cron_task():
         state.status = RepositoryAccessSyncState.Status.OK
         state.last_success_at = timezone.now()
     state.save(update_fields=["status", "last_success_at"])
+
+
+def _sync_catalog_languages(client: RepoClient, provider: str, universe: list[Repository]) -> int:
+    """Refresh the language breakdown of catalog rows whose repository has new activity; returns the failure count.
+
+    A failed repository keeps its previous languages and is retried next cycle, because its recorded
+    activity timestamp is left as it was.
+    """
+    from django.utils import timezone
+
+    from codebase.models import RepositoryCatalog
+
+    try:
+        rows = {
+            row.slug: row
+            for row in RepositoryCatalog.objects.filter(provider=provider, slug__in=[repo.slug for repo in universe])
+        }
+    except Exception:
+        logger.exception("Repository access sync: failed to load catalog rows for the language sync")
+        return 1
+
+    failures = 0
+    for repo in universe:
+        row = rows.get(repo.slug)
+        if row is None or not row.needs_languages_refresh(repo.activity_at):
+            continue
+        try:
+            languages = client.get_repository_languages(repo.slug)
+            RepositoryCatalog.objects.filter(pk=row.pk).update(
+                languages=languages, languages_synced_at=timezone.now(), languages_activity_at=repo.activity_at
+            )
+        except Exception:
+            failures += 1
+            logger.exception("Repository access sync: failed to sync languages of %s (keeping previous)", repo.slug)
+    return failures
 
 
 @task(dedup=True)

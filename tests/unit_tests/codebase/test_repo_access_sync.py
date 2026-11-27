@@ -11,7 +11,7 @@ from codebase.models import RepositoryAccess, RepositoryAccessSyncState, Reposit
 from codebase.tasks import sync_repository_access_cron_task
 
 
-def _repo(slug: str) -> Repository:
+def _repo(slug: str, activity_at=None) -> Repository:
     return Repository(
         pk=abs(hash(slug)) % (2**31),
         slug=slug,
@@ -21,6 +21,7 @@ def _repo(slug: str) -> Repository:
         default_branch="main",
         git_platform=GitPlatform.GITLAB,
         topics=[],
+        activity_at=activity_at,
     )
 
 
@@ -309,5 +310,78 @@ class TestSyncRepositoryCatalog:
 
         assert RepositoryAccess.objects.filter(repo_id="a/b", uid="1").exists()
         assert not RepositoryAccess.objects.filter(repo_id="old/gone").exists()
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.FAILED
+
+
+T0 = timezone.now() - timedelta(days=2)
+T1 = timezone.now() - timedelta(days=1)
+
+
+def _catalog_row(slug: str, *, languages: dict, languages_activity_at, languages_synced_at=T0) -> RepositoryCatalog:
+    return RepositoryCatalog.objects.create(
+        provider="gitlab",
+        slug=slug,
+        name=slug.split("/")[-1],
+        languages=languages,
+        activity_at=languages_activity_at,
+        languages_activity_at=languages_activity_at,
+        languages_synced_at=languages_synced_at,
+        synced_at=T0,
+    )
+
+
+@pytest.mark.django_db
+class TestSyncCatalogLanguages:
+    @pytest.fixture(autouse=True)
+    def _members(self, mock_repo_client):
+        mock_repo_client.list_repository_members.return_value = [
+            RepoMember(uid="1", username="alice", access_level=RepoAccessLevel.READ)
+        ]
+
+    def test_fetches_languages_for_new_repo(self, mock_repo_client):
+        mock_repo_client.list_repositories.return_value = [_repo("a/b", activity_at=T1)]
+        mock_repo_client.get_repository_languages.return_value = {"Python": 80.0}
+
+        sync_repository_access_cron_task.func()
+
+        row = RepositoryCatalog.objects.get(slug="a/b")
+        assert row.languages == {"Python": 80.0}
+        assert row.languages_synced_at is not None
+        assert row.languages_activity_at == T1
+        assert row.activity_at == T1
+
+    def test_skips_languages_when_activity_unchanged(self, mock_repo_client):
+        _catalog_row("a/b", languages={"Go": 90.0}, languages_activity_at=T1)
+        mock_repo_client.list_repositories.return_value = [_repo("a/b", activity_at=T1)]
+
+        sync_repository_access_cron_task.func()
+
+        mock_repo_client.get_repository_languages.assert_not_called()
+        assert RepositoryCatalog.objects.get(slug="a/b").languages == {"Go": 90.0}
+
+    def test_refetches_languages_when_activity_moves(self, mock_repo_client):
+        _catalog_row("a/b", languages={"Go": 90.0}, languages_activity_at=T0)
+        mock_repo_client.list_repositories.return_value = [_repo("a/b", activity_at=T1)]
+        mock_repo_client.get_repository_languages.return_value = {"Python": 70.0}
+
+        sync_repository_access_cron_task.func()
+
+        mock_repo_client.get_repository_languages.assert_called_once_with("a/b")
+        row = RepositoryCatalog.objects.get(slug="a/b")
+        assert row.languages == {"Python": 70.0}
+        assert row.languages_activity_at == T1
+
+    def test_language_failure_keeps_previous_and_marks_failed(self, mock_repo_client):
+        _catalog_row("a/b", languages={"Go": 90.0}, languages_activity_at=T0)
+        mock_repo_client.list_repositories.return_value = [_repo("a/b", activity_at=T1)]
+        mock_repo_client.get_repository_languages.side_effect = RuntimeError("platform down")
+
+        sync_repository_access_cron_task.func()
+
+        row = RepositoryCatalog.objects.get(slug="a/b")
+        assert row.languages == {"Go": 90.0}
+        assert row.languages_activity_at == T0
+        assert RepositoryAccess.objects.filter(repo_id="a/b", uid="1").exists()
         state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
         assert state.status == RepositoryAccessSyncState.Status.FAILED
