@@ -124,6 +124,8 @@ A change MUST NOT merge until its gates pass:
   new page is in both the `mkdocs.yml` `nav` and the `llmstxt` sections, with a
   `description` in its front matter. Pages follow [user documentation](patterns/user-docs.md)
 - **Evals:** per [agent evals](patterns/agent-evals.md). Agent-behaviour changes
+- **Blog posts:** `tests/unit_tests/blog`, and the author's own review. Posts follow
+  [blog posts](patterns/blog-posts.md). Changes that add or edit a post
 - **Constitution check:** the plan and the review name the affected principles and the
   evidence of compliance. Every change
 
@@ -215,5 +217,9 @@ documents when the answer changes their rules.
   languages, shell prompts, placeholders, link text, menu paths, admonition kinds, alt text and
   symbol meaning. Review alone checks rules 1, 2, 3, 5 and 8, where a warning sits relative to
   its step (rule 11) and the text that stands in for a diagram (rule 12).
+
+- **TODO(BLOG_ACCURACY):** `test_shipped_posts.py` checks that every post loads and that its
+  images and feed URLs resolve. Nothing checks a post's claims against their sources or its
+  pinned links. Blog-posts rules 1 to 10 rest on the writer's claim check and the author.
 
 **Version:** 1.0.0, proposed | **Ratified:** pending | **Last Amended:** pending

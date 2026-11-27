@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="520" viewBox="0 0 1200 520" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif">
+  <defs>
+    <marker id="ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#5eead4"/></marker>
+    <marker id="dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#9aa4b0"/></marker>
+  </defs>
+  <rect width="1200" height="520" fill="#16181d"/>
+
+  <text x="40" y="52" fill="#9aa4b0" font-size="18">What reaches the session</text>
+  <g font-size="17" fill="#e6edf3">
+    <rect x="40" y="72" width="330" height="48" rx="10" fill="#2a2f38"/><text x="58" y="102">CI failed on DAIV's commit</text>
+    <rect x="40" y="130" width="330" height="48" rx="10" fill="#2a2f38"/><text x="58" y="160">CI passed, or needs a person</text>
+    <rect x="40" y="188" width="330" height="48" rx="10" fill="#2a2f38"/><text x="58" y="218">A mention of DAIV</text>
+    <rect x="40" y="246" width="330" height="48" rx="10" fill="#2a2f38"/><text x="58" y="276">A comment, a push, a merge</text>
+    <rect x="40" y="304" width="330" height="48" rx="10" fill="#2a2f38"/><text x="58" y="334">A chat message while busy</text>
+    <rect x="40" y="362" width="330" height="48" rx="10" fill="#2a2f38"/><text x="58" y="392">A follow-up job</text>
+    <rect x="40" y="420" width="330" height="48" rx="10" fill="#2a2f38"/><text x="58" y="450">A delegated batch finished</text>
+  </g>
+
+  <g stroke="#5eead4" stroke-width="2" fill="none">
+    <path d="M370 96 C 420 96, 420 270, 452 270"/>
+    <path d="M370 154 C 420 154, 420 270, 452 270"/>
+    <path d="M370 212 C 420 212, 420 270, 452 270"/>
+    <path d="M370 270 L 452 270"/>
+    <path d="M370 328 C 420 328, 420 270, 452 270"/>
+    <path d="M370 386 C 420 386, 420 270, 452 270"/>
+    <path d="M370 444 C 420 444, 420 270, 452 270" marker-end="url(#ok)"/>
+  </g>
+
+  <rect x="460" y="170" width="300" height="200" rx="12" fill="#2a2f38" stroke="#5eead4" stroke-width="2"/>
+  <text x="610" y="212" fill="#e6edf3" font-size="24" font-weight="600" text-anchor="middle">Session inbox</text>
+  <text x="610" y="240" fill="#9aa4b0" font-size="16" text-anchor="middle">one per session</text>
+  <text x="610" y="304" fill="#e6edf3" font-size="18" text-anchor="middle">Wake the agent,</text>
+  <text x="610" y="328" fill="#e6edf3" font-size="18" text-anchor="middle">or only remember it?</text>
+
+  <line x1="760" y1="230" x2="842" y2="150" stroke="#5eead4" stroke-width="3" marker-end="url(#ok)"/>
+  <line x1="760" y1="310" x2="842" y2="390" stroke="#9aa4b0" stroke-width="3" stroke-dasharray="8 6" marker-end="url(#dim)"/>
+
+  <rect x="850" y="72" width="310" height="170" rx="12" fill="#2a2f38"/>
+  <text x="870" y="108" fill="#5eead4" font-size="20" font-weight="600">Wakes: a run</text>
+  <text x="870" y="140" fill="#e6edf3" font-size="16">one at a time per session</text>
+  <text x="870" y="166" fill="#e6edf3" font-size="16">one per person and branch</text>
+  <text x="870" y="192" fill="#e6edf3" font-size="16">acting as the requester</text>
+  <text x="870" y="222" fill="#9aa4b0" font-size="15">CI failures: 3 attempts by default</text>
+
+  <rect x="850" y="300" width="310" height="140" rx="12" fill="#2a2f38"/>
+  <text x="870" y="336" fill="#e6edf3" font-size="20" font-weight="600">Remembered</text>
+  <text x="870" y="368" fill="#9aa4b0" font-size="16">no run starts</text>
+  <text x="870" y="394" fill="#9aa4b0" font-size="16">the next run on the branch</text>
+  <text x="870" y="420" fill="#9aa4b0" font-size="16">gets it as context</text>
+</svg>
