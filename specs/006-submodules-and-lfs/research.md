@@ -9,9 +9,11 @@ matter.
 **Decision**: `RepoClient.load_repo` keeps its signature and still clones only the superproject. A new class,
 `RepoCheckout` in `daiv/codebase/clients/checkout.py`, completes a clone: it checks out submodules and fetches LFS
 content, and returns a `CheckoutReport`. `RepoClient.complete_checkout(repo, repository, options, read_access)` builds
-it with the client, so both platforms share one implementation. `automation.agent.context._clone_handle` calls it right
-after `load_repo` for the main repository and for each extra repository, with that repository's own `.daiv.yml`
-settings, and stores the report on `RepoHandle.checkout`.
+it with the client, so both platforms share one implementation. Once `set_runtime_ctx` has cloned the main repository
+and each extra repository, it completes every clone with that repository's own `.daiv.yml` settings, each in a worker
+thread (`asyncio.to_thread`) and all in parallel. It then stores the report on `RepoHandle.checkout`. A worker thread
+is required twice over: the main clone runs on the event loop today, and both the access check (R4, a database read)
+and the submodule fetches are blocking.
 
 Both clients' `load_repo` add `GIT_LFS_SKIP_SMUDGE=1` to the clone's environment. A worker image whose system git
 config carries an LFS filter would otherwise download LFS content for every repository, which FR-016 forbids. DAIV's

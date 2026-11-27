@@ -1,6 +1,6 @@
 # Implementation Plan: Submodules and Git LFS
 
-**Branch**: `claude/magical-hypatia-atqoxm` | **Date**: 2026-11-27 | **Spec**: [spec.md](spec.md) | **Status**: Draft, awaiting the maintainer's approval, including spec refinement [SR1](research.md#r4-whose-access-decides-fr-005)
+**Branch**: `claude/magical-hypatia-atqoxm` | **Date**: 2026-11-27 | **Spec**: [spec.md](spec.md) | **Status**: Approved by the maintainer on 2026-11-27, including spec refinement [SR1](research.md#r4-whose-access-decides-fr-005), which the spec now carries (FR-005)
 
 **Input**: Feature specification from `specs/006-submodules-and-lfs/spec.md`
 
@@ -140,8 +140,9 @@ daiv/
 │       ├── gitlab/client.py            # with_git_auth takes the propagation retry from _clone; clone env + GIT_LFS_SKIP_SMUDGE
 │       └── github/client.py            # with_git_auth mints per call; clone env + GIT_LFS_SKIP_SMUDGE
 ├── automation/agent/
-│   ├── context.py                      # set_runtime_ctx(read_access=...); _clone_handle completes the checkout; RepoHandle.checkout
-│   ├── publishers.py                   # PublishScope from config; PublishOutcome/RepoPublish.kept_out
+│   ├── context.py                      # set_runtime_ctx(read_access=...) completes each clone in a thread; RepoHandle.checkout
+│   ├── publishers.py                   # PublishScope from config; PublishOutcome.kept_out
+│   ├── git_state.py                    # RepoPublish.kept_out
 │   ├── middlewares/git.py              # prompt section per repository; kept-out notice
 │   └── workspace/
 │       ├── git_manager.py              # PublishScope, KeptOut; status_snapshot and commit_all honour the scope

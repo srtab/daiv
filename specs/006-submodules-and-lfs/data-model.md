@@ -96,7 +96,7 @@ What a publish left out (FR-013): `lfs_paths: tuple[str, ...]`, and `submodules:
 | `RepoHandle` | `automation/agent/context.py` | `+ checkout: CheckoutReport` (defaults to the empty report) |
 | `RepoStatus` | `automation/agent/workspace/git_manager.py` | `+ kept_out: KeptOut` |
 | `PublishOutcome` | `automation/agent/publishers.py` | `+ kept_out: KeptOut \| None` |
-| `RepoPublish` | `automation/agent/publishers.py` | `+ kept_out: KeptOut \| None`, carried through `to_state` so the turn-end notice can render it |
+| `RepoPublish` | `automation/agent/git_state.py` | `+ kept_out: KeptOut \| None`, carried through `to_state` so the turn-end notice can render it |
 
 `set_runtime_ctx` gains `read_access: RepoReadAccess = DENY_ALL`. `RunSpec` is unchanged: the executor reads the run's
 person from its `Run` row by `spec.run_id`.

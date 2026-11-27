@@ -23,6 +23,10 @@
 - Q: Whose platform access decides that a run may fetch a submodule, including for runs a webhook started? → A: The run's person: DAIV fetches a submodule only when the person the run belongs to can read its repository on the platform. A run whose person DAIV cannot identify on the platform fetches none (FR-005).
 - Q: Are submodule checkout and LFS content on by default, or off until a repository turns them on? → A: Off until a repository turns each one on in its DAIV configuration (FR-001).
 
+### Session 2026-11-27
+
+- Q: Does the spec adopt the refinement from planning? → A: Yes, SR1, approved with the plan: a person's access to a submodule's repository is what DAIV's repository access records, which list members only, so a public or internal repository counts only for its members (FR-005).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - The agent works with the code in a repository's submodules (Priority: P1)
@@ -97,7 +101,7 @@ A repository has a submodule on another host, a submodule the run may not fetch,
 - **FR-002**: With submodule checkout on, every clone a run makes of that repository MUST check out its submodules recursively at the commits the superproject records for the run's ref. This covers the main repository and extra repositories, each by its own settings, on disk runs and sandbox runs.
 - **FR-003**: DAIV MUST fetch only submodules hosted on the run's own git platform, over HTTPS or SSH URLs on its host, or relative URLs that resolve there. It MUST NOT contact any other host or use any other protocol for a submodule.
 - **FR-004**: Each submodule MUST be fetched with a credential minted for that submodule's repository alone, no broader and no longer-lived than the main repository's. The main repository's credential MUST NOT be sent to any other repository.
-- **FR-005**: DAIV MUST fetch a submodule only when the person the run belongs to may read the submodule's repository. For a run a DAIV user started (chat, job, schedule), the rules that decide which repositories that user sees in DAIV apply. For any other run, the platform's own access for the platform user whose label, mention or pipeline started it applies. A run whose person DAIV cannot identify fetches no submodule.
+- **FR-005**: DAIV MUST fetch a submodule only when the person the run belongs to may read the submodule's repository as DAIV's repository access sees it. For a run a DAIV user started (chat, job, schedule), the rules that decide which repositories that user sees in DAIV apply. For any other run, the access DAIV records for the platform user whose label, mention or pipeline started it applies. DAIV records members only, so a public or internal repository counts as readable only for its members. A run whose person DAIV cannot identify fetches no submodule.
 - **FR-006**: With LFS content on, the LFS-tracked files of the repository and of the submodules DAIV checked out MUST hold their real content. DAIV MUST fetch it only from LFS storage on the repository's own git platform, and MUST NOT follow repository configuration that points LFS storage elsewhere.
 - **FR-007**: The operator MUST be able to cap the LFS content one clone downloads. Files beyond the cap keep their pointer text.
 - **FR-008**: A submodule or LFS file that cannot be fetched MUST NOT fail the clone or the run. Its directory stays empty, or the file keeps its pointer, as today.
