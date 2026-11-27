@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from django.db import models
@@ -24,6 +24,8 @@ class PlatformType(models.TextChoices):
 # from it so the two can never silently drift; a new tier without a label here fails loudly.
 _ACCESS_LEVEL_LABELS = {RepoAccessLevel.READ: _("Read"), RepoAccessLevel.WRITE: _("Write")}
 ACCESS_LEVEL_CHOICES = [(level.value, _ACCESS_LEVEL_LABELS[level]) for level in RepoAccessLevel]
+
+LANGUAGE_MATCH_MIN_SHARE = 10.0
 
 
 class MergeMetricQuerySet(models.QuerySet):
@@ -197,6 +199,10 @@ class RepositoryCatalog(models.Model):
     default_branch = models.CharField(_("default branch"), max_length=255, blank=True)
     html_url = models.CharField(_("HTML URL"), max_length=512, blank=True)
     topics = models.JSONField(_("topics"), default=list, blank=True)
+    languages = models.JSONField(_("languages"), default=dict, blank=True)
+    activity_at = models.DateTimeField(_("last activity at"), null=True, blank=True)
+    languages_synced_at = models.DateTimeField(_("languages synced at"), null=True, blank=True)
+    languages_activity_at = models.DateTimeField(_("languages activity at"), null=True, blank=True)
     synced_at = models.DateTimeField(_("synced at"))
 
     objects = RepositoryCatalogQuerySet.as_manager()
@@ -212,3 +218,33 @@ class RepositoryCatalog(models.Model):
 
     def __str__(self) -> str:
         return f"{self.provider}:{self.slug}"
+
+    def _language_entry(self, language: str) -> tuple[str, float] | None:
+        wanted = language.casefold()
+        return next(((name, share) for name, share in self.languages.items() if name.casefold() == wanted), None)
+
+    def language_share(self, language: str) -> float:
+        """Percentage of the code in ``language`` (case-insensitive), ``0.0`` when absent."""
+        entry = self._language_entry(language)
+        return entry[1] if entry else 0.0
+
+    def matches_language(self, language: str) -> bool:
+        return self.language_share(language) >= LANGUAGE_MATCH_MIN_SHARE
+
+    def matched_languages(self) -> list[str]:
+        return [name for name, share in self.languages.items() if share >= LANGUAGE_MATCH_MIN_SHARE]
+
+    @property
+    def primary_language(self) -> str:
+        return max(self.languages, key=self.languages.__getitem__, default="")
+
+    def language_label(self, language: str = "") -> str:
+        """``"Python 41%"`` when ``language`` matches, else the primary language."""
+        entry = self._language_entry(language) if language else None
+        if entry and entry[1] >= LANGUAGE_MATCH_MIN_SHARE:
+            return f"{entry[0]} {round(entry[1])}%"
+        return self.primary_language
+
+    def needs_languages_refresh(self, activity_at: datetime | None) -> bool:
+        """Whether the platform reports activity since the languages were last fetched (or never were)."""
+        return self.languages_synced_at is None or activity_at != self.languages_activity_at
