@@ -1,4 +1,5 @@
 import logging
+from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 
 import pytest
@@ -41,6 +42,47 @@ class TestGitHubClient:
 
         events = repo.create_hook.call_args.args[2]
         assert "pull_request_review_comment" in events
+
+    def test_list_repositories_carries_pushed_at(self, github_client):
+        pushed_at = datetime(2026, 11, 20, 10, tzinfo=UTC)
+        gh_repo = Mock(
+            full_name="o/r",
+            id=1,
+            default_branch="main",
+            topics=[],
+            pushed_at=pushed_at,
+            clone_url="https://github.com/o/r.git",
+            html_url="https://github.com/o/r",
+        )
+        gh_repo.name = "r"
+        github_client.client_installation.get_repos.return_value = [gh_repo]
+
+        [repo] = github_client.list_repositories()
+
+        assert repo.activity_at == pushed_at
+
+    def test_get_repository_languages_converts_bytes_to_percentages(self, github_client):
+        github_client.client.get_repo.return_value.get_languages.return_value = {"Python": 300, "Shell": 100}
+
+        assert github_client.get_repository_languages("o/r") == {"Python": 75.0, "Shell": 25.0}
+        github_client.client.get_repo.assert_called_once_with("o/r", lazy=True)
+
+    @pytest.mark.parametrize("byte_counts", [{}, {"Python": 0}], ids=["no-languages", "zero-bytes"])
+    def test_get_repository_languages_empty_repo(self, github_client, byte_counts):
+        github_client.client.get_repo.return_value.get_languages.return_value = byte_counts
+
+        assert github_client.get_repository_languages("o/r") == {}
+
+    def test_get_repository_languages_missing_repo_is_empty(self, github_client):
+        github_client.client.get_repo.return_value.get_languages.side_effect = GithubException(404, {}, None)
+
+        assert github_client.get_repository_languages("o/r") == {}
+
+    def test_get_repository_languages_forbidden_raises(self, github_client):
+        github_client.client.get_repo.return_value.get_languages.side_effect = GithubException(403, {}, None)
+
+        with pytest.raises(GithubException):
+            github_client.get_repository_languages("o/r")
 
     @pytest.fixture
     def lazy_requester(self, github_client):

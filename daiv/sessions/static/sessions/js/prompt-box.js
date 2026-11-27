@@ -8,6 +8,12 @@
  * — Alpine's MutationObserver picks those directives up when HTMX swaps them in.
  * Multi-repo additions keep the picker open. Successful repo results stay in the DOM
  * across opens, preserving search and pagination; a failed request makes reopening retry.
+ *
+ * Adding to a multi-repo field, a row toggles its repository on its default branch. The
+ * Language/Topic filters live here and ride on every list and facets request as `hx-vals`;
+ * the facets fragment loads on first open and after each filter change. A filtered list's
+ * first page carries `data-select-all` ({total, candidates, matching_selected}), which drives
+ * the Select all row without another request as the selection changes.
  */
 document.addEventListener("alpine:init", () => {
     Alpine.data("promptBox", ({
@@ -18,6 +24,11 @@ document.addEventListener("alpine:init", () => {
         repoPickerUrl = "",
         branchPickerTemplate = "",
         conflictMessageTemplate = "Repository already in the list: __LABEL__.",
+        selectAllTemplate = "Select all __TOTAL__ matching",
+        selectFirstTemplate = "Select first __COUNT__ of __TOTAL__",
+        allSelectedTemplate = "All __TOTAL__ selected",
+        limitReachedLabel = "Limit reached",
+        didntFitTemplate = "__COUNT__ matching didn't fit",
         onChangeEvent = "",
     }) => ({
         repos: (initialRepos || []).map(r => ({ slug: r.repo_id, ref: r.ref || "" })),
@@ -27,6 +38,11 @@ document.addEventListener("alpine:init", () => {
         repoPickerUrl,
         branchPickerTemplate,
         conflictMessageTemplate,
+        selectAllTemplate,
+        selectFirstTemplate,
+        allSelectedTemplate,
+        limitReachedLabel,
+        didntFitTemplate,
         onChangeEvent,
 
         popover: null,
@@ -37,6 +53,14 @@ document.addEventListener("alpine:init", () => {
         conflictIndex: null,
         _conflictTimer: null,
         _announceOpen: null,
+        language: "",
+        topic: "",
+        filterMenu: null,
+        filterFind: "",
+        _filtersNeedRefresh: true,
+        selectAllData: null,
+        selectAllNote: "",
+        _matchingSlugs: new Set(),
 
         init() {
             this._announceOpen = surfaceGroup.join(() => this.closePopover());
@@ -44,6 +68,7 @@ document.addEventListener("alpine:init", () => {
                 if (e.target === this.$refs.repoSearch) {
                     this.repoLoading = true;
                     this._repoNeedsRefresh = true;
+                    this.applySelectAll(null);
                 }
                 if (e.target === this.$refs.branchSearch) this.branchLoading = true;
             });
@@ -51,6 +76,8 @@ document.addEventListener("alpine:init", () => {
                 if (e.target === this.$refs.repoPickerList) {
                     this.repoLoading = false;
                     this._repoNeedsRefresh = false;
+                    const raw = e.target.querySelector?.("[data-select-all]")?.dataset.selectAll;
+                    this.applySelectAll(raw ? JSON.parse(raw) : null);
                 }
                 if (e.target === this.$refs.branchPickerList) this.branchLoading = false;
             });
@@ -64,6 +91,8 @@ document.addEventListener("alpine:init", () => {
                 this.repoLoading = false;
                 this._repoNeedsRefresh = true;
                 pickerError.showIn(this.$refs.repoPickerList);
+            } else if (target === this.$refs.repoFilters) {
+                this._filtersNeedRefresh = true;
             } else if (target === this.$refs.branchSearch) {
                 this.branchLoading = false;
                 pickerError.showIn(this.$refs.branchPickerList);
@@ -102,9 +131,102 @@ document.addEventListener("alpine:init", () => {
             return this.repos.some((repo) => repo.slug === slug);
         },
 
-        selectedBranches(slug, defaultLabel) {
-            return this.repos.filter((repo) => repo.slug === slug)
-                .map((repo) => repo.ref || defaultLabel).join(", ");
+        selectionNote(slug, defaultBranch, defaultLabel) {
+            const refs = this.repos.filter((repo) => repo.slug === slug).map((repo) => repo.ref || "");
+            if (refs.every((ref) => (ref || defaultBranch) === defaultBranch)) return "";
+            return refs.map((ref) => ref || defaultLabel).join(", ");
+        },
+
+        isRepoPressed(slug, defaultBranch) {
+            return this.isAddingRepos ? this._defaultBranchEntry(slug, defaultBranch) !== -1 : this.isRepoSelected(slug);
+        },
+
+        canToggleRepo(slug, defaultBranch) {
+            return this._defaultBranchEntry(slug, defaultBranch) !== -1 || this.canSelectRepo(slug, defaultBranch);
+        },
+
+        toggleRepo(slug, defaultBranch) {
+            const index = this._defaultBranchEntry(slug, defaultBranch);
+            if (index !== -1) {
+                this.selectAllNote = "";
+                this.remove(index);
+                return;
+            }
+            const before = this.repos.length;
+            this.setRepo(slug, defaultBranch);
+            if (this.repos.length > before) this._matchingSlugs.add(slug);
+        },
+
+        _defaultBranchEntry(slug, defaultBranch) {
+            if (!this.isAddingRepos) return -1;
+            const ref = defaultBranch || "";
+            return this._findConflict(slug, ref, null, ref);
+        },
+
+        toggleFilterMenu(key) {
+            this.filterMenu = this.filterMenu === key ? null : key;
+            if (this.filterMenu) this.filterFind = "";
+        },
+
+        pickFilter(key, value) {
+            if (key !== "language" && key !== "topic") return;
+            this[key] = value;
+            this.filterMenu = null;
+            this.$nextTick(() => {
+                window.htmx.trigger(this.$refs.repoSearch, "refresh");
+                window.htmx.trigger(this.$refs.repoFilters, "refresh");
+            });
+        },
+
+        matchesFilterFind(name) {
+            return name.toLowerCase().includes(this.filterFind.trim().toLowerCase());
+        },
+
+        applySelectAll(data) {
+            this.selectAllData = data ? { total: data.total, candidates: data.candidates || [] } : null;
+            this._matchingSlugs = new Set(data?.matching_selected || []);
+            this.selectAllNote = "";
+        },
+
+        _unselectedMatches() {
+            const selected = new Set(this.repos.map((repo) => repo.slug).filter((slug) => this._matchingSlugs.has(slug)));
+            return Math.max(this.selectAllData.total - selected.size, 0);
+        },
+
+        _fill(template, values) {
+            return Object.entries(values).reduce((text, [key, value]) => text.replace(`__${key}__`, String(value)), template);
+        },
+
+        get selectAllRow() {
+            if (!this.isAddingRepos || !this.selectAllData?.total) return null;
+            const total = this.selectAllData.total;
+            const unselected = this._unselectedMatches();
+            const free = this.maxRepos - this.repos.length;
+            if (unselected === 0) return { label: this._fill(this.allSelectedTemplate, { TOTAL: total }), disabled: true };
+            if (free <= 0) return { label: this.limitReachedLabel, disabled: true };
+            if (unselected <= free) return { label: this._fill(this.selectAllTemplate, { TOTAL: total }), disabled: false };
+            return { label: this._fill(this.selectFirstTemplate, { COUNT: free, TOTAL: unselected }), disabled: false };
+        },
+
+        selectAllMatching() {
+            const row = this.selectAllRow;
+            if (!row || row.disabled) return;
+            const unselected = this._unselectedMatches();
+            let free = this.maxRepos - this.repos.length;
+            let added = 0;
+            for (const { slug, default_branch: defaultBranch } of this.selectAllData.candidates) {
+                if (free <= 0) break;
+                if (this.isRepoSelected(slug)) continue;
+                this.repos.push({ slug, ref: defaultBranch || "" });
+                this._matchingSlugs.add(slug);
+                added += 1;
+                free -= 1;
+            }
+            if (!added) return;
+            const left = unselected - added;
+            this.selectAllNote = left > 0 ? this._fill(this.didntFitTemplate, { COUNT: left }) : "";
+            this._emitChange();
+            this.$nextTick(() => this.$refs.repoSearch?.focus({ preventScroll: true }));
         },
 
         canSelectRepo(slug, defaultBranch) {
@@ -120,6 +242,10 @@ document.addEventListener("alpine:init", () => {
                 const input = this.$refs.repoSearch;
                 if (!input) return;
                 input.focus({ preventScroll: true });
+                if (this._filtersNeedRefresh && this.$refs.repoFilters) {
+                    this._filtersNeedRefresh = false;
+                    window.htmx.trigger(this.$refs.repoFilters, "refresh");
+                }
                 if (!this._repoNeedsRefresh || this.repoLoading) return;
                 this.repoLoading = true;
                 window.htmx.trigger(input, "refresh");
@@ -154,6 +280,11 @@ document.addEventListener("alpine:init", () => {
             if (!input) return;
             input.value = "";
             window.htmx.trigger(input, "refresh");
+        },
+
+        escapeRepoPopover() {
+            if (this.filterMenu) this.filterMenu = null;
+            else this.closePopover();
         },
 
         closePopover() {

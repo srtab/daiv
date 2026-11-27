@@ -1,7 +1,7 @@
 {% load i18n %}
-<ul>
+<ul{% if select_all %} data-select-all="{{ select_all }}"{% endif %}>
 {% include "codebase/_repo_picker_options.html" %}
-{% if not repos %}
+{% if not rows %}
   <li class="picker-popover__empty">{% translate "No repositories found." %}</li>
 {% endif %}
 </ul>

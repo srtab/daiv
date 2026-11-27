@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime  # noqa: TC003 - required at runtime by Pydantic
 from enum import StrEnum
 from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
+
+MAX_REPOS_PER_BATCH = 20
 
 
 class GitPlatform(StrEnum):
@@ -69,6 +72,7 @@ class Repository(BaseModel):
     default_branch: str
     git_platform: GitPlatform
     topics: list[str] = Field(default_factory=list)
+    activity_at: datetime | None = None
 
 
 class Job(BaseModel):

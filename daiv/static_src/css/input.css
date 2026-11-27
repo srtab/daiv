@@ -4866,6 +4866,18 @@ html {
   .repo-picker__done {
     @apply rounded-lg bg-accent px-3 py-1.5 text-[13px] font-medium text-accent-ink transition-colors hover:bg-accent-bright;
   }
+  .repo-picker__filters { @apply relative mt-2 flex flex-wrap gap-1.5; }
+  .repo-picker__filters:empty { display: none; }
+  /* The filter bar's 42px controls are a page-width size; inside the 320px popover they run compact. */
+  .repo-picker__filters .filter-control { @apply h-[34px] rounded-[10px] bg-transparent; }
+  .repo-picker__filters .filter-control--active { @apply bg-surface-3; }
+  .repo-picker__filters .filter-menu { @apply left-0 top-full; }
+  .repo-picker__lang { @apply mt-0.5 shrink-0 font-mono text-[12px] text-text-faint; }
+  .repo-picker__select-all {
+    @apply mb-0.5 flex items-center gap-2.5 rounded-b-none border-b border-border text-[14px] text-accent-bright;
+  }
+  .repo-picker__select-all:disabled { @apply cursor-default text-text-faint hover:bg-transparent; }
+  .repo-picker__count-note { @apply text-status-found; }
 
   /* Skeleton bar widths stay inline so each placeholder row can vary. */
   .picker-popover__skeleton-row { @apply px-3 py-2 space-y-1.5; }

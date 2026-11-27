@@ -192,6 +192,7 @@ class GitLabClient(RepoClient):
             default_branch=project.default_branch,
             git_platform=self.git_platform,
             topics=project.topics,
+            activity_at=project.last_activity_at,
         )
 
     def list_repositories(
@@ -247,11 +248,25 @@ class GitLabClient(RepoClient):
                     default_branch=project.default_branch,
                     git_platform=self.git_platform,
                     topics=project.topics,
+                    activity_at=project.last_activity_at,
                 )
             )
             if limit is not None and len(repos) >= limit:
                 break
         return repos
+
+    def get_repository_languages(self, repo_id: str) -> dict[str, float]:
+        """GitLab already reports each language as a percentage of the repository's code.
+
+        A project whose repository is disabled or hidden from the bot (403/404) has no languages to report.
+        """
+        try:
+            languages = self.client.projects.get(repo_id, lazy=True).languages()
+        except GitlabGetError as exc:
+            if exc.response_code in (403, 404):
+                return {}
+            raise
+        return {name: round(float(share), 1) for name, share in languages.items()}
 
     def list_repository_members(self, repo_id: str) -> list[RepoMember]:
         """

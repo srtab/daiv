@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-14 13:14+0000\n"
+"POT-Creation-Date: 2026-11-27 01:49+0000\n"
 "PO-Revision-Date: 2026-04-04 22:34+0100\n"
 "Last-Translator: \n"
 "Language-Team: Portuguese <pt@li.org>\n"
@@ -146,14 +146,20 @@ msgstr "URL HTML"
 msgid "topics"
 msgstr "tópicos"
 
+msgid "languages"
+msgstr "linguagens"
+
+msgid "last activity at"
+msgstr "última atividade em"
+
+msgid "languages synced at"
+msgstr "linguagens sincronizadas em"
+
+msgid "languages activity at"
+msgstr "atividade das linguagens em"
+
 msgid "Repository Catalog"
 msgstr "Catálogo de Repositórios"
-
-msgid "Repository"
-msgstr "Repositório"
-
-msgid "Branch"
-msgstr "Ramo"
 
 msgid "Could not load branches."
 msgstr "Não foi possível carregar os ramos."
@@ -176,33 +182,6 @@ msgstr "predefinição"
 msgid "Repository already in the list: __LABEL__."
 msgstr "Repositório já na lista: __LABEL__."
 
-msgid "Add repository"
-msgstr "Adicionar repositório"
-
-msgid "No repositories found."
-msgstr "Nenhum repositório encontrado."
-
-msgid "Could not load repositories."
-msgstr "Não foi possível carregar os repositórios."
-
-msgid "Could not load more repositories."
-msgstr "Não foi possível carregar mais repositórios."
-
-msgid "selected"
-msgstr "selecionados"
-
-msgid "Done"
-msgstr "Concluído"
-
-msgid "Selected:"
-msgstr "Selecionado:"
-
-msgid "Main"
-msgstr "Principal"
-
-msgid "Make main"
-msgstr "Tornar principal"
-
 msgid "Change branch for __LABEL__"
 msgstr "Alterar o ramo de __LABEL__"
 
@@ -211,3 +190,73 @@ msgstr "Tornar __LABEL__ o repositório principal"
 
 msgid "Remove __LABEL__"
 msgstr "Remover __LABEL__"
+
+msgid "Main"
+msgstr "Principal"
+
+msgid "Make main"
+msgstr "Tornar principal"
+
+msgid "Add repository"
+msgstr "Adicionar repositório"
+
+msgid "Repository"
+msgstr "Repositório"
+
+msgid "Could not load repositories."
+msgstr "Não foi possível carregar os repositórios."
+
+msgid "selected"
+msgstr "selecionados"
+
+msgid "Done"
+msgstr "Concluído"
+
+msgid "Branch"
+msgstr "Ramo"
+
+#, python-format
+msgid "Clear %(label)s filter"
+msgstr "Limpar filtro %(label)s"
+
+msgid "Language"
+msgstr "Linguagem"
+
+msgid "All languages"
+msgstr "Todas as linguagens"
+
+msgid "Find a language..."
+msgstr "Procurar uma linguagem..."
+
+msgid "Topic"
+msgstr "Tópico"
+
+msgid "All topics"
+msgstr "Todos os tópicos"
+
+msgid "Find a topic..."
+msgstr "Procurar um tópico..."
+
+msgid "Select all __TOTAL__ matching"
+msgstr "Selecionar os __TOTAL__ correspondentes"
+
+msgid "Select first __COUNT__ of __TOTAL__"
+msgstr "Selecionar os primeiros __COUNT__ de __TOTAL__"
+
+msgid "All __TOTAL__ selected"
+msgstr "Todos os __TOTAL__ selecionados"
+
+msgid "Limit reached"
+msgstr "Limite atingido"
+
+msgid "__COUNT__ matching didn't fit"
+msgstr "__COUNT__ correspondentes não couberam"
+
+msgid "No repositories found."
+msgstr "Nenhum repositório encontrado."
+
+msgid "Selected:"
+msgstr "Selecionado:"
+
+msgid "Could not load more repositories."
+msgstr "Não foi possível carregar mais repositórios."

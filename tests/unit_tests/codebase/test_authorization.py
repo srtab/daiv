@@ -9,12 +9,17 @@ from allauth.socialaccount.models import SocialAccount
 
 from codebase.authorization import (
     RepositoryAccessDenied,
+    RepositoryFacets,
+    RepositoryMatches,
     assert_can_run,
     assert_catalogued,
     can_run,
     can_view,
     get_access_level,
     runnable_repo_ids,
+    runnable_repository_facets,
+    runnable_repository_matches,
+    search_runnable_repositories,
     search_viewable_repositories,
     viewable_repo_ids,
     viewable_repo_ids_subquery,
@@ -52,7 +57,14 @@ def _grant(uid: str, repo_id: str, level: RepoAccessLevel, synced_at: datetime |
     )
 
 
-def _catalog(slug: str, *, name: str | None = None, topics: list[str] | None = None, synced_at: datetime | None = None):
+def _catalog(
+    slug: str,
+    *,
+    name: str | None = None,
+    topics: list[str] | None = None,
+    languages: dict[str, float] | None = None,
+    synced_at: datetime | None = None,
+):
     return RepositoryCatalog.objects.create(
         provider="gitlab",
         slug=slug,
@@ -60,6 +72,7 @@ def _catalog(slug: str, *, name: str | None = None, topics: list[str] | None = N
         default_branch="main",
         html_url=f"https://example/{slug}",
         topics=topics or [],
+        languages=languages or {},
         synced_at=synced_at or timezone.now(),
     )
 
@@ -292,11 +305,34 @@ class TestSearchViewableRepositories:
 
         assert [r.slug for r in result] == ["a/one"]
 
+    def test_topics_are_case_insensitive(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["Django"])
+        _catalog("a/two", topics=["flask"])
+
+        result = search_viewable_repositories(admin_user, topics=["django"], limit=10)
+
+        assert [r.slug for r in result] == ["a/one"]
+
     def test_unlinked_member_sees_nothing(self, member_user, fresh_sync):
         _catalog("a/one")
         _grant("999", "a/one", RepoAccessLevel.READ)
 
         assert search_viewable_repositories(member_user, limit=10) == []
+
+    def test_language_filter_uses_threshold(self, admin_user, fresh_sync):
+        _catalog("a/at", languages={"Python": 10.0})
+        _catalog("a/below", languages={"Python": 9.9})
+
+        result = search_viewable_repositories(admin_user, language="Python", limit=10)
+
+        assert [r.slug for r in result] == ["a/at"]
+
+    def test_language_filter_is_case_insensitive(self, admin_user, fresh_sync):
+        _catalog("a/one", languages={"Python": 80.0})
+
+        result = search_viewable_repositories(admin_user, language="PYTHON", limit=10)
+
+        assert [r.slug for r in result] == ["a/one"]
 
     def test_limit_caps_results(self, admin_user, fresh_sync):
         for i in range(5):
@@ -433,3 +469,151 @@ class TestAssertCatalogued:
 
     def test_any_repo_passes_before_the_first_catalog_sync(self):
         assert_catalogued(["x/y"])
+
+
+class TestSearchRunnableRepositories:
+    def test_member_sees_only_write_repos(self, linked_member, fresh_sync):
+        _catalog("a/one")
+        _catalog("a/two")
+        _grant("101", "a/one", RepoAccessLevel.READ)
+        _grant("101", "a/two", RepoAccessLevel.WRITE)
+
+        result = search_runnable_repositories(linked_member, limit=10)
+
+        assert [r.slug for r in result] == ["a/two"]
+
+    def test_admin_sees_whole_fresh_catalog(self, admin_user, fresh_sync):
+        _catalog("a/one")
+        _catalog("b/two")
+        _catalog("c/stale", synced_at=timezone.now() - timedelta(hours=48))
+
+        result = search_runnable_repositories(admin_user, limit=10)
+
+        assert [r.slug for r in result] == ["a/one", "b/two"]
+
+    def test_filters_and_paginates_like_viewable(self, admin_user, fresh_sync):
+        _catalog("team/api-a", topics=["api"], languages={"Python": 90.0})
+        _catalog("team/api-b", topics=["api"], languages={"Python": 60.0})
+        _catalog("team/api-go", topics=["api"], languages={"Go": 99.0})
+        _catalog("team/etl", topics=["etl"], languages={"Python": 99.0})
+
+        result = search_runnable_repositories(
+            admin_user, search="api", topics=["api"], language="python", limit=10, after_slug="team/api-a"
+        )
+
+        assert [r.slug for r in result] == ["team/api-b"]
+
+
+class TestRunnableRepositoryFacets:
+    def test_counts_respect_the_other_filter(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["api"], languages={"Python": 80.0})
+        _catalog("a/two", topics=["etl"], languages={"Python": 70.0})
+        _catalog("a/three", topics=["api"], languages={"Go": 90.0})
+
+        assert runnable_repository_facets(admin_user, topics=["api"]).languages == [("Go", 1), ("Python", 1)]
+        assert runnable_repository_facets(admin_user, language="Python").topics == [("api", 1), ("etl", 1)]
+
+    def test_languages_below_threshold_are_not_listed(self, admin_user, fresh_sync):
+        _catalog("a/one", languages={"TypeScript": 95.0, "Python": 5.0})
+
+        assert runnable_repository_facets(admin_user).languages == [("TypeScript", 1)]
+
+    def test_ordered_by_count_then_name(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["web", "api"])
+        _catalog("a/two", topics=["web", "zeta"])
+
+        assert runnable_repository_facets(admin_user).topics == [("web", 2), ("api", 1), ("zeta", 1)]
+
+    def test_topic_spellings_merge_under_the_most_common(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["Django"])
+        _catalog("a/two", topics=["django"])
+        _catalog("a/three", topics=["django", "DJANGO"])
+
+        assert runnable_repository_facets(admin_user).topics == [("django", 3)]
+
+    def test_counts_without_building_catalog_rows(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["api"], languages={"Python": 80.0})
+
+        with patch.object(RepositoryCatalog, "from_db", side_effect=AssertionError("row instantiated")):
+            facets = runnable_repository_facets(admin_user, topics=["api"], language="Python")
+
+        assert (facets.languages, facets.topics) == ([("Python", 1)], [("api", 1)])
+
+    def test_excludes_read_only_repos_for_members(self, linked_member, fresh_sync):
+        _catalog("a/read", topics=["api"])
+        _catalog("a/write", topics=["etl"])
+        _grant("101", "a/read", RepoAccessLevel.READ)
+        _grant("101", "a/write", RepoAccessLevel.WRITE)
+
+        assert runnable_repository_facets(linked_member) == RepositoryFacets(languages=[], topics=[("etl", 1)])
+
+
+class TestRunnableRepositoryMatches:
+    def test_total_candidates_and_matching_selected(self, admin_user, fresh_sync):
+        for i in range(1, 6):
+            _catalog(f"p/{i}", languages={"Python": 90.0})
+        _catalog("x/other", languages={"Go": 90.0})
+
+        result = runnable_repository_matches(
+            admin_user, language="Python", selected=["p/2", "x/other"], candidate_limit=2
+        )
+
+        assert result.total == 5
+        assert result.candidates == [("p/1", "main"), ("p/2", "main"), ("p/3", "main"), ("p/4", "main")]
+        assert result.matching_selected == ["p/2"]
+
+    def test_applies_text_search(self, admin_user, fresh_sync):
+        _catalog("team/billing", languages={"Python": 90.0})
+        _catalog("team/etl", languages={"Python": 90.0})
+
+        result = runnable_repository_matches(admin_user, search="bill", language="Python", candidate_limit=20)
+
+        assert result.total == 1
+        assert result.candidates == [("team/billing", "main")]
+
+    def test_topic_matches_any_spelling(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["Django"])
+        _catalog("a/two", topics=["django"])
+
+        result = runnable_repository_matches(admin_user, topics=["django"], candidate_limit=20)
+
+        assert result.total == 2
+
+    def test_filtered_matches_without_building_catalog_rows(self, admin_user, fresh_sync):
+        _catalog("a/one", languages={"Python": 80.0})
+
+        with patch.object(RepositoryCatalog, "from_db", side_effect=AssertionError("row instantiated")):
+            result = runnable_repository_matches(admin_user, language="Python", candidate_limit=20)
+
+        assert (result.total, result.candidates) == (1, [("a/one", "main")])
+
+    def test_unlinked_member_gets_nothing(self, member_user, fresh_sync):
+        _catalog("a/one", languages={"Python": 90.0})
+
+        assert runnable_repository_matches(member_user, language="Python", candidate_limit=20) == RepositoryMatches(
+            total=0, candidates=[], matching_selected=[]
+        )
+
+    def test_excludes_read_only_repos_for_members(self, linked_member, fresh_sync):
+        _catalog("a/read", languages={"Python": 90.0})
+        _catalog("a/write", languages={"Python": 90.0})
+        _grant("101", "a/read", RepoAccessLevel.READ)
+        _grant("101", "a/write", RepoAccessLevel.WRITE)
+
+        result = runnable_repository_matches(
+            linked_member, language="Python", selected=["a/read", "a/write"], candidate_limit=20
+        )
+
+        assert result.total == 1
+        assert result.matching_selected == ["a/write"]
+
+    def test_search_only_matches_run_in_sql(self, admin_user, fresh_sync):
+        _catalog("team/billing")
+        _catalog("team/etl")
+
+        with patch("codebase.authorization._row_matches", side_effect=AssertionError("rows iterated in Python")):
+            result = runnable_repository_matches(admin_user, search="team", selected=["team/etl"], candidate_limit=1)
+
+        assert result.total == 2
+        assert result.candidates == [("team/billing", "main"), ("team/etl", "main")]
+        assert result.matching_selected == ["team/etl"]

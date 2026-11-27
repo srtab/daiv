@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from django.template.loader import render_to_string
+from django.urls import reverse
 
 from bs4 import BeautifulSoup
+
+from codebase.models import RepositoryCatalog
 
 CONTEXT = {"initial_repos": "[]", "max_repos": 1, "field_name": "", "required": False}
 
@@ -51,3 +54,50 @@ def test_unique_repos_is_off_by_default():
     html = render_to_string("codebase/_repo_picker.html", CONTEXT)
 
     assert "uniqueRepos: false" in html
+
+
+def test_filters_row_loads_facets_with_the_current_filters():
+    html = render_to_string("codebase/_repo_picker.html", CONTEXT | {"max_repos": 20})
+    soup = BeautifulSoup(html, "html.parser")
+    filters = soup.select_one('[x-ref="repoFilters"]')
+
+    assert filters["hx-get"] == reverse("codebase:picker-repository-facets")
+    assert filters["hx-trigger"] == "refresh"
+    assert "language" in filters[":hx-vals"]
+    assert "topic" in filters[":hx-vals"]
+
+
+def test_search_sends_filters_and_selection_with_every_request():
+    html = render_to_string("codebase/_repo_picker.html", CONTEXT | {"max_repos": 20})
+    search = BeautifulSoup(html, "html.parser").select_one('[x-ref="repoSearch"]')
+
+    assert all(name in search[":hx-vals"] for name in ("language", "topic", "selected"))
+
+
+def test_select_all_row_and_its_leftover_note_render():
+    html = render_to_string("codebase/_repo_picker.html", CONTEXT | {"max_repos": 20})
+
+    assert "selectAllMatching()" in html
+    assert "selectAllNote" in html
+
+
+def test_select_all_labels_reach_promptbox_in_both_pickers():
+    picker = render_to_string("codebase/_repo_picker.html", CONTEXT | {"max_repos": 20})
+    run_form = render_to_string("sessions/_agent_run_fields.html", {"form": None})
+
+    for html in (picker, run_form):
+        assert 'selectAllTemplate: "Select all __TOTAL__ matching"' in html
+        assert "didntFitTemplate:" in html
+
+
+def test_rows_announce_pressed_from_what_a_click_would_do():
+    repo = RepositoryCatalog(slug="acme/api", name="acme/api", default_branch="main")
+    html = render_to_string("codebase/_repo_picker_options.html", {"rows": [(repo, "")], "next_url": None})
+
+    assert ":aria-pressed=\"isRepoPressed('acme/api', 'main').toString()\"" in html
+
+
+def test_escape_goes_through_the_layered_handler():
+    html = render_to_string("codebase/_repo_picker.html", CONTEXT | {"max_repos": 20})
+
+    assert '@keydown.escape.window="escapeRepoPopover()"' in html

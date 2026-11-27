@@ -6,7 +6,8 @@
         maxRepos: 20,
         repoPickerUrl: "{% url 'codebase:picker-repositories' %}",
         branchPickerTemplate: "{% url 'codebase:picker-branches' slug='__SLUG__' %}",
-        conflictMessageTemplate: "{{ conflict_message_template|escapejs }}"
+        conflictMessageTemplate: "{{ conflict_message_template|escapejs }}",
+        {% include "codebase/_repo_picker_labels.html" %}
      })'
      class="relative rounded-2xl border border-white/[0.06] bg-white/[0.02] transition-colors focus-within:border-white/[0.18]">
 

@@ -38,6 +38,7 @@ from sessions.services import MAX_REPOS_PER_BATCH, RepoTarget, alist_user_runs
 from automation.agent.references import MAX_REFS_PER_SUBMISSION, RefIn
 from codebase.authorization import asearch_viewable_repositories
 from codebase.base import RepoId  # noqa: TC001 - runtime type for MCPServer
+from codebase.models import LANGUAGE_MATCH_MIN_SHARE
 from core.conf import settings as core_settings
 from core.models import ThinkingLevelChoices  # noqa: TC001 - runtime literal for MCPServer
 from daiv import __version__
@@ -681,7 +682,14 @@ def _decode_repo_cursor(raw: str) -> str:
 def _serialize_repositories(repos: list[RepositoryCatalog]) -> list[dict]:
     """Convert catalog rows to the tool's repository payload."""
     return [
-        {"slug": r.slug, "name": r.name, "html_url": r.html_url, "default_branch": r.default_branch, "topics": r.topics}
+        {
+            "slug": r.slug,
+            "name": r.name,
+            "html_url": r.html_url,
+            "default_branch": r.default_branch,
+            "topics": r.topics,
+            "languages": r.languages,
+        }
         for r in repos
     ]
 
@@ -689,14 +697,25 @@ def _serialize_repositories(repos: list[RepositoryCatalog]) -> list[dict]:
 @mcp.tool()
 async def list_repositories(
     search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
-    topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
+    topics: Annotated[
+        list[str] | None, Field(description="Filter repositories by topic tags: all must match, case-insensitive.")
+    ] = None,
+    language: Annotated[
+        str | None,
+        Field(
+            description=(
+                f"Filter by programming language: repositories where it is at least {LANGUAGE_MATCH_MIN_SHARE:g}% of"
+                " the code (case-insensitive)."
+            )
+        ),
+    ] = None,
     limit: LimitParam = DEFAULT_LIST_LIMIT,
     cursor: Annotated[
         str | None,
         Field(
             description=(
                 "Opaque pagination token from a prior call's ``next_cursor``. Omit for the first page;"
-                " reuse the SAME search/topics filters across pages."
+                " reuse the SAME search/topics/language filters across pages."
             )
         ),
     ] = None,
@@ -706,8 +725,9 @@ async def list_repositories(
     Members see only repositories for which they have at least read access; admins see the full
     catalog. Returns ``{"repositories": [...], "next_cursor": str | None}`` ordered by slug — pass
     ``next_cursor`` back to fetch the next page; ``None`` means no more rows. Narrowing with
-    ``search`` is cheaper than paging the whole catalog (``topics`` is matched server-side row by
-    row, so it is not); either way a filter matching more than ``limit`` is reachable by paging.
+    ``search`` is cheaper than paging the whole catalog (``topics`` and ``language`` are matched
+    server-side row by row, so they are not); either way a filter matching more than ``limit`` is
+    reachable by paging. Each repository carries its ``languages`` breakdown (percent of the code).
     """
     mcp_user, auth_error = await _resolve_mcp_user()
     if auth_error is not None:
@@ -722,7 +742,7 @@ async def list_repositories(
             return {"error": "Invalid cursor."}
     try:
         repos = await asearch_viewable_repositories(
-            mcp_user, search=search, topics=topics, limit=capped + 1, after_slug=after_slug
+            mcp_user, search=search, topics=topics, language=language, limit=capped + 1, after_slug=after_slug
         )
     except Exception:
         logger.exception("Failed to list repositories")
