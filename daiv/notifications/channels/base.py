@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, ClassVar
 
 if TYPE_CHECKING:
+    from django.utils.functional import _StrOrPromise
+
     from accounts.models import User
     from notifications.choices import ChannelType
     from notifications.models import Notification, NotificationDelivery
@@ -20,7 +22,9 @@ class NotificationChannel(ABC):
     """
 
     channel_type: ClassVar[ChannelType]
-    display_name: ClassVar[str]
+    # Lazy translations: every channel defines this with gettext_lazy, so the
+    # annotation is str-or-promise rather than plain str.
+    display_name: ClassVar[_StrOrPromise]
 
     @classmethod
     def is_enabled(cls) -> bool:

@@ -77,6 +77,12 @@ def telegram_configured(site_settings_override):
 
 
 @pytest.fixture
+def slack_configured(site_settings_override):
+    """Point ``site_settings`` at a fake Slack app with real ``SecretStr`` semantics."""
+    site_settings_override(slack_enabled=True, slack_bot_token=SecretStr("xoxb-test-token"))
+
+
+@pytest.fixture
 def site_settings_override():
     """Temporarily override ``site_settings`` fields, popping them on teardown.
 
@@ -159,6 +165,14 @@ def telegram_channel_enabled(configured_site):
         telegram_bot_username="daiv_bot",
         telegram_bot_token="123:ABC",  # noqa: S106 — test constant
         telegram_webhook_secret="s3cret",  # noqa: S106 — test constant
+    )
+
+
+@pytest.fixture
+def slack_channel_enabled(configured_site):
+    return configured_site(
+        slack_enabled=True,
+        slack_bot_token="xoxb-test-token",  # noqa: S106 — test constant
     )
 
 

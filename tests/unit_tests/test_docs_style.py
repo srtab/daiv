@@ -28,6 +28,7 @@ HEADING_TERMS = (
     "Sentry",
     "Telegram",
     "Rocket.Chat",
+    "Slack",
     "SearXNG",
     "Tavily",
     "DuckDuckGo",

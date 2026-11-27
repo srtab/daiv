@@ -6,6 +6,7 @@ class ChannelType(models.TextChoices):
     EMAIL = "email", _("Email")
     ROCKETCHAT = "rocketchat", _("Rocket Chat")
     TELEGRAM = "telegram", _("Telegram")
+    SLACK = "slack", _("Slack")
 
 
 class DeliveryStatus(models.TextChoices):

@@ -36,6 +36,7 @@ The configuration has the following groups, organized by category.
 | **Pipeline Watch** | Runtime | Watch CI on merge requests DAIV publishes and try to fix failures, and how many fix attempts (at least 1) to spend on one merge request before handing back. |
 | **Rocket Chat** | Integrations | Offer Rocket.Chat as a notification channel, with the instance URL, bot user ID and auth token. |
 | **Telegram** | Integrations | Offer Telegram as a notification channel, with the bot token from @BotFather. See [Set up Telegram](#set-up-telegram). |
+| **Slack** | Integrations | Offer Slack as a notification channel, with the Bot User OAuth Token from your Slack app. The app needs the `chat:write` and `users:read` bot scopes. |
 | **Authentication** | Integrations | OAuth login with your Git platform: the login toggle, open signup, the OAuth client ID and secret and, for GitLab, the instance URLs. See [Turn on OAuth login](#turn-on-oauth-login). |
 
 ## How environment variables and the UI interact
@@ -61,7 +62,7 @@ The environment variable for a field is `DAIV_<FIELD_NAME>`; for example, `agent
 
 ## Secrets
 
-DAIV stores the secret fields on this page encrypted in the database: the **Web Search API key**, **Sandbox API key**, **Auth Client Secret**, **Rocketchat Auth Token**, **Telegram Bot Token**, each provider's **API key** and the per-domain web fetch header values. [External URL and encryption key](env-variables.md#external-url-and-encryption-key) lists everything DAIV encrypts. The page never shows a stored secret again: it shows a masked hint. Leave a secret field blank to keep the stored value, or select **Clear** to remove it. The key comes from `DAIV_ENCRYPTION_KEY`.
+DAIV stores the secret fields on this page encrypted in the database: the **Web Search API key**, **Sandbox API key**, **Auth Client Secret**, **Rocketchat Auth Token**, **Telegram Bot Token**, **Slack Bot Token**, each provider's **API key** and the per-domain web fetch header values. [External URL and encryption key](env-variables.md#external-url-and-encryption-key) lists everything DAIV encrypts. The page never shows a stored secret again: it shows a masked hint. Leave a secret field blank to keep the stored value, or select **Clear** to remove it. The key comes from `DAIV_ENCRYPTION_KEY`.
 
 ## Providers
 

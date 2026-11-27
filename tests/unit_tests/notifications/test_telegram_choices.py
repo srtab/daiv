@@ -8,7 +8,7 @@ def test_telegram_is_a_channel_type():
     assert ChannelType.TELEGRAM.label == "Telegram"
 
 
-def test_channel_type_values_are_exactly_the_three_shipped_channels():
-    # The migration in this task hardcodes this choices list; a fourth channel added
-    # without a matching AlterField would leave makemigrations dirty in CI.
-    assert set(ChannelType.values) == {"email", "rocketchat", "telegram"}
+def test_channel_type_values_are_exactly_the_four_shipped_channels():
+    # The migrations hardcode this choices list; a channel added without a
+    # matching AlterField would leave makemigrations dirty in CI.
+    assert set(ChannelType.values) == {"email", "rocketchat", "telegram", "slack"}
