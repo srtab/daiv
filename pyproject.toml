@@ -22,7 +22,7 @@ dependencies = [
   "copilotkit==0.1.97",
   "croniter==7.0.0",
   "ddgs==9.16.1",
-  "deepagents==0.7.38",
+  "deepagents==0.7.39",
   "django==6.1.3",
   "django-allauth[mfa,socialaccount]==65.22.1",
   "django-crontask==2.2.0",
