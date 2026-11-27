@@ -1,6 +1,6 @@
 {% load i18n icon_tags %}
 {% translate "default" as default_branch_label %}
-{% for repo in repos %}
+{% for repo, language_label in rows %}
   <li>
     <button type="button"
             class="picker-popover__option repo-picker__option"
@@ -16,6 +16,7 @@
           {% translate "Selected:" %} <span x-text="selectedBranches('{{ repo.slug|escapejs }}', '{{ default_branch_label|escapejs }}')"></span>
         </span>
       </span>
+      {% if language_label %}<span class="repo-picker__lang">{{ language_label }}</span>{% endif %}
       <span x-show="isRepoSelected('{{ repo.slug|escapejs }}')" x-cloak class="repo-picker__check">
         {% icon "check" "h-4 w-4" %}
       </span>
