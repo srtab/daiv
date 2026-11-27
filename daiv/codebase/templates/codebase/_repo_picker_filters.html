@@ -1,0 +1,9 @@
+{% load i18n %}
+{% comment %}
+The repository picker's filters row, swapped into the popover's `x-ref="repoFilters"` container by
+`codebase.views.picker_repository_facets_view`. Each option carries how many repositories it keeps.
+{% endcomment %}
+{% translate "Language" as language_label %}{% translate "All languages" as all_languages %}{% translate "Find a language..." as find_language %}
+{% translate "Topic" as topic_label %}{% translate "All topics" as all_topics %}{% translate "Find a topic..." as find_topic %}
+{% include "codebase/_repo_picker_filter.html" with key="language" label=language_label icon="code-bracket" all_label=all_languages find_label=find_language options=facets.languages current=language %}
+{% include "codebase/_repo_picker_filter.html" with key="topic" label=topic_label icon="list-bullet" all_label=all_topics find_label=find_topic options=facets.topics current=topic %}

@@ -96,6 +96,10 @@ class SWERepoClient(RepoClient):
         """
         raise NotImplementedError("SWERepoClient does not support listing repositories")
 
+    def get_repository_languages(self, repo_id: str) -> dict[str, float]:
+        """Not supported for SWE client."""
+        raise NotImplementedError("SWERepoClient does not support repository languages")
+
     def list_repository_members(self, repo_id: str) -> list[RepoMember]:
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support listing repository members")

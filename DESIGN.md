@@ -960,9 +960,14 @@ branch, and the first row is the main repository.
 Both popovers are HTMX fragments served by `codebase.views` — debounced search on the input, and
 the repository list pages in on scroll via an `intersect`-triggered sentinel row. Adding to a
 multi-repository field keeps the picker open, with a selection count and a Done control; single
-choices and chip replacements close it. Selected rows show their branches and block duplicate
-choices. Successful repository results, search, and scroll position survive reopening on the same
-page; reopening after a failed request retries the current search. A failed fragment
+choices and chip replacements close it. While adding, a row toggles its repository on its default
+branch, and shows its branches only when one isn't the default. The list holds only repositories
+the user can run on. **Language** and **Topic** dropdowns under the search (`.filter-control` /
+`.filter-menu`, compact, from `codebase/_repo_picker_filter.html`) narrow it, each option with its
+count; a searched or filtered list offers a **Select all** row that adds matches up to the field's
+limit and says in the footer how many didn't fit. Successful repository results, search, filters
+and scroll position survive reopening on the same page; reopening after a failed request retries
+the current search. A failed fragment
 request is surfaced by `promptBox`, which listens for both `htmx:sendError` and `htmx:responseError`
 (HTMX skips the swap on 4xx/5xx, so without the latter the popover stays blank).
 

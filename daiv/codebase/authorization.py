@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
@@ -12,10 +14,16 @@ from asgiref.sync import sync_to_async
 
 from codebase.base import RepoAccessLevel
 from codebase.conf import settings
-from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
+from codebase.models import (
+    RepositoryAccess,
+    RepositoryAccessSyncState,
+    RepositoryCatalog,
+    matched_languages,
+    matches_language,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
 
     from accounts.models import User
 
@@ -219,8 +227,74 @@ def can_run(user: User, repo_id: str) -> bool:
     return repo_id in runnable_repo_ids(user, [repo_id])
 
 
+def _listable_rows(user: User, *, min_level: RepoAccessLevel):
+    """Fresh catalog rows ``user`` holds at least ``min_level`` on; admins get the whole fresh catalog, a member with
+    no linked platform identity none."""
+    _maybe_enqueue_backstop()
+    rows = RepositoryCatalog.objects.fresh().filter(provider=_provider())
+    if user.is_admin:
+        return rows
+    uid = _identity(user)
+    if uid is None:
+        return rows.none()
+    access = _fresh_rows(uid)
+    if min_level == RepoAccessLevel.WRITE:
+        access = access.filter(access_level=RepoAccessLevel.WRITE)
+    return rows.filter(slug__in=access.values_list("repo_id", flat=True))
+
+
+def _text_filtered(rows, search: str | None):
+    if search:
+        rows = rows.filter(Q(slug__icontains=search) | Q(name__icontains=search))
+    return rows.order_by("slug")
+
+
+def _row_matches(
+    row_topics: list[str], row_languages: dict[str, float], topics: Iterable[str] | None, language: str | None
+) -> bool:
+    """Topics are AND-matched and, like the language, compared case-insensitively."""
+    if topics:
+        have = {topic.casefold() for topic in row_topics}
+        if any(topic.casefold() not in have for topic in topics):
+            return False
+    return not language or matches_language(row_languages, language)
+
+
+def _search_catalog(
+    user: User,
+    *,
+    min_level: RepoAccessLevel,
+    search: str | None,
+    topics: list[str] | None,
+    language: str | None,
+    limit: int,
+    after_slug: str | None,
+) -> list[RepositoryCatalog]:
+    rows = _listable_rows(user, min_level=min_level)
+    if after_slug:
+        rows = rows.filter(slug__gt=after_slug)
+    rows = _text_filtered(rows, search)
+    if not topics and not language:
+        return list(rows[:limit])
+    matched: list[RepositoryCatalog] = []
+    # Django's default chunk_size is 2000; paging a filtered catalog would re-pay that full fetch
+    # per page even though the loop stops at ``limit``.
+    for row in rows.iterator(chunk_size=max(limit * 4, 50)):
+        if _row_matches(row.topics, row.languages, topics, language):
+            matched.append(row)
+            if len(matched) >= limit:
+                break
+    return matched
+
+
 def search_viewable_repositories(
-    user: User, *, search: str | None = None, topics: list[str] | None = None, limit: int, after_slug: str | None = None
+    user: User,
+    *,
+    search: str | None = None,
+    topics: list[str] | None = None,
+    language: str | None = None,
+    limit: int,
+    after_slug: str | None = None,
 ) -> list[RepositoryCatalog]:
     """Repositories the user may view (READ+), served from the local ``RepositoryCatalog`` mirror.
 
@@ -230,35 +304,116 @@ def search_viewable_repositories(
     provider, so a page boundary cannot repeat or skip a row the way an ``OFFSET`` can. Rows
     synced in or aged past the freshness TTL between pages are still missed — ``fresh()`` is
     re-evaluated per call, so a walk is not a snapshot.
-    ``topics`` is AND-matched in Python because the SQLite test backend does not support the
-    ``JSONField __contains`` lookup used on Postgres. The match streams slug-ordered rows and stops
-    once ``limit`` are found, so it never materializes more of the catalog than the window needs —
-    important for an admin, whose unfiltered candidate set is the entire fresh catalog.
+    ``topics`` (AND-matched) and ``language`` (``LANGUAGE_MATCH_MIN_SHARE`` or more of the code) are
+    matched in Python because the SQLite test backend does not support the ``JSONField __contains``
+    lookup used on Postgres. The match streams slug-ordered rows and stops once ``limit`` are found,
+    so it never materializes more of the catalog than the window needs.
     """
-    _maybe_enqueue_backstop()
-    rows = RepositoryCatalog.objects.fresh().filter(provider=_provider())
-    if after_slug:
-        rows = rows.filter(slug__gt=after_slug)
-    if not user.is_admin:
-        uid = _identity(user)
-        if uid is None:
-            return []
-        rows = rows.filter(slug__in=_fresh_rows(uid).values_list("repo_id", flat=True))
-    if search:
-        rows = rows.filter(Q(slug__icontains=search) | Q(name__icontains=search))
-    rows = rows.order_by("slug")
-    if topics:
-        wanted = set(topics)
-        matched: list[RepositoryCatalog] = []
-        # Django's default chunk_size is 2000; paging a topics-filtered catalog would re-pay that
-        # full fetch per page even though the loop stops at ``limit``.
-        for row in rows.iterator(chunk_size=max(limit * 4, 50)):
-            if wanted.issubset(set(row.topics)):
-                matched.append(row)
-                if len(matched) >= limit:
-                    break
-        return matched
-    return list(rows[:limit])
+    return _search_catalog(
+        user,
+        min_level=RepoAccessLevel.READ,
+        search=search,
+        topics=topics,
+        language=language,
+        limit=limit,
+        after_slug=after_slug,
+    )
+
+
+def search_runnable_repositories(
+    user: User,
+    *,
+    search: str | None = None,
+    topics: list[str] | None = None,
+    language: str | None = None,
+    limit: int,
+    after_slug: str | None = None,
+) -> list[RepositoryCatalog]:
+    """:func:`search_viewable_repositories` narrowed to repositories the user can run on (WRITE)."""
+    return _search_catalog(
+        user,
+        min_level=RepoAccessLevel.WRITE,
+        search=search,
+        topics=topics,
+        language=language,
+        limit=limit,
+        after_slug=after_slug,
+    )
+
+
+@dataclass(frozen=True)
+class RepositoryFacets:
+    """Languages and topics among the runnable repositories, each with how many repositories it narrows to."""
+
+    languages: list[tuple[str, int]]
+    topics: list[tuple[str, int]]
+
+
+def _ranked(counts: Counter[str]) -> list[tuple[str, int]]:
+    return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+
+
+def runnable_repository_facets(
+    user: User, *, topics: list[str] | None = None, language: str | None = None
+) -> RepositoryFacets:
+    """Each dimension's counts honour the other dimension's selection, never the typed search; a topic's spellings
+    count together under the most common one."""
+    rows = _listable_rows(user, min_level=RepoAccessLevel.WRITE)
+    languages: Counter[str] = Counter()
+    spellings: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    for row_topics, row_languages in rows.values_list("topics", "languages").iterator():
+        if _row_matches(row_topics, row_languages, topics, None):
+            languages.update(matched_languages(row_languages))
+        if _row_matches(row_topics, row_languages, None, language):
+            for key, name in {name.casefold(): name for name in reversed(row_topics)}.items():
+                spellings[key][name] += 1
+    topic_counts = Counter({_ranked(variants)[0][0]: variants.total() for variants in spellings.values()})
+    return RepositoryFacets(languages=_ranked(languages), topics=_ranked(topic_counts))
+
+
+@dataclass(frozen=True)
+class RepositoryMatches:
+    """What a "select all" needs: the match count, the first matches as ``(slug, default_branch)``, and which selected
+    slugs match."""
+
+    total: int
+    candidates: list[tuple[str, str]]
+    matching_selected: list[str]
+
+
+def runnable_repository_matches(
+    user: User,
+    *,
+    search: str | None = None,
+    topics: list[str] | None = None,
+    language: str | None = None,
+    selected: Sequence[str] = (),
+    candidate_limit: int,
+) -> RepositoryMatches:
+    """Candidates include selected matches, so one unselected after the list loaded can still be re-added."""
+    rows = _text_filtered(_listable_rows(user, min_level=RepoAccessLevel.WRITE), search)
+    selected_set = set(selected)
+    limit = candidate_limit + len(selected_set)
+    if not topics and not language:
+        return RepositoryMatches(
+            total=rows.count(),
+            candidates=list(rows.values_list("slug", "default_branch")[:limit]),
+            matching_selected=list(rows.filter(slug__in=selected_set).values_list("slug", flat=True)),
+        )
+    total = 0
+    candidates: list[tuple[str, str]] = []
+    matching_selected: list[str] = []
+    for slug, default_branch, row_topics, row_languages in rows.values_list(
+        "slug", "default_branch", "topics", "languages"
+    ).iterator():
+        if not _row_matches(row_topics, row_languages, topics, language):
+            continue
+        total += 1
+        if slug in selected_set:
+            matching_selected.append(slug)
+        if len(candidates) < limit:
+            candidates.append((slug, default_branch))
+    return RepositoryMatches(total=total, candidates=candidates, matching_selected=matching_selected)
 
 
 # Only the wrappers with async call sites are exported; add more via ``sync_to_async`` as needed.

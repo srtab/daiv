@@ -1,26 +1,30 @@
 {% load i18n icon_tags %}
 {% translate "default" as default_branch_label %}
-{% for repo in repos %}
+{% for repo, language_label in rows %}
+  {% with slug=repo.slug|escapejs branch=repo.default_branch|default:''|escapejs %}
   <li>
     <button type="button"
             class="picker-popover__option repo-picker__option"
-            :class="isRepoSelected('{{ repo.slug|escapejs }}') ? 'repo-picker__option--selected' : ''"
-            :disabled="!canSelectRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')"
-            @click="setRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')">
+            :class="isRepoSelected('{{ slug }}') ? 'repo-picker__option--selected' : ''"
+            :disabled="!canToggleRepo('{{ slug }}', '{{ branch }}')"
+            :aria-pressed="isRepoPressed('{{ slug }}', '{{ branch }}').toString()"
+            @click="toggleRepo('{{ slug }}', '{{ branch }}')">
       <span class="repo-picker__body">
         <span class="repo-picker__slug">{{ repo.slug }}</span>
         {% if repo.name and repo.name != repo.slug %}
         <span class="repo-picker__name">{{ repo.name }}</span>
         {% endif %}
-        <span x-show="isRepoSelected('{{ repo.slug|escapejs }}')" x-cloak class="repo-picker__selection">
-          {% translate "Selected:" %} <span x-text="selectedBranches('{{ repo.slug|escapejs }}', '{{ default_branch_label|escapejs }}')"></span>
+        <span x-show="selectionNote('{{ slug }}', '{{ branch }}', '{{ default_branch_label|escapejs }}')" x-cloak class="repo-picker__selection">
+          {% translate "Selected:" %} <span x-text="selectionNote('{{ slug }}', '{{ branch }}', '{{ default_branch_label|escapejs }}')"></span>
         </span>
       </span>
-      <span x-show="isRepoSelected('{{ repo.slug|escapejs }}')" x-cloak class="repo-picker__check">
+      {% if language_label %}<span class="repo-picker__lang">{{ language_label }}</span>{% endif %}
+      <span x-show="isRepoSelected('{{ slug }}')" x-cloak class="repo-picker__check">
         {% icon "check" "h-4 w-4" %}
       </span>
     </button>
   </li>
+  {% endwith %}
 {% endfor %}
 {% if next_url %}
 {% comment %}

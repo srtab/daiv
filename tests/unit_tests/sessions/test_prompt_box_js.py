@@ -19,6 +19,7 @@ const { src, args, actions } = JSON.parse(readFileSync(0, "utf8"));
 const components = {};
 const listeners = {};
 const requests = [];
+const filterRequests = [];
 const changes = [];
 const observations = [];
 const input = () => ({
@@ -27,7 +28,7 @@ const input = () => ({
   setAttribute(name, value) { this.attributes[name] = value; },
 });
 const refs = {
-  repoSearch: input(), branchSearch: input(),
+  repoSearch: input(), branchSearch: input(), repoFilters: input(),
   repoPickerList: { innerHTML: "", scrollTop: 0 },
   branchPickerList: { innerHTML: "", scrollTop: 0 },
 };
@@ -44,7 +45,7 @@ const sandbox = {
   dispatchEvent: (event) => changes.push(event.detail),
   htmx: {
     process() {},
-    trigger: (target, event) => requests.push({
+    trigger: (target, event) => target === refs.repoFilters ? filterRequests.push(event) : requests.push({
       picker: target === refs.repoSearch ? "repo" : "branch",
       query: target.value,
       url: target.attributes["hx-get"] || "",
@@ -68,6 +69,7 @@ for (const [method, ...params] of actions) {
     refs.repoPickerList.innerHTML = params[0] || "<ul>repositories</ul>";
     listeners["htmx:afterSwap"]({ target: refs.repoPickerList });
   } else if (method === "scroll") refs.repoPickerList.scrollTop = params[0];
+  else if (method === "set") picker[params[0]] = params[1];
   else if (method === "event") {
     listeners[params[0]]({ target: params[1] === "sentinel" ? sentinel : refs[params[1]] });
   } else if (method === "observe") {
@@ -79,9 +81,28 @@ process.stdout.write(JSON.stringify({
   repos: picker.repos, popover: picker.popover, editingIndex: picker.editingIndex, conflictIndex: picker.conflictIndex,
   repoLoading: picker.repoLoading, conflictMessage: picker.conflictMessage,
   query: refs.repoSearch.value, results: refs.repoPickerList.innerHTML,
-  scrollTop: refs.repoPickerList.scrollTop, requests, changes, observations,
+  scrollTop: refs.repoPickerList.scrollTop, requests, changes, observations, filterRequests,
+  selectAllRow: picker.selectAllRow, selectAllNote: picker.selectAllNote, selectAllData: picker.selectAllData,
+  language: picker.language, topic: picker.topic, filterMenu: picker.filterMenu,
 }));
 """
+
+
+LABELS = {
+    "selectAllTemplate": "Select all __TOTAL__ matching",
+    "selectFirstTemplate": "Select first __COUNT__ of __TOTAL__",
+    "allSelectedTemplate": "All __TOTAL__ selected",
+    "limitReachedLabel": "Limit reached",
+    "didntFitTemplate": "__COUNT__ matching didn't fit",
+}
+
+
+def _select_all(total: int, slugs: list[str], matching_selected: list[str] | None = None) -> dict:
+    return {
+        "total": total,
+        "candidates": [{"slug": slug, "default_branch": "main"} for slug in slugs],
+        "matching_selected": matching_selected or [],
+    }
 
 
 def drive(actions: list[list], **overrides) -> dict:
@@ -89,7 +110,7 @@ def drive(actions: list[list], **overrides) -> dict:
         HARNESS,
         {
             "src": str(PROMPT_BOX_JS),
-            "args": {"maxRepos": 20, "onChangeEvent": "repos-changed", **overrides},
+            "args": {"maxRepos": 20, "onChangeEvent": "repos-changed", **LABELS, **overrides},
             "actions": actions,
         },
     )
@@ -212,7 +233,7 @@ def test_selection_state_updates_when_a_chip_is_removed():
         [
             ["observe", "isRepoSelected", "acme/api"],
             ["observe", "canSelectRepo", "acme/api", "main"],
-            ["observe", "selectedBranches", "acme/api", "default"],
+            ["observe", "selectionNote", "acme/api", "main", "default"],
             ["remove", 0],
             ["observe", "isRepoSelected", "acme/api"],
             ["observe", "canSelectRepo", "acme/api", "main"],
@@ -220,7 +241,7 @@ def test_selection_state_updates_when_a_chip_is_removed():
         initialRepos=[{"repo_id": "acme/api", "ref": "main"}],
     )
 
-    assert state["observations"] == [True, False, "main", False, True]
+    assert state["observations"] == [True, False, "", False, True]
 
 
 def test_a_repository_can_be_added_on_another_branch_and_shows_all_selected_branches():
@@ -229,7 +250,7 @@ def test_a_repository_can_be_added_on_another_branch_and_shows_all_selected_bran
             ["openRepoPicker"],
             ["observe", "canSelectRepo", "acme/api", "main"],
             ["setRepo", "acme/api", "main"],
-            ["observe", "selectedBranches", "acme/api", "default"],
+            ["observe", "selectionNote", "acme/api", "main", "default"],
         ],
         initialRepos=[{"repo_id": "acme/api", "ref": "feature"}],
     )
@@ -240,10 +261,11 @@ def test_a_repository_can_be_added_on_another_branch_and_shows_all_selected_bran
 
 def test_an_unspecified_branch_uses_the_translated_default_label():
     state = drive(
-        [["observe", "selectedBranches", "acme/api", "predefinida"]], initialRepos=[{"repo_id": "acme/api", "ref": ""}]
+        [["observe", "selectionNote", "acme/api", "main", "predefinida"]],
+        initialRepos=[{"repo_id": "acme/api", "ref": ""}, {"repo_id": "acme/api", "ref": "feature"}],
     )
 
-    assert state["observations"] == ["predefinida"]
+    assert state["observations"] == ["predefinida, feature"]
 
 
 def test_an_unspecified_branch_prevents_adding_the_same_default_branch_again():
@@ -354,3 +376,218 @@ def test_removing_the_main_row_promotes_the_next_one():
     state = drive([["remove", 0]], initialRepos=[{"repo_id": "g/a", "ref": "main"}, {"repo_id": "g/b", "ref": "main"}])
 
     assert state["changes"][-1]["repos"][0]["repo_id"] == "g/b"
+
+
+@pytest.mark.parametrize("ref", ["main", "feature"])
+def test_clicking_a_selected_row_unselects_it(ref):
+    state = drive(
+        [["openRepoPicker"], ["toggleRepo", "acme/api", "main"]],
+        uniqueRepos=True,
+        initialRepos=[{"repo_id": "acme/api", "ref": ref}],
+    )
+
+    assert state["repos"] == []
+    assert state["changes"] == [{"repos": []}]
+    assert state["popover"] == "repo"
+
+
+def test_toggle_adds_the_default_branch_beside_another_branch():
+    state = drive(
+        [["openRepoPicker"], ["toggleRepo", "acme/api", "main"], ["toggleRepo", "acme/api", "main"]],
+        initialRepos=[{"repo_id": "acme/api", "ref": "feature"}],
+    )
+
+    assert state["changes"] == [
+        {"repos": [{"repo_id": "acme/api", "ref": "feature"}, {"repo_id": "acme/api", "ref": "main"}]},
+        {"repos": [{"repo_id": "acme/api", "ref": "feature"}]},
+    ]
+
+
+def test_selection_note_is_empty_on_the_default_branch_and_lists_others():
+    state = drive(
+        [
+            ["observe", "selectionNote", "acme/api", "main", "default"],
+            ["observe", "selectionNote", "acme/web", "main", "default"],
+        ],
+        initialRepos=[{"repo_id": "acme/api", "ref": "main"}, {"repo_id": "acme/web", "ref": "feature"}],
+    )
+
+    assert state["observations"] == ["", "feature"]
+
+
+def test_selected_rows_stay_clickable_at_the_limit():
+    state = drive(
+        [
+            ["openRepoPicker"],
+            ["observe", "canToggleRepo", "acme/api", "main"],
+            ["observe", "canToggleRepo", "acme/new", "main"],
+        ],
+        maxRepos=2,
+        initialRepos=[{"repo_id": "acme/api", "ref": "main"}, {"repo_id": "acme/web", "ref": "main"}],
+    )
+
+    assert state["observations"] == [True, False]
+
+
+@pytest.mark.parametrize(
+    ("overrides", "data", "expected"),
+    [
+        pytest.param(
+            {}, _select_all(3, ["p/1", "p/2", "p/3"]), {"label": "Select all 3 matching", "disabled": False}, id="fits"
+        ),
+        pytest.param(
+            {"maxRepos": 5},
+            _select_all(14, [f"p/{i:02d}" for i in range(1, 15)]),
+            {"label": "Select first 5 of 14", "disabled": False},
+            id="first-n",
+        ),
+        pytest.param(
+            {"initialRepos": [{"repo_id": "p/1", "ref": "main"}, {"repo_id": "p/2", "ref": "main"}]},
+            _select_all(2, [], ["p/1", "p/2"]),
+            {"label": "All 2 selected", "disabled": True},
+            id="all-selected",
+        ),
+        pytest.param(
+            {"maxRepos": 2, "initialRepos": [{"repo_id": "x/1", "ref": "main"}, {"repo_id": "x/2", "ref": "main"}]},
+            _select_all(3, ["p/1", "p/2", "p/3"]),
+            {"label": "Limit reached", "disabled": True},
+            id="limit-reached",
+        ),
+    ],
+)
+def test_select_all_label_states(overrides, data, expected):
+    state = drive([["applySelectAll", data]], **overrides)
+
+    assert state["selectAllRow"] == expected
+
+
+def test_select_all_adds_candidates_with_one_change_event_and_reports_leftovers():
+    slugs = [f"p/{i:02d}" for i in range(1, 15)]
+    state = drive([["openRepoPicker"], ["applySelectAll", _select_all(14, slugs)], ["selectAllMatching"]], maxRepos=5)
+
+    assert state["repos"] == [{"slug": slug, "ref": "main"} for slug in slugs[:5]]
+    assert len(state["changes"]) == 1
+    assert state["selectAllNote"] == "9 matching didn't fit"
+    assert state["selectAllRow"] == {"label": "Limit reached", "disabled": True}
+
+
+def test_unselecting_a_matching_repo_reopens_select_all():
+    slugs = [f"p/{i:02d}" for i in range(1, 15)]
+    state = drive(
+        [
+            ["openRepoPicker"],
+            ["applySelectAll", _select_all(14, slugs)],
+            ["selectAllMatching"],
+            ["toggleRepo", "p/01", "main"],
+        ],
+        maxRepos=5,
+    )
+
+    assert state["selectAllRow"] == {"label": "Select first 1 of 10", "disabled": False}
+    assert state["selectAllNote"] == ""
+
+
+def test_select_all_row_is_hidden_without_data_or_for_a_single_choice():
+    assert drive([])["selectAllRow"] is None
+    assert drive([["applySelectAll", _select_all(3, ["p/1"])]], maxRepos=1)["selectAllRow"] is None
+
+
+def test_picking_a_filter_refreshes_list_and_facets():
+    state = drive([["toggleFilterMenu", "language"], ["pickFilter", "language", "Python"]])
+
+    assert state["language"] == "Python"
+    assert state["filterMenu"] is None
+    assert state["requests"][-1]["picker"] == "repo"
+    assert state["requests"][-1]["event"] == "refresh"
+    assert state["filterRequests"] == ["refresh"]
+
+
+def test_a_new_list_request_hides_old_rows_and_drops_select_all():
+    state = drive([
+        ["openRepoPicker"],
+        ["loaded"],
+        ["applySelectAll", _select_all(3, ["p/1"])],
+        ["event", "htmx:beforeRequest", "repoSearch"],
+    ])
+
+    assert (state["repoLoading"], state["selectAllData"]) == (True, None)
+
+
+def test_opening_loads_the_filters_once():
+    state = drive([["openRepoPicker"], ["closePopover"], ["openRepoPicker"]])
+
+    assert state["filterRequests"] == ["refresh"]
+
+
+def test_filter_find_matches_case_insensitively():
+    state = drive([
+        ["set", "filterFind", "DJ"],
+        ["observe", "matchesFilterFind", "django"],
+        ["observe", "matchesFilterFind", "api"],
+    ])
+
+    assert state["observations"] == [True, False]
+
+
+def test_opening_a_filter_menu_clears_its_find_box():
+    state = drive([
+        ["set", "filterFind", "py"],
+        ["toggleFilterMenu", "language"],
+        ["observe", "matchesFilterFind", "Go"],
+    ])
+
+    assert state["observations"] == [True]
+
+
+@pytest.mark.parametrize("event", ["htmx:sendError", "htmx:responseError"])
+def test_a_failed_search_drops_the_previous_select_all(event):
+    state = drive([
+        ["applySelectAll", _select_all(3, ["p/1"])],
+        ["event", "htmx:beforeRequest", "repoSearch"],
+        ["event", event, "repoSearch"],
+    ])
+
+    assert state["selectAllRow"] is None
+
+
+def test_select_all_re_adds_a_matching_repo_unselected_after_the_list_loaded():
+    state = drive(
+        [
+            ["openRepoPicker"],
+            ["applySelectAll", _select_all(3, ["a/1", "a/2", "x/1"], ["x/1"])],
+            ["toggleRepo", "x/1", "main"],
+            ["selectAllMatching"],
+        ],
+        initialRepos=[{"repo_id": "x/1", "ref": "main"}],
+    )
+
+    assert sorted(repo["slug"] for repo in state["repos"]) == ["a/1", "a/2", "x/1"]
+    assert state["selectAllNote"] == ""
+
+
+def test_escape_closes_an_open_filter_menu_before_the_picker():
+    state = drive([["openRepoPicker"], ["toggleFilterMenu", "language"], ["escapeRepoPopover"]])
+    assert (state["filterMenu"], state["popover"]) == (None, "repo")
+
+    assert drive([["openRepoPicker"], ["escapeRepoPopover"]])["popover"] is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        pytest.param({}, [False, True], id="multi-branch"),
+        pytest.param({"uniqueRepos": True}, [True, True], id="unique"),
+    ],
+)
+def test_pressed_state_follows_what_a_click_would_do(overrides, expected):
+    state = drive(
+        [
+            ["openRepoPicker"],
+            ["observe", "isRepoPressed", "acme/api", "main"],
+            ["observe", "isRepoPressed", "acme/web", "main"],
+        ],
+        initialRepos=[{"repo_id": "acme/api", "ref": "feature"}, {"repo_id": "acme/web", "ref": ""}],
+        **overrides,
+    )
+
+    assert state["observations"] == expected
