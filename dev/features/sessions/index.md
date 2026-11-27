@@ -274,7 +274,7 @@ A revised artifact stays on the run that first published it, on the dashboard an
 A chat is the interactive workspace where you work with the agent turn by turn. You need access to at least one repository that DAIV serves.
 
 1. In the sidebar, select **New chat**, the **+** beside **Sessions** (`/dashboard/sessions/new/chat/`).
-1. In the **Workspace** card, select **Add repository**, and pick the repository the session works on. The ref defaults to the repository's default branch.
+1. In the **Workspace** card, select **Add repository**, and pick the repository the session works on. The picker lists the repositories you can run on. Type to search by name, or narrow the list with **Language** (a repository counts when that language is at least 10% of its code) and **Topic**. The ref defaults to the repository's default branch.
 1. To work from another branch, select the branch button on the repository's row, and pick the branch.
 1. Optional: in **Environment**, pick the [sandbox environment](https://docs.daivagent.com/dev/features/sandbox-environments/index.md) the agent's commands run in. It stays on **Auto**, resolved for the main repository, until you pick one.
 1. Optional: pick the agent model and thinking effort with the model picker in the message row, next to **Send**.
@@ -289,7 +289,7 @@ The ref is the branch the work is based on. When the agent opens a merge request
 Use this for work that spans repositories, such as a backend change and the client that consumes it. The **Workspace** card takes up to 5 repositories, each listed once, on any branch.
 
 1. In the **Workspace** card, add the first repository as in [Start a chat session](#start-a-chat-session). This is the main repository.
-1. Select **Add repository** again, and pick another repository.
+1. Select **Add repository** again, and pick another repository. The picker stays open, so you can pick several in a row; with a search or filter applied, **Select all** adds the matches up to the limit. Select a picked repository again to remove it.
 1. Select the branch button on a row to pick its ref.
 1. Repeat steps 2 and 3 for each other repository.
 1. Optional: to change the main repository, select **Make main** on another row. Removing the main row promotes the next one.

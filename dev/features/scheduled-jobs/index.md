@@ -12,7 +12,7 @@ You need access to the repositories you want to run against. A schedule runs wit
 1. Select **Create schedule**.
 1. Enter a **Name**, for example `Weekly dep audit`.
 1. In the prompt box, describe what the agent does in each run.
-1. Select **Add repository** and choose one to 20 repositories. Each entry has its own branch; leave it on the default to start from the repository's default branch.
+1. Select **Add repository** and choose one to 20 repositories. Narrow the list with **Language** (a repository counts when that language is at least 10% of its code) or **Topic**, then pick repositories one by one or use **Select all** to add the matches up to 20; select a picked repository again to remove it. Each entry has its own branch; leave it on the default to start from the repository's default branch.
 1. Choose a **Frequency**, then fill the field it shows (see [Frequency options](#frequency-options)).
 1. Optionally set the other fields in [Schedule fields](#schedule-fields).
 1. Select **Create schedule**.
