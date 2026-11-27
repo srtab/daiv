@@ -1,6 +1,6 @@
 # Implementation Plan: Submodules and Git LFS
 
-**Branch**: `claude/magical-hypatia-atqoxm` | **Date**: 2026-11-27 | **Spec**: [spec.md](spec.md) | **Status**: Approved by the maintainer on 2026-11-27, including spec refinement [SR1](research.md#r4-whose-access-decides-fr-005), which the spec now carries (FR-005)
+**Branch**: `claude/magical-hypatia-atqoxm` | **Date**: 2026-11-27 | **Spec**: [spec.md](spec.md) | **Status**: Approved by the maintainer on 2026-11-27, including spec refinement [SR1](research.md#r4-whose-access-decides-fr-005), which the spec now carries (FR-005). The `/speckit-analyze` fixes C1, H1 and M1–M4 were applied the same day at the maintainer's request
 
 **Input**: Feature specification from `specs/006-submodules-and-lfs/spec.md`
 
@@ -134,7 +134,7 @@ daiv/
 │   ├── repo_config.py                  # + Checkout section, RepositoryConfig.checkout
 │   ├── authorization.py                # + platform_account_can_view(uid, repo_id)
 │   └── clients/
-│       ├── base.py                     # + RepoClient.complete_checkout, RepoClient.with_git_auth
+│       ├── base.py                     # + RepoClient.complete_checkout, RepoClient.with_git_auth, GIT_INHERITED_ENV (moved from git_runners.py)
 │       ├── checkout.py                 # new: CheckoutOptions, RepoReadAccess, DENY_ALL, SkipReason,
 │       │                               #      SubmoduleCheckout, LfsFile, CheckoutReport, RepoCheckout
 │       ├── gitlab/client.py            # with_git_auth takes the propagation retry from _clone; clone env + GIT_LFS_SKIP_SMUDGE
@@ -145,7 +145,9 @@ daiv/
 │   ├── git_state.py                    # RepoPublish.kept_out
 │   ├── middlewares/git.py              # prompt section per repository; kept-out notice
 │   └── workspace/
-│       ├── git_manager.py              # PublishScope, KeptOut; status_snapshot and commit_all honour the scope
+│       ├── git_manager.py              # PublishScope, KeptOut; status_snapshot, fast_forward and commit_all honour the scope
+│       ├── git_runners.py              # imports GIT_INHERITED_ENV from codebase.clients.base
+│       ├── disk.py, sandbox.py         # fast_forward passes the repository's PublishScope
 │       └── session.py                  # seed archives leave out <gitdir>/lfs
 └── sessions/executor/run.py            # builds RepoReadAccess from the Run's person
 

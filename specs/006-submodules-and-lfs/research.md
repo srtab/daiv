@@ -160,7 +160,8 @@ matches the pointer in the index, so every fetched LFS file shows as modified.
 1. sets `core.checkStat=minimal` and `core.trustctime=false` in the repository's own config (`.git/config`, or
    `.git/modules/<name>/config` for a submodule). Git then compares only whole-second mtime, size and file type;
 2. sets the mtime of each fetched file two seconds in the past;
-3. refreshes the index (`git update-index -q --refresh`) with the `filter.lfs.*` config in the command's environment,
+3. refreshes the index (`git update-index -q --refresh`) with the `filter.lfs.*` config in the command's environment
+   (`RepoCheckout`'s `lfs_filter_config`, which tests replace with a test-only filter),
    so the worker records the new stat data against the pointer. The index is now newer than every LFS file, so no
    entry is racily clean.
 
@@ -213,7 +214,8 @@ paths (`gitdir: ../.git/modules/lib`, verified), so they resolve inside the sand
   changes are kept out publishes nothing and does not fail (FR-013).
 - **The same batch lists what was kept out**:
   - LFS: `git status --porcelain -z -- ':(attr:filter=lfs)'`;
-  - submodules: `git status --porcelain=v2 -z`, read for submodule entries (`S...`);
+  - submodules: `git status --porcelain=v2 -z`. Every `S...` entry counts, and so does every entry whose `HEAD` mode is
+    `160000`: a deleted or renamed submodule shows as an ordinary entry, not an `S...` one;
   - files inside each changed submodule: `git -C <path> status --porcelain -z`, capped at 20 paths per submodule in
     the notice.
 - **`commit_all(message, keep_out=...)`**: runs `git add -A`, then `git --literal-pathspecs reset -q -- <gitlink paths
@@ -223,6 +225,10 @@ paths (`gitdir: ../.git/modules/lib`, verified), so they resolve inside the sand
 - **FR-014**: `_integrate_remote` rebases or merges the run's commits, which never touch a gitlink, onto the remote,
   so the result keeps the remote's gitlink. The submodule's checkout then lags the index. The next publish's `reset`
   of gitlink paths keeps that lag out, where `git add -A` would otherwise revert the remote's bump.
+
+- **`fast_forward(branch, scope)`**: the start-of-turn fast-forward reads the same scoped status. Changes kept out of an
+  earlier publish then don't count as unpublished work, and don't stop a reused sandbox from catching up with its
+  branch.
 
 `PublishOutcome` and `RepoPublish` gain `kept_out: KeptOut | None`. `GitMiddleware` renders it as a visible notice
 beside the merge conflicts notice, for the main repository and each extra repository. Draft recovery

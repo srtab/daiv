@@ -101,20 +101,20 @@ With both settings off, every command, prompt and reply stays as it is today (FR
   - a URL's user info never appears;
   - the "not published" bullet renders whenever either setting is on;
   - a `KeptOut` on the main outcome or on an extra repository's `RepoPublish` adds the notice of §2 as a visible assistant message beside any conflicts notice, naming the repository when the session has extra repositories. An empty `KeptOut` adds nothing.
-- [ ] T012 [P] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, assert that `status_snapshot(..., scope=PublishScope())` and `commit_all(message)` send exactly today's git argument lists (record the runner's calls), and that `RepoStatus.kept_out` is empty.
+- [ ] T012 [P] In tests/unit_tests/automation/agent/workspace/test_git_manager.py, assert that `status_snapshot(..., scope=PublishScope())`, `fast_forward(branch)` and `commit_all(message)` send exactly today's git argument lists (record the runner's calls), and that `RepoStatus.kept_out` is empty.
 
 ### Implementation for Phase 2
 
 - [ ] T013 [P] In daiv/codebase/repo_config.py, add `class Checkout(BaseModel)` with `submodules: bool = Field(default=False, description=...)` and `lfs: bool = Field(default=False, description=...)`, and `RepositoryConfig.checkout: Checkout = Field(default_factory=Checkout, description=...)`, after `memory`.
 - [ ] T014 [P] In daiv/codebase/conf.py, add `LFS_MAX_CLONE_BYTES: int = Field(default=268435456, ge=0, description=...)`. The environment variable is `CODEBASE_LFS_MAX_CLONE_BYTES`, and `0` downloads no LFS content.
-- [ ] T015 [P] Create daiv/codebase/clients/checkout.py with the types of data-model.md:
+- [ ] T015 [P] First move `_INHERITED_ENV` out of daiv/automation/agent/workspace/git_runners.py into daiv/codebase/clients/base.py as `GIT_INHERITED_ENV`, beside `GIT_NO_PROMPT_ENV`, and import it back in git_runners.py: `codebase` must not import `automation` (layering). Then create daiv/codebase/clients/checkout.py with the types of data-model.md:
   - `CheckoutOptions` (frozen): `submodules`, `lfs`, `lfs_max_bytes`, with classmethods `off()` and `from_config(checkout, lfs_max_bytes)`;
   - `RepoReadAccess` (Protocol, `__call__(repo_id: str) -> bool`) and `DENY_ALL`;
   - `SkipReason` (StrEnum): `outside_platform`, `daiv_no_access`, `person_no_access`, `commit_missing`, `over_limit`, `fetch_failed`;
   - `SubmoduleCheckout` (frozen): `path`, `url`, `repo_id: str | None`, `commit`, `skipped: SkipReason | None`;
   - `LfsFile` (frozen): `path`, `size`, `skipped: SkipReason | None`;
   - `CheckoutReport` (frozen): `options`, `submodules`, `lfs_files`, with `skipped_submodules`, `skipped_lfs_files`, `is_empty` and `EMPTY`;
-  - class `RepoCheckout(client, *, options, read_access, allowed_protocol="https")`, whose `complete(repo, repository) -> CheckoutReport` returns the empty report for `options.off()`. Its command runner runs git subprocesses with the environment it is given, as `_run_git` does in automation/agent/workspace/git_runners.py; tests replace it.
+  - class `RepoCheckout(client, *, options, read_access, allowed_protocol="https", lfs_filter_config=LFS_FILTER_CONFIG)`, whose `complete(repo, repository) -> CheckoutReport` returns the empty report for `options.off()`. `LFS_FILTER_CONFIG` holds the `filter.lfs.*` keys that run git-lfs; tests pass a test-only clean filter instead. Its command runner runs git subprocesses with the environment it is given, built from `GIT_INHERITED_ENV` and never from `os.environ` whole; tests replace it.
 - [ ] T016 In daiv/codebase/clients/base.py, add two concrete `RepoClient` methods:
   - `with_git_auth(repository, operation: Callable[[GitAuthEnv | None], T]) -> T`, which calls `operation(self.get_git_auth_env(repository))` once;
   - `complete_checkout(repo, repository, options, read_access) -> CheckoutReport`, which returns `RepoCheckout(self, options=options, read_access=read_access).complete(repo, repository)`.
@@ -134,7 +134,8 @@ With both settings off, every command, prompt and reply stays as it is today (FR
   - add `PublishScope` (frozen; `submodules: bool = False`, `lfs: bool = False`, `from_config(checkout)`);
   - add `KeptOut` (`lfs_paths`, `submodules`, falsy when empty) and `KeptOutSubmodule` (`path`, `commit_moved`, `changed_files` capped at 20, `more`);
   - add `RepoStatus.kept_out`;
-  - add `scope: PublishScope = PublishScope()` to `status_snapshot`, and `keep_out: Sequence[str] = ()` to `commit_all`. With the defaults, both send exactly today's commands.
+  - add `scope: PublishScope = PublishScope()` to `status_snapshot` and `fast_forward`, and `keep_out: Sequence[str] = ()` to `commit_all`. With the defaults, all three send exactly today's commands;
+  - in daiv/automation/agent/workspace/disk.py and daiv/automation/agent/workspace/sandbox.py, make `fast_forward(branch)` pass `PublishScope.from_config(self._ctx.config.checkout)`.
 - [ ] T023 Thread the scope and the result through the publisher:
   - daiv/automation/agent/publishers.py: `GitChangePublisher.publish` passes `PublishScope.from_config(self.ctx.config.checkout)` to `status_snapshot`, and the snapshot's kept-out paths (gitlinks and LFS paths) to `commit_all`; `PublishOutcome` gains `kept_out: KeptOut | None`, which `_apublish_extra_repo` copies onto `RepoPublish`;
   - daiv/automation/agent/git_state.py: `RepoPublish.kept_out`, round-tripped through `to_state` and `from_state`.
@@ -183,10 +184,12 @@ the reply.
   - an edit inside the submodule only → `status_snapshot` reports `dirty` false, an empty diff, and `kept_out.submodules[0].changed_files == ("f",)`;
   - an edit in the superproject and inside the submodule → `commit_all` commits only the superproject file;
   - the submodule's HEAD moved → the gitlink is not in the commit, and `commit_moved` is true;
-  - more than 20 changed files → 20 names and `more`.
+  - the submodule's directory deleted, or moved with `git mv` → neither the gitlink's deletion nor its rename is in the commit, and `removed` is true for the old path;
+  - more than 20 changed files → 20 names and `more`;
+  - `fast_forward` on a checkout whose only local changes are inside the submodule still answers `advanced` when the remote moved ahead.
 - [ ] T030 [P] [US1] In tests/unit_tests/automation/agent/test_publishers.py, test the publish:
   - a turn whose only change is inside a submodule publishes nothing, raises nothing, and returns `kept_out` (FR-013);
-  - with a local bare "origin" whose branch moved the gitlink during the run, a publish that integrates on reject pushes a branch whose gitlink is the remote's (FR-014).
+  - FR-014, with a local bare "origin": a publish integrates a remote commit that moved the gitlink, and its submodule's checkout still sits at the old commit. A second publish from the same checkout must then push a branch whose gitlink is still the remote's. Without T034's reset, `git add -A` stages the old commit and the test fails.
 - [ ] T031 [P] [US1] In tests/unit_tests/automation/agent/workspace/test_session.py, assert that `_make_repo_archive` keeps `.git/modules/**` and the submodule's `.git` file, and that `git status --porcelain` is empty in a copy extracted with `tarfile`.
 
 ### Implementation for User Story 1
@@ -194,14 +197,15 @@ the reply.
 - [ ] T032 [US1] In daiv/codebase/clients/checkout.py, implement the reading of `.gitmodules` (`git config -f .gitmodules -z --get-regexp '^submodule\..*\.(path|url)$'`), the URL resolution and the host and protocol policy of research R2, and the rewrite of `submodule.<name>.url`.
 - [ ] T033 [US1] In daiv/codebase/clients/checkout.py, implement each submodule's checkout (research R3):
   - `client.get_repository(repo_id)` (`daiv_no_access` when it raises), then `read_access(repo_id)` (`person_no_access`);
-  - inside `client.with_git_auth(sub_repository, ...)`: `git submodule init -- <path>`, the URL rewrite, then `git -c core.hooksPath=/dev/null submodule update --checkout -- <path>`, with an environment of only `GitAuthEnv.as_env()`, `GIT_NO_PROMPT_ENV`, `GIT_ALLOW_PROTOCOL` and the variables `_INHERITED_ENV` lists;
+  - inside `client.with_git_auth(sub_repository, ...)`: `git submodule init -- <path>`, the URL rewrite, then `git -c core.hooksPath=/dev/null submodule update --checkout -- <path>`, with an environment of only `GitAuthEnv.as_env()`, `GIT_NO_PROMPT_ENV`, `GIT_ALLOW_PROTOCOL` and the variables `GIT_INHERITED_ENV` lists (T015);
   - recursion into the submodule's own `.gitmodules`.
 - [ ] T034 [US1] In daiv/automation/agent/workspace/git_manager.py, with `scope.submodules`, implement research R8 for submodules:
   - add `--ignore-submodules=all` to the snapshot's `status` and `diff` calls;
-  - add `status --porcelain=v2 -z` to batch A, and read its submodule entries;
+  - add `status --porcelain=v2 -z` to batch A. Read as submodule changes every `S...` entry and every entry whose `HEAD` mode is `160000`, so a deleted or renamed submodule is kept out too;
   - add one `-C <path> status --porcelain -z` per changed submodule, in the same round trip as batch B;
   - fill `RepoStatus.kept_out`;
-  - in `commit_all`, after `add -A`, run `git --literal-pathspecs reset -q -- <paths>` when `keep_out` is non-empty.
+  - in `commit_all`, after `add -A`, run `git --literal-pathspecs reset -q -- <paths>` when `keep_out` is non-empty;
+  - in `fast_forward`, add `--ignore-submodules=all` to its `status --porcelain`, so changes kept out of earlier publishes don't count as unpublished work.
 
 **Checkpoint**: US1 is shippable alone. Quickstart scenarios 1 (submodule parts), 2–7 and 9 pass.
 
@@ -224,8 +228,8 @@ without git-lfs, and the sandbox copy carries the content once. LFS paths are ne
   - `lfs_max_bytes=0` marks every file `over_limit`;
   - the stubbed `git lfs pull` gets `--include` batches with `*?[]\` escaped, each under 64 KiB of argv;
   - a path with a comma goes to `git lfs smudge` alone;
-  - every LFS command's environment holds `lfs.url=<clone_url>/info/lfs` and the `filter.lfs.*` keys, and a `.lfsconfig` `lfs.url` in the repository never reaches the stub.
-- [ ] T036 [US2] In tests/unit_tests/codebase/clients/test_checkout.py, test the status after the copy (research R6), with real git and a test-only clean filter standing in for git-lfs during the worker refresh:
+  - every LFS command's environment holds `lfs.url=<clone_url>/info/lfs` and the `lfs_filter_config` keys, even when the repository's `.lfsconfig` sets another `lfs.url`.
+- [ ] T036 [US2] In tests/unit_tests/codebase/clients/test_checkout.py, test the status after the copy (research R6), with real git and a test-only clean filter passed as `lfs_filter_config`, standing in for git-lfs during the worker refresh:
   - after `complete`, `core.checkStat` is `minimal` and `core.trustctime` is `false` in the superproject's and the submodule's git config;
   - every fetched file's mtime is at least 2 s in the past;
   - after `_make_repo_archive` and `tarfile` extraction, `git status --porcelain` run with `GIT_CONFIG_NOSYSTEM=1` and an empty `HOME` is empty;
@@ -238,7 +242,8 @@ without git-lfs, and the sandbox copy carries the content once. LFS paths are ne
   - an edited, a new, a deleted and a renamed LFS-tracked path are all left out of the commit and listed in `kept_out.lfs_paths`;
   - a non-LFS edit beside them is committed;
   - a turn whose only changes are LFS paths reports `dirty` false;
-  - the snapshot's `status`, `diff` and `ls-files --others` calls carry `:(exclude,attr:filter=lfs)`.
+  - the snapshot's `status`, `diff` and `ls-files --others` calls carry `:(exclude,attr:filter=lfs)`;
+  - `fast_forward` on a checkout whose only local change is an LFS-tracked file still answers `advanced` when the remote moved ahead.
 
 ### Implementation for User Story 2
 
@@ -249,12 +254,13 @@ without git-lfs, and the sandbox copy carries the content once. LFS paths are ne
   - select across the superproject and the fetched submodules under `options.lfs_max_bytes`;
   - fetch each repository's selection inside `client.with_git_auth(<that repository>, ...)`, with `git lfs pull --include` batches and the comma fallback;
   - fill `CheckoutReport.lfs_files`.
-- [ ] T043 [US2] In daiv/codebase/clients/checkout.py, implement research R6 for every repository with fetched content: set `core.checkStat=minimal` and `core.trustctime=false` in that repository's config, set the mtimes of the fetched files to now − 2 s, and run `git update-index -q --refresh` with the `filter.lfs.*` keys in the environment.
+- [ ] T043 [US2] In daiv/codebase/clients/checkout.py, implement research R6 for every repository with fetched content: set `core.checkStat=minimal` and `core.trustctime=false` in that repository's config, set the mtimes of the fetched files to now − 2 s, and run `git update-index -q --refresh` with the checkout's `lfs_filter_config` keys in the environment.
 - [ ] T044 [P] [US2] In daiv/automation/agent/workspace/session.py, add a tar filter to `_make_repo_archive` and `_make_repos_archive` that drops any directory named `lfs` directly inside a git directory (`.git/lfs`, `.git/modules/**/lfs`) (research R7).
 - [ ] T045 [US2] In daiv/automation/agent/workspace/git_manager.py, with `scope.lfs`, implement research R8 for LFS:
   - add the pathspec `.` `:(exclude,attr:filter=lfs)` to the snapshot's `status`, `diff` and `ls-files --others` calls;
   - add `status --porcelain -z -- :(attr:filter=lfs)` to batch A and parse it into `kept_out.lfs_paths`, keeping both paths of a rename;
-  - pass those paths to `commit_all`'s reset.
+  - pass those paths to `commit_all`'s reset;
+  - in `fast_forward`, add the same exclusion pathspec to its `status --porcelain`.
 
 **Checkpoint**: US1 and US2 both work. Quickstart scenarios 1–9 pass on a sandbox run and on a disk run.
 

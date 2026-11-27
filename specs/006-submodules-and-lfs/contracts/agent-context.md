@@ -53,6 +53,7 @@ more than one.
 I didn't publish some of my changes because DAIV doesn't publish them for this repository:
 - Inside the submodule `libs/core`: `src/parser.c`, `include/parser.h`.
 - The submodule `libs/ui` now points at a different commit.
+- The submodule `libs/old` was removed or moved.
 - LFS-tracked files: `assets/logo.png`, `data/new.bin`.
 To change a submodule, open its repository as an extra repository of a chat session.
 ```

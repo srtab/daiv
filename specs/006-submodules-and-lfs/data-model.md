@@ -80,14 +80,14 @@ listed. An LFS file is listed only for the superproject and for submodules that 
 ### `PublishScope` (frozen dataclass)
 
 `submodules: bool`, `lfs: bool`, from the repository's `checkout` settings. It tells `GitManager.status_snapshot` and
-`commit_all` what to keep out (research R8). `PublishScope()` (both `False`) keeps today's commands byte for byte
+`commit_all` what to keep out, and what `fast_forward` ignores (research R8). `PublishScope()` (both `False`) keeps today's commands byte for byte
 (FR-016).
 
 ### `KeptOut` (frozen dataclass)
 
 What a publish left out (FR-013): `lfs_paths: tuple[str, ...]`, and `submodules: tuple[KeptOutSubmodule, ...]`. Each
-`KeptOutSubmodule` holds `path: str`, `commit_moved: bool` and `changed_files: tuple[str, ...]`, capped at 20, with a
-`more: int` count. Falsy when empty.
+`KeptOutSubmodule` holds `path: str`, `commit_moved: bool`, `removed: bool` (the submodule was deleted or moved) and
+`changed_files: tuple[str, ...]`, capped at 20, with a `more: int` count. Falsy when empty.
 
 ## Changed dataclasses
 

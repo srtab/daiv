@@ -26,6 +26,7 @@
 ### Session 2026-11-27
 
 - Q: Does the spec adopt the refinement from planning? → A: Yes, SR1, approved with the plan: a person's access to a submodule's repository is what DAIV's repository access records, which list members only, so a public or internal repository counts only for its members (FR-005).
+- Q: May LFS content come from a host other than the platform's? → A: Only where the platform's own LFS API sends DAIV, such as the platform's object storage; never where the repository's configuration points (FR-006, from the `/speckit-analyze` review).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -102,7 +103,7 @@ A repository has a submodule on another host, a submodule the run may not fetch,
 - **FR-003**: DAIV MUST fetch only submodules hosted on the run's own git platform, over HTTPS or SSH URLs on its host, or relative URLs that resolve there. It MUST NOT contact any other host or use any other protocol for a submodule.
 - **FR-004**: Each submodule MUST be fetched with a credential minted for that submodule's repository alone, no broader and no longer-lived than the main repository's. The main repository's credential MUST NOT be sent to any other repository.
 - **FR-005**: DAIV MUST fetch a submodule only when the person the run belongs to may read the submodule's repository as DAIV's repository access sees it. For a run a DAIV user started (chat, job, schedule), the rules that decide which repositories that user sees in DAIV apply. For any other run, the access DAIV records for the platform user whose label, mention or pipeline started it applies. DAIV records members only, so a public or internal repository counts as readable only for its members. A run whose person DAIV cannot identify fetches no submodule.
-- **FR-006**: With LFS content on, the LFS-tracked files of the repository and of the submodules DAIV checked out MUST hold their real content. DAIV MUST fetch it only from LFS storage on the repository's own git platform, and MUST NOT follow repository configuration that points LFS storage elsewhere.
+- **FR-006**: With LFS content on, the LFS-tracked files of the repository and of the submodules DAIV checked out MUST hold their real content. DAIV MUST fetch it only through the LFS API of the repository's own git platform, from the storage that API directs it to, and MUST NOT follow repository configuration that points LFS storage elsewhere.
 - **FR-007**: The operator MUST be able to cap the LFS content one clone downloads. Files beyond the cap keep their pointer text.
 - **FR-008**: A submodule or LFS file that cannot be fetched MUST NOT fail the clone or the run. Its directory stays empty, or the file keeps its pointer, as today.
 - **FR-009**: At the start of a run, the agent MUST be told which submodules and LFS files were not fetched, and why: outside the platform, no access, missing at the recorded commit, over the cap, or a fetch failure. The text MUST carry no credential, internal configuration or raw error.
