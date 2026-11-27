@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from django.tasks import task
@@ -12,6 +13,7 @@ from codebase.clients.base import CommentThread
 from codebase.exceptions import CloneRefNotFoundError
 from sessions.inbox.drain import Drain
 from sessions.merge_request_runs.guards import JobGuard, JobNotStarted, MentionGuard
+from sessions.merge_request_runs.reactions import ReviewReactions
 from sessions.services import aget_task_run
 
 if TYPE_CHECKING:
@@ -72,14 +74,13 @@ async def address_merge_request_task(
     if prompt is None:
         thread = CommentThread(mention_comment_id, on_diff=True) if mention_location and mention_comment_id else None
         guard = MentionGuard(client, merge_request, reply_to=thread)
-        recheck = None
     else:
         guard = JobGuard(client, merge_request, thread_id=thread_id, task_result_id=context.task_result.id)
-        recheck = guard.arecheck
     if (skipped := await guard.askip()) is not None:
         return skipped
 
     task_run = await aget_task_run(context.task_result.id)
+    recheck = partial(_arecheck_review_job, guard, task_run.run_id) if isinstance(guard, JobGuard) else None
     try:
         return await CommentsAddressorManager.address_comments(
             repo_id=repo_id,
@@ -106,3 +107,10 @@ async def address_merge_request_task(
         return stopped.result
     except CloneRefNotFoundError:
         return await guard.abranch_gone()
+
+
+async def _arecheck_review_job(guard: JobGuard, run_id: str | None, ref: str) -> None:
+    await guard.arecheck(ref)
+    if run_id is not None:
+        merge_request = guard.merge_request
+        await sync_to_async(ReviewReactions.start)(run_id, merge_request.repo_id, merge_request.merge_request_id)

@@ -34,7 +34,12 @@ def sync_stuck_runs_cron_task():
     ``CommandError`` on per-row failures, which fails this task's DBTaskResult so the error
     is visible to monitoring rather than silently swallowed.
     """
-    call_command("sync_stuck_runs")
+    from sessions.merge_request_runs.reactions import ReviewReactions
+
+    try:
+        call_command("sync_stuck_runs")
+    finally:
+        ReviewReactions.reconcile()
 
 
 @cron("*/5 * * * *")

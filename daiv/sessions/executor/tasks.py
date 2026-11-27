@@ -10,7 +10,7 @@ from codebase.base import Scope
 from core import worker_shutdown
 from sessions.executor.lock import Claimed, wait_for_slot
 from sessions.executor.spec import RunHooks, RunSpec
-from sessions.models import EventState, Run, Session
+from sessions.models import EventKind, EventState, Run, Session
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
@@ -85,6 +85,7 @@ async def run_job_task(
     # Every enqueue goes through ``sessions.queue.aenqueue_run``, whose ``Run`` holds this row.
     session_row = await Session.objects.only("thread_id", "ref", "mcp_overrides", "external_refs").aget(pk=thread_id)
     input_factory = None
+    on_context_ready = None
     if inbox:
         if not run_id:
             raise ValueError("an inbox run_job_task needs the run_id the drain claimed the slot for")
@@ -97,6 +98,18 @@ async def run_job_task(
         input_factory = partial(_ainbox_input, inbox_run, run_input)
         lock, acting_user_id = Claimed(holder_id=run_id), inbox_run.acting_user_id
         options = await sync_to_async(MergeRequestJobs.run_options)(events, session_row, acting_user_id=acting_user_id)
+        review_job = next(
+            (
+                event
+                for event in events
+                if event.kind == EventKind.MERGE_REQUEST_JOB and event.state == EventState.TAKEN
+            ),
+            None,
+        )
+        if review_job is not None and review_job.merge_request_iid is not None:
+            on_context_ready = partial(
+                _astart_review_reaction, run_id, review_job.effective_repo_id(repo_id), review_job.merge_request_iid
+            )
     else:
         input_messages = (HumanMessage(content=prompt),)
         lock, acting_user_id = wait_for_slot(run_id or f"job-{thread_id[:8]}"), user_id
@@ -139,12 +152,18 @@ async def run_job_task(
             agent_options={"fork_branch": fork_branch},
             extra_metadata={"ref": ref, "override_source": "explicit" if agent_model else None},
         ),
-        RunHooks(on_failure=_log_failure),
+        RunHooks(on_context_ready=on_context_ready, on_failure=_log_failure),
         should_stop=partial(_acancel_requested, run_id) if run_id else None,
     )
 
     logger.info("Job completed for repo_id=%s, thread_id=%s", repo_id, thread_id)
     return outcome.agent_result
+
+
+async def _astart_review_reaction(run_id: str, repo_id: str, merge_request_iid: int, _ref: str) -> None:
+    from sessions.merge_request_runs.reactions import ReviewReactions
+
+    await sync_to_async(ReviewReactions.start)(run_id, repo_id, merge_request_iid)
 
 
 async def _ainbox_input(run: Run, run_input: RunInput, fast_forward: FastForward | None) -> tuple[BaseMessage, ...]:

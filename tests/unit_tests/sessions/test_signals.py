@@ -11,6 +11,7 @@ from allauth.socialaccount.models import SocialAccount
 from sessions.inbox.complete import RunEnd
 from sessions.models import EventKind, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SessionOrigin
 from sessions.signal_defs import run_ended, run_finished
+from sessions.signals import finish_review_reaction
 
 from accounts.models import User
 from tests.unit_tests.sessions.conftest import commit_revision, make_artifact, make_run
@@ -31,6 +32,16 @@ def _create_run(*, session: Session, status: str = RunStatus.READY, **kwargs) ->
     defaults = {"trigger_type": SessionOrigin.API_JOB, "repo_id": "group/project", "status": status}
     defaults.update(kwargs)
     return Run.objects.create(session=session, **defaults)
+
+
+@pytest.mark.django_db
+def test_finishing_an_api_merge_request_job_cleans_up_its_reaction_after_commit(django_capture_on_commit_callbacks):
+    run = _create_run(session=_make_session(), status=RunStatus.FAILED, runs_alone=True)
+    with patch("sessions.merge_request_runs.reactions.ReviewReactions.finish") as finish:
+        with django_capture_on_commit_callbacks(execute=True):
+            finish_review_reaction(Run, run)
+            finish.assert_not_called()
+        finish.assert_called_once_with(str(run.pk))
 
 
 @pytest.mark.django_db

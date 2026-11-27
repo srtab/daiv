@@ -324,3 +324,27 @@ async def test_a_job_hands_its_prompt_and_model_to_the_addressor():
         }
         == address.await_args.kwargs
     )
+
+
+async def test_a_job_rechecks_the_merge_request_before_starting_its_reaction():
+    client = MagicMock()
+    client.get_merge_request.return_value = _mr(merged=False)
+    calls = MagicMock()
+    recheck = AsyncMock(side_effect=calls.recheck)
+
+    async def address(**kwargs):
+        calls.address()
+        await kwargs["on_context_ready"]("chore/x")
+        return {"response": "done"}
+
+    with (
+        patch("sessions.merge_request_runs.tasks.RepoClient.create_instance", return_value=client),
+        patch("sessions.merge_request_runs.guards.JobGuard.askip", AsyncMock(return_value=None)),
+        patch("sessions.merge_request_runs.guards.JobGuard.arecheck", recheck),
+        patch("sessions.merge_request_runs.tasks.ReviewReactions.start", calls.start),
+        patch(_ADDRESS, address),
+    ):
+        await _job_task()
+
+    assert [call[0] for call in calls.mock_calls] == ["address", "recheck", "start"]
+    calls.start.assert_called_once_with("run-1", "group/repo", 7)

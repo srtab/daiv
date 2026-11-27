@@ -19,7 +19,16 @@ from sessions.delegation import DelegatedBatch
 from sessions.inbox.complete import RunEnd
 from sessions.inbox.requester import Requester
 from sessions.live.notify import session_changed
-from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus, Session, SpendRecord
+from sessions.models import (
+    EventState,
+    InboxEvent,
+    MergeRequestOwnership,
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    SpendRecord,
+)
 from sessions.queue import dispatch_next_queued, release_runs_waiting_for
 from sessions.signal_defs import run_ended, run_finished
 
@@ -173,6 +182,15 @@ def settle_inbox_events(sender: type, run: Any, **kwargs: Any) -> None:
     On ``run_ended`` so a chat turn's end settles and drains too. ``skip_dispatch`` leaves the drain to the sweep.
     """
     RunEnd(run).on_run_ended(drain=not kwargs.get("skip_dispatch"))
+
+
+@receiver(run_ended, dispatch_uid="sessions.finish_review_reaction")
+def finish_review_reaction(sender: type, run: Run, **kwargs: Any) -> None:
+    """Remove the finished API review from its merge request's reaction after commit."""
+    if run.trigger_type == SessionOrigin.API_JOB and run.runs_alone:
+        from sessions.merge_request_runs.reactions import ReviewReactions
+
+        transaction.on_commit(partial(ReviewReactions.finish, str(run.pk)), robust=True)
 
 
 @receiver(run_ended, dispatch_uid="sessions.archive_settled_session")

@@ -43,6 +43,11 @@ def _parse_command_match(text: str, *, pattern: str, flags: int) -> SlashCommand
     return SlashCommandCommand(command=command.lower(), args=args, raw=raw_line)
 
 
+def parse_bare_slash_command(text: str) -> SlashCommandCommand | None:
+    """Parse a leading slash command and its arguments without a bot mention."""
+    return _parse_command_match(text, pattern=_BARE_COMMAND_RE_TEMPLATE, flags=re.IGNORECASE)
+
+
 def parse_slash_command(note_body: str, bot_name: str) -> SlashCommandCommand | None:
     """
     Parse the first '@<bot_name> /<command> [arguments]' or '/<command> [arguments]' command in `note_body`.
@@ -60,5 +65,4 @@ def parse_slash_command(note_body: str, bot_name: str) -> SlashCommandCommand | 
     ):
         return result
 
-    # Try bare slash command format
-    return _parse_command_match(note_body, pattern=_BARE_COMMAND_RE_TEMPLATE, flags=re.IGNORECASE)
+    return parse_bare_slash_command(note_body)
