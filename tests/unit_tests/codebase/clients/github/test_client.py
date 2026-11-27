@@ -73,6 +73,17 @@ class TestGitHubClient:
 
         assert github_client.get_repository_languages("o/r") == {}
 
+    def test_get_repository_languages_missing_repo_is_empty(self, github_client):
+        github_client.client.get_repo.return_value.get_languages.side_effect = GithubException(404, {}, None)
+
+        assert github_client.get_repository_languages("o/r") == {}
+
+    def test_get_repository_languages_forbidden_raises(self, github_client):
+        github_client.client.get_repo.return_value.get_languages.side_effect = GithubException(403, {}, None)
+
+        with pytest.raises(GithubException):
+            github_client.get_repository_languages("o/r")
+
     @pytest.fixture
     def lazy_requester(self, github_client):
         """Wire ``get_repo`` to a real Repository over a requester that mirrors production's

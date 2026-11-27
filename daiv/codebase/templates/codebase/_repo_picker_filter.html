@@ -3,10 +3,10 @@
 One filter dropdown of the repository picker. Context: key ("language" or "topic", also the `promptBox` state
 name), label, icon (shown while unset), all_label, find_label (the find box's placeholder), options ((name, count)
 pairs), current. Renders nothing with no options and no current value. Bound to `promptBox`: `filterMenu`,
-`toggleFilterMenu`, `pickFilter`, `filterFind`, `matchesFilterFind`.
+`toggleFilterMenu`, `closeFilterMenu`, `pickFilter`, `filterFind`, `matchesFilterFind`.
 {% endcomment %}
 {% if options or current %}
-<div class="relative" @click.outside="if (filterMenu === '{{ key }}') filterMenu = null">
+<div class="relative" @click.outside="if (filterMenu === '{{ key }}') filterMenu = null" @keydown.escape="closeFilterMenu($event)">
     <div class="filter-control" :class="{ 'filter-control--active': !!{{ key }} }">
         <button type="button" class="filter-control__toggle" @click="toggleFilterMenu('{{ key }}')"
                 aria-expanded="false" :aria-expanded="(filterMenu === '{{ key }}').toString()">

@@ -88,7 +88,7 @@ def picker_repositories_view(request: HttpRequest) -> HttpResponse:
         )
         select_all = json.dumps({
             "total": matches.total,
-            "candidates": [{"slug": r.slug, "default_branch": r.default_branch} for r in matches.candidates],
+            "candidates": [{"slug": slug, "default_branch": branch} for slug, branch in matches.candidates],
             "matching_selected": matches.matching_selected,
         })
     template = "codebase/_repo_picker_options.html" if after else "codebase/_repo_picker_list.html"

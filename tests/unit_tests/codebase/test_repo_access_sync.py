@@ -386,6 +386,31 @@ class TestSyncCatalogLanguages:
         state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
         assert state.status == RepositoryAccessSyncState.Status.FAILED
 
+    def test_empty_languages_after_recent_activity_are_retried(self, mock_repo_client):
+        _catalog_row("a/b", languages={"Go": 90.0}, languages_activity_at=T0)
+        recent = timezone.now() - timedelta(minutes=10)
+        mock_repo_client.list_repositories.return_value = [_repo("a/b", activity_at=recent)]
+        mock_repo_client.get_repository_languages.return_value = {}
+
+        sync_repository_access_cron_task.func()
+
+        row = RepositoryCatalog.objects.get(slug="a/b")
+        assert (row.languages, row.languages_activity_at) == ({"Go": 90.0}, T0)
+        assert row.needs_languages_refresh(recent)
+        state = RepositoryAccessSyncState.objects.get(pk=RepositoryAccessSyncState.SINGLETON_PK)
+        assert state.status == RepositoryAccessSyncState.Status.OK
+
+    @pytest.mark.parametrize("activity_at", [T1, None], ids=["settled-activity", "no-activity"])
+    def test_empty_languages_settle_when_no_detection_is_pending(self, mock_repo_client, activity_at):
+        mock_repo_client.list_repositories.return_value = [_repo("a/b", activity_at=activity_at)]
+        mock_repo_client.get_repository_languages.return_value = {}
+
+        sync_repository_access_cron_task.func()
+
+        row = RepositoryCatalog.objects.get(slug="a/b")
+        assert row.languages == {}
+        assert not row.needs_languages_refresh(activity_at)
+
     def test_access_prune_runs_before_the_language_fetch(self, mock_repo_client):
         _row("old/gone", "1")
         mock_repo_client.list_repositories.return_value = [_repo("a/b", activity_at=T1)]

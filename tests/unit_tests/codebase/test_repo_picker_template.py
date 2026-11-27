@@ -5,6 +5,9 @@ from django.urls import reverse
 
 from bs4 import BeautifulSoup
 
+from codebase.authorization import RepositoryFacets
+from codebase.models import RepositoryCatalog
+
 CONTEXT = {"initial_repos": "[]", "max_repos": 1, "field_name": "", "required": False}
 
 
@@ -86,3 +89,19 @@ def test_select_all_labels_reach_promptbox_in_both_pickers():
     for html in (picker, run_form):
         assert 'selectAllTemplate: "Select all __TOTAL__ matching"' in html
         assert "didntFitTemplate:" in html
+
+
+def test_rows_announce_pressed_from_what_a_click_would_do():
+    repo = RepositoryCatalog(slug="acme/api", name="acme/api", default_branch="main")
+    html = render_to_string("codebase/_repo_picker_options.html", {"rows": [(repo, "")], "next_url": None})
+
+    assert ":aria-pressed=\"isRepoPressed('acme/api', 'main').toString()\"" in html
+
+
+def test_escape_in_a_filter_closes_only_the_filter():
+    html = render_to_string(
+        "codebase/_repo_picker_filters.html",
+        {"facets": RepositoryFacets(languages=[("Python", 1)], topics=[]), "language": "", "topic": ""},
+    )
+
+    assert '@keydown.escape="closeFilterMenu($event)"' in html

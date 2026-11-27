@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -14,7 +14,14 @@ from asgiref.sync import sync_to_async
 
 from codebase.base import RepoAccessLevel
 from codebase.conf import settings
-from codebase.models import RepositoryAccess, RepositoryAccessSyncState, RepositoryCatalog
+from codebase.models import (
+    LANGUAGE_MATCH_MIN_SHARE,
+    RepositoryAccess,
+    RepositoryAccessSyncState,
+    RepositoryCatalog,
+    language_share,
+    matched_languages,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -245,10 +252,15 @@ def _text_filtered(rows, search: str | None):
     return rows.order_by("slug")
 
 
-def _row_matches(row: RepositoryCatalog, topics: Iterable[str] | None, language: str | None) -> bool:
-    if topics and not set(topics).issubset(row.topics):
-        return False
-    return not language or row.matches_language(language)
+def _row_matches(
+    row_topics: list[str], row_languages: dict[str, float], topics: Iterable[str] | None, language: str | None
+) -> bool:
+    """Topics are AND-matched and, like the language, compared case-insensitively."""
+    if topics:
+        have = {topic.casefold() for topic in row_topics}
+        if any(topic.casefold() not in have for topic in topics):
+            return False
+    return not language or language_share(row_languages, language) >= LANGUAGE_MATCH_MIN_SHARE
 
 
 def _search_catalog(
@@ -273,7 +285,7 @@ def _search_catalog(
     # Django's default chunk_size is 2000; paging a filtered catalog would re-pay that full fetch
     # per page even though the loop stops at ``limit``.
     for row in rows.iterator(chunk_size=max(limit * 4, 50)):
-        if _row_matches(row, topics, language):
+        if _row_matches(row.topics, row.languages, topics, language):
             matched.append(row)
             if len(matched) >= limit:
                 break
@@ -346,6 +358,10 @@ def _ranked(counts: Counter[str]) -> list[tuple[str, int]]:
     return sorted(counts.items(), key=lambda item: (-item[1], item[0]))
 
 
+def _most_common_spelling(spellings: Counter[str]) -> str:
+    return min(spellings.items(), key=lambda item: (-item[1], item[0]))[0]
+
+
 def runnable_repository_facets(
     user: User, *, topic: str | None = None, language: str | None = None
 ) -> RepositoryFacets:
@@ -354,21 +370,27 @@ def runnable_repository_facets(
     if rows is None:
         return RepositoryFacets(languages=[], topics=[])
     languages: Counter[str] = Counter()
-    topics: Counter[str] = Counter()
-    for row in rows.only("slug", "topics", "languages").iterator():
-        if _row_matches(row, [topic] if topic else None, None):
-            languages.update(row.matched_languages())
-        if _row_matches(row, None, language):
-            topics.update(row.topics)
+    topic_counts: Counter[str] = Counter()
+    spellings: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    for row_topics, row_languages in rows.values_list("topics", "languages").iterator():
+        if _row_matches(row_topics, row_languages, [topic] if topic else None, None):
+            languages.update(matched_languages(row_languages))
+        if _row_matches(row_topics, row_languages, None, language):
+            row_spellings = {name.casefold(): name for name in reversed(row_topics)}
+            topic_counts.update(row_spellings.keys())
+            for key, name in row_spellings.items():
+                spellings[key][name] += 1
+    topics = Counter({_most_common_spelling(spellings[key]): count for key, count in topic_counts.items()})
     return RepositoryFacets(languages=_ranked(languages), topics=_ranked(topics))
 
 
 @dataclass(frozen=True)
 class RepositoryMatches:
-    """What a "select all" needs: the match count, the first unselected matches, and which selected slugs match."""
+    """What a "select all" needs: the match count, the first matches as ``(slug, default_branch)``, and which selected
+    slugs match."""
 
     total: int
-    candidates: list[RepositoryCatalog]
+    candidates: list[tuple[str, str]]
     matching_selected: list[str]
 
 
@@ -391,20 +413,22 @@ def runnable_repository_matches(
     if not topic and not language:
         return RepositoryMatches(
             total=rows.count(),
-            candidates=list(rows[:limit]),
+            candidates=list(rows.values_list("slug", "default_branch")[:limit]),
             matching_selected=list(rows.filter(slug__in=selected_set).values_list("slug", flat=True)),
         )
     total = 0
-    candidates: list[RepositoryCatalog] = []
+    candidates: list[tuple[str, str]] = []
     matching_selected: list[str] = []
-    for row in rows.only("slug", "default_branch", "topics", "languages").iterator():
-        if not _row_matches(row, [topic] if topic else None, language):
+    for slug, default_branch, row_topics, row_languages in rows.values_list(
+        "slug", "default_branch", "topics", "languages"
+    ).iterator():
+        if not _row_matches(row_topics, row_languages, [topic] if topic else None, language):
             continue
         total += 1
-        if row.slug in selected_set:
-            matching_selected.append(row.slug)
+        if slug in selected_set:
+            matching_selected.append(slug)
         if len(candidates) < limit:
-            candidates.append(row)
+            candidates.append((slug, default_branch))
     return RepositoryMatches(total=total, candidates=candidates, matching_selected=matching_selected)
 
 

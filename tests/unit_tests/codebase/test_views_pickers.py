@@ -178,7 +178,7 @@ class TestRepoPickerFilters:
     @patch("codebase.views.search_runnable_repositories", autospec=True)
     def test_select_all_data_with_a_filter_on_the_first_page(self, mock_search, mock_matches, logged_in_client):
         mock_search.return_value = [_cat("acme/a")]
-        mock_matches.return_value = RepositoryMatches(2, [_cat("acme/a")], ["acme/b"])
+        mock_matches.return_value = RepositoryMatches(2, [("acme/a", "main")], ["acme/b"])
 
         resp = logged_in_client.get(reverse("codebase:picker-repositories") + "?language=Python")
 

@@ -305,6 +305,14 @@ class TestSearchViewableRepositories:
 
         assert [r.slug for r in result] == ["a/one"]
 
+    def test_topics_are_case_insensitive(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["Django"])
+        _catalog("a/two", topics=["flask"])
+
+        result = search_viewable_repositories(admin_user, topics=["django"], limit=10)
+
+        assert [r.slug for r in result] == ["a/one"]
+
     def test_unlinked_member_sees_nothing(self, member_user, fresh_sync):
         _catalog("a/one")
         _grant("999", "a/one", RepoAccessLevel.READ)
@@ -516,6 +524,21 @@ class TestRunnableRepositoryFacets:
 
         assert runnable_repository_facets(admin_user).topics == [("web", 2), ("api", 1), ("zeta", 1)]
 
+    def test_topic_spellings_merge_under_the_most_common(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["Django"])
+        _catalog("a/two", topics=["django"])
+        _catalog("a/three", topics=["django", "DJANGO"])
+
+        assert runnable_repository_facets(admin_user).topics == [("django", 3)]
+
+    def test_counts_without_building_catalog_rows(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["api"], languages={"Python": 80.0})
+
+        with patch.object(RepositoryCatalog, "from_db", side_effect=AssertionError("row instantiated")):
+            facets = runnable_repository_facets(admin_user, topic="api", language="Python")
+
+        assert (facets.languages, facets.topics) == ([("Python", 1)], [("api", 1)])
+
     def test_excludes_read_only_repos_for_members(self, linked_member, fresh_sync):
         _catalog("a/read", topics=["api"])
         _catalog("a/write", topics=["etl"])
@@ -536,7 +559,7 @@ class TestRunnableRepositoryMatches:
         )
 
         assert result.total == 5
-        assert [r.slug for r in result.candidates] == ["p/1", "p/2", "p/3", "p/4"]
+        assert result.candidates == [("p/1", "main"), ("p/2", "main"), ("p/3", "main"), ("p/4", "main")]
         assert result.matching_selected == ["p/2"]
 
     def test_applies_text_search(self, admin_user, fresh_sync):
@@ -546,7 +569,23 @@ class TestRunnableRepositoryMatches:
         result = runnable_repository_matches(admin_user, search="bill", language="Python", candidate_limit=20)
 
         assert result.total == 1
-        assert [r.slug for r in result.candidates] == ["team/billing"]
+        assert result.candidates == [("team/billing", "main")]
+
+    def test_topic_matches_any_spelling(self, admin_user, fresh_sync):
+        _catalog("a/one", topics=["Django"])
+        _catalog("a/two", topics=["django"])
+
+        result = runnable_repository_matches(admin_user, topic="django", candidate_limit=20)
+
+        assert result.total == 2
+
+    def test_filtered_matches_without_building_catalog_rows(self, admin_user, fresh_sync):
+        _catalog("a/one", languages={"Python": 80.0})
+
+        with patch.object(RepositoryCatalog, "from_db", side_effect=AssertionError("row instantiated")):
+            result = runnable_repository_matches(admin_user, language="Python", candidate_limit=20)
+
+        assert (result.total, result.candidates) == (1, [("a/one", "main")])
 
     def test_unlinked_member_gets_nothing(self, member_user, fresh_sync):
         _catalog("a/one", languages={"Python": 90.0})
@@ -576,5 +615,5 @@ class TestRunnableRepositoryMatches:
             result = runnable_repository_matches(admin_user, search="team", selected=["team/etl"], candidate_limit=1)
 
         assert result.total == 2
-        assert [r.slug for r in result.candidates] == ["team/billing", "team/etl"]
+        assert result.candidates == [("team/billing", "main"), ("team/etl", "main")]
         assert result.matching_selected == ["team/etl"]

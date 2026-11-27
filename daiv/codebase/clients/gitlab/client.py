@@ -256,8 +256,16 @@ class GitLabClient(RepoClient):
         return repos
 
     def get_repository_languages(self, repo_id: str) -> dict[str, float]:
-        """GitLab already reports each language as a percentage of the repository's code."""
-        languages = self.client.projects.get(repo_id, lazy=True).languages()
+        """GitLab already reports each language as a percentage of the repository's code.
+
+        A project whose repository is disabled or hidden from the bot (403/404) has no languages to report.
+        """
+        try:
+            languages = self.client.projects.get(repo_id, lazy=True).languages()
+        except GitlabGetError as exc:
+            if exc.response_code in (403, 404):
+                return {}
+            raise
         return {name: round(float(share), 1) for name, share in languages.items()}
 
     def list_repository_members(self, repo_id: str) -> list[RepoMember]:

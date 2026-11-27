@@ -70,6 +70,11 @@ for (const [method, ...params] of actions) {
     listeners["htmx:afterSwap"]({ target: refs.repoPickerList });
   } else if (method === "scroll") refs.repoPickerList.scrollTop = params[0];
   else if (method === "set") picker[params[0]] = params[1];
+  else if (method === "key") {
+    const event = { stopped: false, stopPropagation() { this.stopped = true; } };
+    picker[params[0]](event);
+    observations.push(event.stopped);
+  }
   else if (method === "event") {
     listeners[params[0]]({ target: params[1] === "sentinel" ? sentinel : refs[params[1]] });
   } else if (method === "observe") {
@@ -553,3 +558,42 @@ def test_select_all_re_adds_a_matching_repo_unselected_after_the_list_loaded():
 
     assert sorted(repo["slug"] for repo in state["repos"]) == ["a/1", "a/2", "x/1"]
     assert state["selectAllNote"] == ""
+
+
+def test_escape_closes_an_open_filter_menu_and_keeps_the_picker():
+    state = drive([["openRepoPicker"], ["toggleFilterMenu", "language"], ["key", "closeFilterMenu"]])
+
+    assert (state["filterMenu"], state["popover"], state["observations"]) == (None, "repo", [True])
+
+
+def test_escape_without_an_open_filter_menu_reaches_the_picker():
+    state = drive([["openRepoPicker"], ["key", "closeFilterMenu"]])
+
+    assert state["observations"] == [False]
+
+
+def test_picking_a_filter_hides_the_old_rows_while_loading():
+    state = drive([["openRepoPicker"], ["loaded"], ["pickFilter", "topic", "api"]])
+
+    assert state["repoLoading"] is True
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        pytest.param({}, [False, True], id="multi-branch"),
+        pytest.param({"uniqueRepos": True}, [True, True], id="unique"),
+    ],
+)
+def test_pressed_state_follows_what_a_click_would_do(overrides, expected):
+    state = drive(
+        [
+            ["openRepoPicker"],
+            ["observe", "isRepoPressed", "acme/api", "main"],
+            ["observe", "isRepoPressed", "acme/web", "main"],
+        ],
+        initialRepos=[{"repo_id": "acme/api", "ref": "feature"}, {"repo_id": "acme/web", "ref": ""}],
+        **overrides,
+    )
+
+    assert state["observations"] == expected

@@ -6,7 +6,7 @@
             class="picker-popover__option repo-picker__option"
             :class="isRepoSelected('{{ repo.slug|escapejs }}') ? 'repo-picker__option--selected' : ''"
             :disabled="!canToggleRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')"
-            :aria-pressed="isRepoSelected('{{ repo.slug|escapejs }}').toString()"
+            :aria-pressed="isRepoPressed('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}').toString()"
             @click="toggleRepo('{{ repo.slug|escapejs }}', '{{ repo.default_branch|default:''|escapejs }}')">
       <span class="repo-picker__body">
         <span class="repo-picker__slug">{{ repo.slug }}</span>

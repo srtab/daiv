@@ -137,6 +137,10 @@ document.addEventListener("alpine:init", () => {
             return refs.map((ref) => ref || defaultLabel).join(", ");
         },
 
+        isRepoPressed(slug, defaultBranch) {
+            return this.isAddingRepos ? this._defaultBranchEntry(slug, defaultBranch) !== -1 : this.isRepoSelected(slug);
+        },
+
         canToggleRepo(slug, defaultBranch) {
             return this._defaultBranchEntry(slug, defaultBranch) !== -1 || this.canSelectRepo(slug, defaultBranch);
         },
@@ -164,11 +168,18 @@ document.addEventListener("alpine:init", () => {
             if (this.filterMenu) this.filterFind = "";
         },
 
+        closeFilterMenu(event) {
+            if (!this.filterMenu) return;
+            this.filterMenu = null;
+            event.stopPropagation();
+        },
+
         pickFilter(key, value) {
             if (key !== "language" && key !== "topic") return;
             this[key] = value;
             this.filterMenu = null;
             this.applySelectAll(null);
+            this.repoLoading = true;
             this.$nextTick(() => {
                 window.htmx.trigger(this.$refs.repoSearch, "refresh");
                 window.htmx.trigger(this.$refs.repoFilters, "refresh");

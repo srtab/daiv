@@ -696,7 +696,9 @@ def _serialize_repositories(repos: list[RepositoryCatalog]) -> list[dict]:
 @mcp.tool()
 async def list_repositories(
     search: Annotated[str | None, Field(description="Filter repositories by name (partial match).")] = None,
-    topics: Annotated[list[str] | None, Field(description="Filter repositories by topic tags.")] = None,
+    topics: Annotated[
+        list[str] | None, Field(description="Filter repositories by topic tags: all must match, case-insensitive.")
+    ] = None,
     language: Annotated[
         str | None,
         Field(

@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC
+from datetime import UTC, timedelta
 from typing import TYPE_CHECKING
 
 from django.tasks import task
@@ -15,6 +15,10 @@ if TYPE_CHECKING:
     from codebase.base import Repository
 
 logger = logging.getLogger("daiv.tasks")
+
+# GitLab refreshes last_activity_at at most hourly and both platforms detect languages in the
+# background after a push, so an empty breakdown is only trusted once the activity is this old.
+LANGUAGES_SETTLE_WINDOW = timedelta(hours=2)
 
 
 @cron(codebase_settings.REPO_ACCESS_SYNC_CRON)
@@ -186,7 +190,8 @@ def _sync_catalog_languages(client: RepoClient, provider: str, universe: list[Re
     """Refresh the language breakdown of catalog rows whose repository has new activity; returns the failure count.
 
     A failed repository keeps its previous languages and is retried next cycle, because its recorded
-    activity timestamp is left as it was.
+    activity timestamp is left as it was. So is an empty breakdown for activity younger than
+    ``LANGUAGES_SETTLE_WINDOW``, which may only mean the platform has not detected languages yet.
     """
     from django.utils import timezone
 
@@ -208,8 +213,11 @@ def _sync_catalog_languages(client: RepoClient, provider: str, universe: list[Re
             continue
         try:
             languages = client.get_repository_languages(repo.slug)
+            now = timezone.now()
+            if not languages and repo.activity_at and now - repo.activity_at < LANGUAGES_SETTLE_WINDOW:
+                continue
             RepositoryCatalog.objects.filter(pk=row.pk).update(
-                languages=languages, languages_synced_at=timezone.now(), languages_activity_at=repo.activity_at
+                languages=languages, languages_synced_at=now, languages_activity_at=repo.activity_at
             )
         except Exception:
             failures += 1

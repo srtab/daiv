@@ -28,6 +28,16 @@ ACCESS_LEVEL_CHOICES = [(level.value, _ACCESS_LEVEL_LABELS[level]) for level in 
 LANGUAGE_MATCH_MIN_SHARE = 10.0
 
 
+def language_share(languages: dict[str, float], language: str) -> float:
+    """Percentage of the code in ``language`` (case-insensitive), ``0.0`` when absent."""
+    wanted = language.casefold()
+    return next((share for name, share in languages.items() if name.casefold() == wanted), 0.0)
+
+
+def matched_languages(languages: dict[str, float]) -> list[str]:
+    return [name for name, share in languages.items() if share >= LANGUAGE_MATCH_MIN_SHARE]
+
+
 class MergeMetricQuerySet(models.QuerySet):
     def visible_to(self, user: User) -> MergeMetricQuerySet:
         """Merges on the repositories ``user`` can read; an admin reads them all. SYNC ONLY."""
@@ -224,15 +234,13 @@ class RepositoryCatalog(models.Model):
         return next(((name, share) for name, share in self.languages.items() if name.casefold() == wanted), None)
 
     def language_share(self, language: str) -> float:
-        """Percentage of the code in ``language`` (case-insensitive), ``0.0`` when absent."""
-        entry = self._language_entry(language)
-        return entry[1] if entry else 0.0
+        return language_share(self.languages, language)
 
     def matches_language(self, language: str) -> bool:
         return self.language_share(language) >= LANGUAGE_MATCH_MIN_SHARE
 
     def matched_languages(self) -> list[str]:
-        return [name for name, share in self.languages.items() if share >= LANGUAGE_MATCH_MIN_SHARE]
+        return matched_languages(self.languages)
 
     @property
     def primary_language(self) -> str:

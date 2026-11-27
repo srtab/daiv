@@ -162,8 +162,16 @@ class GitHubClient(RepoClient):
         return repos
 
     def get_repository_languages(self, repo_id: str) -> dict[str, float]:
-        """GitHub reports bytes per language; converted to percentages of the total."""
-        byte_counts = self.client.get_repo(repo_id, lazy=True).get_languages()
+        """GitHub reports bytes per language; converted to percentages of the total.
+
+        Only a 404 means there are no languages to report: GitHub also answers 403 for rate limits.
+        """
+        try:
+            byte_counts = self.client.get_repo(repo_id, lazy=True).get_languages()
+        except GithubException as exc:
+            if exc.status == 404:
+                return {}
+            raise
         total = sum(byte_counts.values())
         if not total:
             return {}

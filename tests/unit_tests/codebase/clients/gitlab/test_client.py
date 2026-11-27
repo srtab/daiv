@@ -1068,6 +1068,20 @@ class TestGitLabClient:
         assert gitlab_client.get_repository_languages("g/r") == {"Python": 72.5, "HTML": 27.5}
         gitlab_client.client.projects.get.assert_called_once_with("g/r", lazy=True)
 
+    @pytest.mark.parametrize("status", [403, 404])
+    def test_get_repository_languages_unavailable_is_empty(self, gitlab_client, status):
+        project = gitlab_client.client.projects.get.return_value
+        project.languages.side_effect = GitlabGetError("nope", response_code=status)
+
+        assert gitlab_client.get_repository_languages("g/r") == {}
+
+    def test_get_repository_languages_server_error_raises(self, gitlab_client):
+        project = gitlab_client.client.projects.get.return_value
+        project.languages.side_effect = GitlabGetError("boom", response_code=500)
+
+        with pytest.raises(GitlabGetError):
+            gitlab_client.get_repository_languages("g/r")
+
     def test_list_branches_passes_search_and_per_page(self, gitlab_client):
         """`list_branches` forwards `search` and caps `per_page` at `limit`."""
         mock_project = Mock()
