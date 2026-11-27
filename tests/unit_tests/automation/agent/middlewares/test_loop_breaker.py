@@ -103,6 +103,15 @@ async def test_injects_and_saves_reminder_at_threshold(streak: int):
     assert isinstance(request.messages[-1], ToolMessage)
 
 
+async def test_terminated_flips_on_the_terminal_action_only():
+    mw = LoopBreakerMiddleware(terminal="error")
+    await mw.awrap_model_call(_request(_loop(3)), await _record_handler([]))
+    assert not mw.terminated
+
+    await mw.awrap_model_call(_request(_loop(6)), await _record_handler([]))
+    assert mw.terminated
+
+
 async def test_error_at_terminal_streak_returns_aimessage_without_calling_model():
     seen: list = []
     mw = LoopBreakerMiddleware(terminal="error")

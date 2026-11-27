@@ -23,6 +23,7 @@ attempt cap count as unset), else the site's. Every chain drops blank model name
 12. Orchestration (``delegate_jobs``): repo only, on unless ``.daiv.yml`` turns it off.
 13. Skill and subagent models and thinking levels: repo ``models.skills`` / ``models.subagents`` entries over the
     site's ``agent_skill_models`` / ``agent_subagent_models``, by name and per field, every branch.
+14. Verification: site AND repo (an empty ``hooks.before_publish`` turns it off).
 
 A non-empty site or run thinking level that is not a ``ThinkingLevel`` becomes ``None`` (no thinking) and is logged as
 an error; ``.daiv.yml`` levels are validated when the file loads.
@@ -78,6 +79,7 @@ class Features:
     suggest_context_file: bool
     session_link: bool
     slash_commands: bool
+    verification: bool
     orchestration: bool
 
 
@@ -114,12 +116,13 @@ def resolve_agent_settings(*, site: SiteSnapshot, repo: RepositoryConfig, run: R
 
 
 def resolve_features(*, site: SiteSnapshot, repo: RepositoryConfig) -> Features:
-    """Rows 7, 9, 10 and 12: the run's feature switches."""
+    """Rows 7, 9, 10, 12 and 14: the run's feature switches."""
     return Features(
         memory=repo.memory.enabled and site.memory_enabled,
         suggest_context_file=repo.suggest_context_file and site.suggest_context_file_enabled,
         session_link=repo.session_link and site.session_link_enabled,
         slash_commands=repo.slash_commands.enabled,
+        verification=site.verification_enabled and repo.hooks.before_publish != (),
         orchestration=repo.orchestration.enabled,
     )
 
@@ -140,6 +143,13 @@ def resolve_pipeline_watch_max_attempts(*, site: SiteSnapshot, repo: RepositoryC
     """Row 11's attempt cap."""
     site_cap = site.pipeline_watch_max_attempts
     return min(_repo_value(repo.pipeline_watch, "max_attempts", site_cap), site_cap)
+
+
+def resolve_before_publish(*, repo: RepositoryConfig, sandbox_default: tuple[str, ...] | None) -> tuple[str, ...]:
+    """The commands to verify a run with: the repo's own list, else the sandbox's."""
+    if repo.hooks.before_publish is not None:
+        return repo.hooks.before_publish
+    return sandbox_default or ()
 
 
 def _resolve_agent(*, site: SiteSnapshot, repo_agent: AgentModelConfig, run: RunOverrides) -> ModelChain:

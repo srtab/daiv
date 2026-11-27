@@ -108,8 +108,34 @@ class StepBudgetMiddleware(AgentMiddleware):
         self._sent_bands.add(band)
         return response
 
+    def is_finalizing(self) -> bool:
+        """Whether the run is in the finalize band, where it should answer instead of taking more turns."""
+        turns_left = self._turns_left()
+        return turns_left is not None and self._band(*turns_left) == "finalize"
+
     def _budget_reminder(self) -> tuple[Band, str] | None:
         """The band this superstep is in and its reminder, or ``None`` when far from the limit or already sent."""
+        turns_left = self._turns_left()
+        if turns_left is None:
+            return None
+        turns, budget = turns_left
+        band = self._band(turns, budget)
+        if band is None or band in self._sent_bands:
+            return None
+
+        logger.info("Run has %d of %d tool-call turns left; injecting %s budget reminder.", turns, budget, band)
+        template = BUDGET_FINALIZE if band == "finalize" else BUDGET_WARNING
+        return band, template.format(turns=max(turns, 0))
+
+    def _band(self, turns: int, budget: int) -> Band | None:
+        if turns <= min(self.finalize_remaining_turns, budget // 4):
+            return "finalize"
+        if turns <= min(self.warn_remaining_turns, budget // 2):
+            return "warn"
+        return None
+
+    def _turns_left(self) -> tuple[int, int] | None:
+        """The tool-call turns this run has left and its whole budget in turns, or ``None`` when either is unknown."""
         config = get_config()
         limit = config.get("recursion_limit")
         step = config.get("metadata", {}).get("langgraph_step")
@@ -141,22 +167,4 @@ class StepBudgetMiddleware(AgentMiddleware):
         # cancel exactly with where the tools node falls inside a turn.
         turns = (remaining - self.setup_steps) // self.steps_per_turn
         budget = (limit - self.setup_steps) // self.steps_per_turn
-        band: Band
-        if turns <= min(self.finalize_remaining_turns, budget // 4):
-            band, template = "finalize", BUDGET_FINALIZE
-        elif turns <= min(self.warn_remaining_turns, budget // 2):
-            band, template = "warn", BUDGET_WARNING
-        else:
-            return None
-        if band in self._sent_bands:
-            return None
-
-        logger.info(
-            "Run has consumed %d of %d supersteps (%d remaining, %d per turn); injecting %s budget reminder.",
-            consumed,
-            limit,
-            remaining,
-            self.steps_per_turn,
-            band,
-        )
-        return band, template.format(turns=max(turns, 0))
+        return turns, budget
