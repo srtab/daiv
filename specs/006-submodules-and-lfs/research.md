@@ -174,10 +174,12 @@ matches the pointer in the index, so every fetched LFS file shows as modified.
 1. sets `core.checkStat=minimal` and `core.trustctime=false` in the repository's own config (`.git/config`, or
    `.git/modules/<name>/config` for a submodule). Git then compares only whole-second mtime, size and file type;
 2. sets the mtime of each fetched file two seconds in the past;
-3. refreshes the index (`git update-index -q --refresh`) with the `filter.lfs.*` config in the command's environment
-   (`RepoCheckout`'s `lfs_filter_config`, which tests replace with a test-only filter),
-   so the worker records the new stat data against the pointer. The index is now newer than every LFS file, so no
-   entry is racily clean.
+3. re-stages the fetched files (`git add --pathspec-from-file=- --pathspec-file-nul`) with the `filter.lfs.*` config
+   in the command's environment (`RepoCheckout`'s `lfs_filter_config`, which tests replace with a test-only filter).
+   The clean filter yields the same pointers, so nothing changes in the index but the stat data, which now matches
+   the fetched content. The index is newer than every LFS file, so no entry is racily clean. A refresh
+   (`git update-index --refresh`) does not do it: git reads a changed size as changed content without reading the
+   file, and a fetched file's size is its content's, not its pointer's (found while implementing).
 
 daiv-sandbox extracts the seed with Docker's `put_archive`, which keeps each member's mtime
 (`daiv_sandbox/sessions.py`, `_sanitize_archive_stream`). Python's `tarfile` keeps mtime and size, so the stat data
