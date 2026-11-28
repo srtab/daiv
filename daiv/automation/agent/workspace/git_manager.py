@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from dataclasses import dataclass, field, replace
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import uuid4
 
 from git import GitCommandError
 
+from codebase.clients.checkout import PublishBlock
 from codebase.utils import is_git_auth_error_text
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
     from typing import NoReturn
 
     from automation.agent.workspace.git_runners import GitResult, GitRunner
+    from codebase.repo_config import Checkout
 
 logger = logging.getLogger("daiv.tools")
 
@@ -23,6 +27,112 @@ _FULL_SHA_RE = re.compile(r"[0-9a-f]{40}")
 FastForward = Literal["advanced", "replaced", "unchanged", "diverged"]
 # Only the opening and closing markers: a bare ``=======`` is also a setext heading underline.
 _CONFLICT_MARKER_PATTERN = r"^(<{7}|>{7})( |$)"
+
+KEPT_OUT_FILES_CAP = 20
+_GITLINK_MODE = "160000"
+_NO_MODE = "000000"
+_LFS_ONLY = ":(attr:filter=lfs)"
+_WITHOUT_LFS = (".", ":(exclude,attr:filter=lfs)")
+_NO_RECORD: Mapping[str, str] = MappingProxyType({})
+
+
+@dataclass(frozen=True)
+class PublishScope:
+    """What a publish keeps out of its commit, and the submodule commits it records instead (research R8, R16).
+
+    ``submodules`` keeps every gitlink and every change inside a submodule out; ``lfs`` keeps every LFS-tracked path
+    out. ``record`` maps a direct child submodule's path to the commit the commit records for it: the only gitlinks a
+    commit may change. ``PublishScope()`` sends exactly the commands a publish sent before submodules and LFS.
+    """
+
+    submodules: bool = False
+    lfs: bool = False
+    record: Mapping[str, str] = field(default=_NO_RECORD)
+
+    @classmethod
+    def from_config(cls, checkout: Checkout, *, record: Mapping[str, str] | None = None) -> PublishScope:
+        return cls(submodules=checkout.submodules, lfs=checkout.lfs, record=MappingProxyType(dict(record or {})))
+
+    @property
+    def is_default(self) -> bool:
+        return not (self.submodules or self.lfs or self.record)
+
+    @property
+    def flags(self) -> tuple[str, ...]:
+        """``status`` and ``diff`` options: changes inside submodules and moved gitlinks stay out."""
+        return ("--ignore-submodules=all",) if self.submodules else ()
+
+    @property
+    def pathspec(self) -> tuple[str, ...]:
+        """A trailing pathspec that leaves LFS-tracked paths out."""
+        return ("--", *_WITHOUT_LFS) if self.lfs else ()
+
+
+@dataclass(frozen=True)
+class KeptOutSubmodule:
+    """A submodule whose changes a publish left out. ``removed`` is a submodule deleted or moved, ``added`` a gitlink or
+    an embedded repository the agent created, ``remote_moved`` a recorded commit the remote branch moved meanwhile
+    (research R20). ``changed_files`` holds at most ``KEPT_OUT_FILES_CAP`` paths, ``more`` counts the rest."""
+
+    path: str
+    commit_moved: bool = False
+    removed: bool = False
+    added: bool = False
+    remote_moved: bool = False
+    block: PublishBlock | None = None
+    changed_files: tuple[str, ...] = ()
+    more: int = 0
+
+    def to_state(self) -> dict[str, Any]:
+        return {
+            "path": self.path,
+            "commit_moved": self.commit_moved,
+            "removed": self.removed,
+            "added": self.added,
+            "remote_moved": self.remote_moved,
+            "block": self.block.value if self.block is not None else None,
+            "changed_files": list(self.changed_files),
+            "more": self.more,
+        }
+
+    @classmethod
+    def from_state(cls, data: Mapping[str, Any]) -> KeptOutSubmodule:
+        return cls(
+            path=data["path"],
+            commit_moved=bool(data.get("commit_moved")),
+            removed=bool(data.get("removed")),
+            added=bool(data.get("added")),
+            remote_moved=bool(data.get("remote_moved")),
+            block=PublishBlock(data["block"]) if data.get("block") else None,
+            changed_files=tuple(data.get("changed_files") or ()),
+            more=int(data.get("more") or 0),
+        )
+
+
+@dataclass(frozen=True)
+class KeptOut:
+    """What a publish left out of its commit (FR-013); falsy when nothing was."""
+
+    lfs_paths: tuple[str, ...] = ()
+    submodules: tuple[KeptOutSubmodule, ...] = ()
+
+    def __bool__(self) -> bool:
+        return bool(self.lfs_paths or self.submodules)
+
+    @property
+    def paths(self) -> tuple[str, ...]:
+        """Every path ``commit_all`` must leave as it is in ``HEAD``."""
+        return (*self.lfs_paths, *(sub.path for sub in self.submodules if not sub.remote_moved))
+
+    def to_state(self) -> dict[str, Any]:
+        return {"lfs_paths": list(self.lfs_paths), "submodules": [sub.to_state() for sub in self.submodules]}
+
+    @classmethod
+    def from_state(cls, data: Mapping[str, Any]) -> KeptOut:
+        return cls(
+            lfs_paths=tuple(data.get("lfs_paths") or ()),
+            submodules=tuple(KeptOutSubmodule.from_state(sub) for sub in data.get("submodules") or ()),
+        )
 
 
 @dataclass(frozen=True)
@@ -36,6 +146,8 @@ class RepoStatus:
     """The working tree against ``HEAD``: what ``commit_all`` would commit. ``None`` while a merge is pending."""
     remote_branches: list[str]
     has_unpushed: bool
+    kept_out: KeptOut = KeptOut()
+    """What the publish's scope keeps out of the commit; empty under ``PublishScope()``."""
 
 
 @dataclass(frozen=True)
@@ -72,6 +184,8 @@ class GitManager:
 
     def __init__(self, runner: GitRunner) -> None:
         self._runner = runner
+        self.remote_moved: tuple[str, ...] = ()
+        """The recorded submodule paths whose commit the last ``push_head_to`` took from the remote (research R20)."""
 
     # -- git invocation ------------------------------------------------------
     async def _git(self, *args: str, check: bool = True) -> GitResult:
@@ -198,7 +312,12 @@ class GitManager:
         return PendingMerge(head=head, branch=branch, unmerged_paths=unmerged, conflicted_paths=conflicted)
 
     async def status_snapshot(
-        self, *, base_branch: str, mr_source_branch: str | None, merge_head: str | None = None
+        self,
+        *,
+        base_branch: str,
+        mr_source_branch: str | None,
+        merge_head: str | None = None,
+        scope: PublishScope = PublishScope(),  # noqa: B008
     ) -> RepoStatus:
         """Collect everything the publisher needs in exactly two sandbox round-trips.
 
@@ -214,11 +333,17 @@ class GitManager:
 
         ``merge_head``: the commit a pending merge brings in. The merge-base is then taken against the
         merge commit the publisher is about to make, so the merged branch's own changes stay out of the diff.
+
+        ``scope`` leaves submodules and LFS-tracked paths out of ``dirty`` and the diffs, and lists them in
+        ``kept_out`` instead (batch A reads them, batch B the files changed inside each submodule). A ``scope.record``
+        entry whose commit differs from the index counts as a change, and adds a ``Submodule <path> <a>..<b>:`` summary
+        of the commits it brings to the diffs.
         """
+        flags, spec = scope.flags, scope.pathspec
         batch_a: list[tuple[str, ...]] = [
-            ("status", "--porcelain"),
+            ("status", "--porcelain", *flags, *spec),
             ("merge-base", f"origin/{base_branch}", "HEAD", *([merge_head] if merge_head else [])),
-            ("ls-files", "--others", "--exclude-standard"),
+            ("ls-files", "--others", "--exclude-standard", *spec),
             ("ls-remote", "--heads", "origin"),
             ("rev-parse", "HEAD"),
         ]
@@ -226,6 +351,16 @@ class GitManager:
         if mr_source_branch:
             batch_a.append(("log", f"origin/{mr_source_branch}..HEAD", "--oneline"))
             log_idx = len(batch_a) - 1
+        submodules_idx = lfs_idx = record_idx = -1
+        if scope.submodules:
+            batch_a.append(("status", "--porcelain=v2", "-z"))
+            submodules_idx = len(batch_a) - 1
+        if scope.lfs:
+            batch_a.append(("status", "--porcelain", "-z", "--untracked-files=all", "--", _LFS_ONLY))
+            lfs_idx = len(batch_a) - 1
+        if scope.record:
+            batch_a.append(("--literal-pathspecs", "ls-files", "-s", "-z", "--", *scope.record))
+            record_idx = len(batch_a) - 1
 
         res = await self._git_batch(batch_a)
         status_res, mergebase_res, untracked_res, lsremote_res, head_res = res[:5]
@@ -255,14 +390,51 @@ class GitManager:
         self._require_ok(batch_a[3], lsremote_res)
         head = self._sha_from(batch_a[4], self._require_ok(batch_a[4], head_res))
 
+        untracked = self._nonempty_lines(untracked_res.output)
+        embedded: list[str] = []
+        if scope.submodules:
+            # ls-files lists a directory holding its own repository as ``dir/`` and never looks inside it.
+            embedded = [path.removesuffix("/") for path in untracked if path.endswith("/")]
+            untracked = [path for path in untracked if not path.endswith("/")]
+        kept_submodules: list[KeptOutSubmodule] = []
+        with_files: set[str] = set()
+        if submodules_idx >= 0:
+            v2 = self._require_ok(batch_a[submodules_idx], res[submodules_idx]).output
+            kept_submodules, with_files = _parse_submodule_changes(v2, record=scope.record)
+            kept_submodules += [KeptOutSubmodule(path=path, added=True) for path in embedded]
+        lfs_paths: tuple[str, ...] = ()
+        if lfs_idx >= 0:
+            lfs_paths = _parse_porcelain_paths(self._require_ok(batch_a[lfs_idx], res[lfs_idx]).output)
+        recorded_from: dict[str, str] = {}
+        if record_idx >= 0:
+            index = _parse_index_gitlinks(self._require_ok(batch_a[record_idx], res[record_idx]).output)
+            recorded_from = {
+                path: index.get(path, "0" * 40) for path, sha in scope.record.items() if index.get(path) != sha
+            }
+
         # Batch B: the working-tree diffs, plus one diff --no-index per untracked file. The main diff depends on the
         # merge-base from batch A, so batch B always runs.
-        dirty = bool(status_res.output.strip())
-        untracked = self._nonempty_lines(untracked_res.output)
+        if scope.is_default:
+            dirty = bool(status_res.output.strip())
+        else:
+            tracked = [line for line in status_res.output.splitlines() if line.strip() and not line.startswith("??")]
+            dirty = bool(tracked or untracked or recorded_from)
         diffs_head = dirty and merge_head is None and base_ref != head
-        diff_specs: list[tuple[str, ...]] = [("diff", base_ref), *([("diff", "HEAD")] if diffs_head else [])]
+        diff_specs: list[tuple[str, ...]] = [
+            ("diff", *flags, base_ref, *spec),
+            *([("diff", *flags, "HEAD", *spec)] if diffs_head else []),
+        ]
         diff_specs += [("diff", "--no-index", "/dev/null", f) for f in untracked]
-        base_diff_res, *other_diff_res = await self._git_batch(diff_specs)
+        inside = [sub for sub in kept_submodules if sub.path in with_files]
+        inside_specs = [("-C", sub.path, "status", "--porcelain", "-z") for sub in inside]
+        record_specs = [
+            ("-C", path, "log", "--format=  > %s", f"{old}..{scope.record[path]}")
+            for path, old in recorded_from.items()
+        ]
+        batch_b = await self._git_batch(diff_specs + inside_specs + record_specs)
+        base_diff_res, *other_diff_res = batch_b[: len(diff_specs)]
+        inside_res = batch_b[len(diff_specs) : len(diff_specs) + len(inside_specs)]
+        record_res = batch_b[len(diff_specs) + len(inside_specs) :]
         self._require_ok(diff_specs[0], base_diff_res)
         head_diff_res = other_diff_res.pop(0) if diffs_head else None
         diff = self._append_untracked(base_diff_res.output, untracked, other_diff_res)
@@ -276,6 +448,20 @@ class GitManager:
             uncommitted_diff = ""
         else:
             uncommitted_diff = diff  # HEAD is the merge-base
+
+        if recorded_from:
+            summary = _submodule_summary(recorded_from, scope.record, record_res)
+            diff += summary
+            if uncommitted_diff is not None:
+                uncommitted_diff += summary
+        if inside:
+            changed = {
+                sub.path: _parse_porcelain_paths(result.output) if result.exit_code == 0 else ()
+                for sub, result in zip(inside, inside_res, strict=True)
+            }
+            kept_submodules = [
+                _with_changed_files(sub, changed[sub.path]) if sub.path in changed else sub for sub in kept_submodules
+            ]
 
         if log_idx >= 0:
             log_res = res[log_idx]
@@ -298,14 +484,40 @@ class GitManager:
             uncommitted_diff=uncommitted_diff,
             remote_branches=self._parse_remote_branches(lsremote_res.output),
             has_unpushed=has_unpushed,
+            kept_out=KeptOut(lfs_paths=lfs_paths, submodules=tuple(kept_submodules)),
         )
 
     # -- mutations -----------------------------------------------------------
-    async def commit_all(self, message: str) -> None:
-        """Stage every change and commit it. Callers should ensure the tree is dirty first
-        (``git commit`` exits non-zero on an empty index)."""
+    async def commit_all(
+        self, message: str, *, keep_out: Sequence[str] = (), record: Mapping[str, str] | None = None
+    ) -> bool:
+        """Stage every change and commit it; return whether a commit was made. Callers should ensure the tree is dirty
+        first (``git commit`` exits non-zero on an empty index).
+
+        ``keep_out`` paths stay as they are in ``HEAD``. With ``record`` (a publish that handles submodules), every
+        gitlink ``git add -A`` staged that ``record`` doesn't name stays as in ``HEAD`` too, and each ``record`` entry
+        is written as its gitlink's commit. When nothing is left to commit after that, no commit is made.
+        """
         await self._git("add", "-A")
+        if not keep_out and record is None:
+            await self._git("commit", "-m", message)
+            return True
+        if keep_out:
+            await self._git("--literal-pathspecs", "reset", "-q", "--", *keep_out)
+        if record is not None:
+            raw = await self._git("diff", "--cached", "--raw", "-z", "--no-renames")
+            if stray := [path for path in _parse_raw_gitlinks(raw.output) if path not in record]:
+                await self._git("--literal-pathspecs", "reset", "-q", "--", *stray)
+            for path, sha in record.items():
+                await self._git("update-index", "--cacheinfo", f"{_GITLINK_MODE},{sha},{path}")
+        staged = await self._git("diff", "--cached", "--quiet", check=False)
+        if staged.exit_code == 0:
+            logger.info("Nothing left to commit once the changes a publish keeps out were left out")
+            return False
+        if staged.exit_code != 1:
+            raise GitCommandError(["git", "diff", "--cached", "--quiet"], staged.exit_code, staged.output)
         await self._git("commit", "-m", message)
+        return True
 
     async def head_sha(self) -> str:
         """The full sha of the current ``HEAD``.
@@ -325,8 +537,10 @@ class GitManager:
             raise GitCommandError(["git", *args], result.exit_code, stderr=result.output)
         return sha
 
-    async def fast_forward(self, branch: str) -> FastForward:
+    async def fast_forward(self, branch: str, *, scope: PublishScope = PublishScope()) -> FastForward:  # noqa: B008
         """Move ``HEAD`` up to ``origin/<branch>`` when the remote moved and the checkout has nothing unpublished.
+
+        Changes ``scope`` keeps out of a publish don't count as unpublished.
 
         ``"advanced"`` when it fast-forwarded. ``"replaced"`` when the remote branch was rewritten (a rebase or a
         force-push) and the checkout held nothing unpublished (:meth:`_holds_nothing_unpublished`), so it was reset to
@@ -339,7 +553,7 @@ class GitManager:
         read_head = ("rev-parse", "HEAD")
         head, status, unpushed, merge = await self._git_batch([
             read_head,
-            ("status", "--porcelain"),
+            ("status", "--porcelain", *scope.flags, *scope.pathspec),
             ("rev-list", "-n1", "HEAD", "--not", "--remotes=origin"),
             ("rev-parse", "-q", "--verify", "MERGE_HEAD"),
         ])
@@ -374,7 +588,14 @@ class GitManager:
         return clean and pushed and merge.exit_code == 1
 
     async def push_head_to(
-        self, branch: str, *, force: bool = False, integrate_on_reject: bool = False, skip_ci: bool = False
+        self,
+        branch: str,
+        *,
+        force: bool = False,
+        integrate_on_reject: bool = False,
+        skip_ci: bool = False,
+        scope: PublishScope = PublishScope(),  # noqa: B008
+        from_detached: bool = False,
     ) -> str:
         """Push the current ``HEAD`` to ``origin/<branch>`` (creating it if needed).
 
@@ -395,12 +616,17 @@ class GitManager:
 
         skip_ci: pass ``-o ci.skip`` so the push runs no jobs. GitLab still records a jobless
             ``skipped`` pipeline for it, and a webhook for that row (see ``PipelineReport.is_judgeable``).
+        scope: its ``record`` names the submodule commits the run's commits record; an integration that conflicts only
+            on those takes the remote's commits for them (``remote_moved``) instead of failing.
+        from_detached: ``HEAD`` names no branch, as a submodule's first publish has it; git then needs the full
+            ``refs/heads/<branch>`` to create the branch.
         """
+        self.remote_moved = ()
         push_args = [
             "push",
             *(["-o", "ci.skip"] if skip_ci else []),
             "origin",
-            f"HEAD:{branch}",
+            f"HEAD:refs/heads/{branch}" if from_detached else f"HEAD:{branch}",
             *(["--force"] if force else []),
         ]
         push = await self._git(*push_args, check=False)
@@ -411,7 +637,7 @@ class GitManager:
         # auth/network/other failure won't change after a fetch and integration, so it falls straight through
         # to classification below. On a successful integrate, retry the push and return on success.
         if integrate_on_reject and not force and _is_push_stale_error_text(push.output):
-            await self._integrate_remote(branch)  # raises GitPushStaleError on a conflict
+            self.remote_moved = await self._integrate_remote(branch, scope)  # raises GitPushStaleError on a conflict
             push = await self._git(*push_args, check=False)
             if push.exit_code == 0:
                 return branch
@@ -420,8 +646,11 @@ class GitManager:
         # (remote advanced again) — classify whichever failed push result we are holding.
         _raise_for_push_failure(push_args, push)
 
-    async def _integrate_remote(self, branch: str) -> None:
+    async def _integrate_remote(self, branch: str, scope: PublishScope = PublishScope()) -> tuple[str, ...]:  # noqa: B008
         """Fetch ``origin/<branch>`` and build ``HEAD`` on top of it so a non-fast-forward push can retry.
+
+        A conflict only on ``scope.record`` gitlinks is resolved to the remote's commits, since the remote's pointer
+        wins (FR-014); their paths are returned. Any other conflict aborts.
 
         On success ``HEAD`` is the run's commits replayed on top of the latest remote tip. When the run's own commits,
         the ones on no ``origin`` ref, include a merge, the remote tip is merged in instead: a rebase would re-create
@@ -447,35 +676,62 @@ class GitManager:
             raise GitCommandError(["git", *fetch_args], fetch.exit_code, fetch.output)
 
         integrate = await self._git(*integrate_args, check=False)
-        if integrate.exit_code != 0:
-            logger.warning(
-                "git %s FETCH_HEAD failed on '%s' (exit %s): %s",
+        if integrate.exit_code == 0:
+            return ()
+        if scope.record and (moved := await self._resolve_recorded_conflicts(operation, scope.record)) is not None:
+            logger.info("The remote branch '%s' moved %s too; kept the remote's commits", branch, ", ".join(moved))
+            return moved
+        logger.warning(
+            "git %s FETCH_HEAD failed on '%s' (exit %s): %s",
+            operation,
+            branch,
+            integrate.exit_code,
+            integrate.output.strip(),
+        )
+        abort = await self._git(operation, "--abort", check=False)
+        if abort.exit_code != 0:
+            logger.error(
+                "git %s --abort failed after a conflict on '%s' (exit %s); the workspace is left mid-%s. Output: %s",
                 operation,
                 branch,
-                integrate.exit_code,
-                integrate.output.strip(),
+                abort.exit_code,
+                operation,
+                abort.output.strip(),
             )
-            abort = await self._git(operation, "--abort", check=False)
-            if abort.exit_code != 0:
-                logger.error(
-                    "git %s --abort failed after a conflict on '%s' (exit %s); the workspace is left mid-%s. "
-                    "Output: %s",
-                    operation,
-                    branch,
-                    abort.exit_code,
-                    operation,
-                    abort.output.strip(),
-                )
-                raise GitPushStaleError(
-                    f"The remote branch '{branch}' moved while DAIV was working and its changes conflict "
-                    f"with DAIV's. The conflicted {operation} could not be aborted, so the workspace is in an "
-                    "inconsistent state. Re-trigger DAIV to retry from a fresh clone."
-                )
             raise GitPushStaleError(
                 f"The remote branch '{branch}' moved while DAIV was working and its changes conflict "
-                "with DAIV's, so they could not be integrated automatically. Re-trigger DAIV to retry "
-                "against the updated branch."
+                f"with DAIV's. The conflicted {operation} could not be aborted, so the workspace is in an "
+                "inconsistent state. Re-trigger DAIV to retry from a fresh clone."
             )
+        raise GitPushStaleError(
+            f"The remote branch '{branch}' moved while DAIV was working and its changes conflict "
+            "with DAIV's, so they could not be integrated automatically. Re-trigger DAIV to retry "
+            "against the updated branch."
+        )
+
+    async def _resolve_recorded_conflicts(self, operation: str, record: Mapping[str, str]) -> tuple[str, ...] | None:
+        """Take the remote's commit for each conflicted gitlink of ``record`` and finish the stopped ``operation``;
+        ``None`` as soon as a conflict touches anything else. A rebased commit the resolution leaves empty is
+        dropped."""
+        # During a rebase stage 2 is the upstream being rebased onto; during a merge stage 3 is FETCH_HEAD.
+        stage = "2" if operation == "rebase" else "3"
+        moved: set[str] = set()
+        while True:
+            unmerged = _parse_unmerged((await self._git("ls-files", "-u", "-z", check=False)).output)
+            if not unmerged or not set(unmerged) <= set(record):
+                return None
+            for path, stages in unmerged.items():
+                if (sha := stages.get(stage)) is None:
+                    return None
+                await self._git("update-index", "--cacheinfo", f"{_GITLINK_MODE},{sha},{path}")
+                moved.add(path)
+            if operation == "merge":
+                commit = await self._git("commit", "--no-edit", check=False)
+                return tuple(sorted(moved)) if commit.exit_code == 0 else None
+            empty = (await self._git("diff", "--cached", "--quiet", check=False)).exit_code == 0
+            step = await self._git("-c", "core.editor=true", "rebase", "--skip" if empty else "--continue", check=False)
+            if step.exit_code == 0:
+                return tuple(sorted(moved))
 
     # -- helpers -------------------------------------------------------------
     @staticmethod
@@ -639,3 +895,115 @@ def _raise_for_push_failure(push_args: list[str], result: GitResult) -> NoReturn
             "retry against the updated branch."
         )
     raise GitCommandError(["git", *push_args], result.exit_code, result.output)
+
+
+def _parse_submodule_changes(output: str, *, record: Mapping[str, str]) -> tuple[list[KeptOutSubmodule], set[str]]:
+    """The submodule entries of ``git status --porcelain=v2 -z``: each ``S...`` entry, and each entry whose ``HEAD`` or
+    index mode is a gitlink's, so a deleted or renamed submodule counts too. ``record`` paths are left out: the publish
+    records them. Also returns the paths of the submodules whose files changed."""
+    tokens = output.split("\0")
+    changes: list[KeptOutSubmodule] = []
+    with_files: set[str] = set()
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if token.startswith("1 "):
+            _, xy, sub, mode_head, mode_index, mode_tree, _, _, path = token.split(" ", 8)
+            orig = None
+        elif token.startswith("2 "):
+            _, xy, sub, mode_head, mode_index, mode_tree, _, _, _, path = token.split(" ", 9)
+            orig = tokens[index]
+            index += 1
+        elif token.startswith("u "):
+            fields = token.split(" ", 10)
+            xy, sub, mode_tree, path, orig = fields[1], fields[2], fields[6], fields[10], None
+            mode_head = mode_index = fields[3]
+        else:
+            continue
+        if not (sub.startswith("S") or _GITLINK_MODE in (mode_head, mode_index)):
+            continue
+        if orig is not None:
+            if orig not in record:
+                changes.append(KeptOutSubmodule(path=orig, removed=True))
+            if path not in record:
+                changes.append(KeptOutSubmodule(path=path, added=True))
+            continue
+        if path in record:
+            continue
+        removed = "D" in xy or mode_tree == _NO_MODE
+        changes.append(
+            KeptOutSubmodule(path=path, commit_moved=sub[1:2] == "C", removed=removed, added=mode_head == _NO_MODE)
+        )
+        if not removed and (sub[2:3] == "M" or sub[3:4] == "U"):
+            with_files.add(path)
+    return changes, with_files
+
+
+def _with_changed_files(sub: KeptOutSubmodule, files: Sequence[str]) -> KeptOutSubmodule:
+    return replace(sub, changed_files=tuple(files[:KEPT_OUT_FILES_CAP]), more=max(len(files) - KEPT_OUT_FILES_CAP, 0))
+
+
+def _parse_porcelain_paths(output: str) -> tuple[str, ...]:
+    """The paths of ``git status --porcelain -z``, both of a rename's, in order and without repeats."""
+    tokens = [token for token in output.split("\0") if token]
+    paths: list[str] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if len(token) < 4:
+            continue
+        paths.append(token[3:])
+        if token[0] in "RC":
+            if index < len(tokens):
+                paths.append(tokens[index])
+            index += 1
+    return tuple(dict.fromkeys(paths))
+
+
+def _parse_index_gitlinks(output: str) -> dict[str, str]:
+    """``path -> commit`` of the gitlinks ``git ls-files -s -z`` lists."""
+    gitlinks: dict[str, str] = {}
+    for entry in output.split("\0"):
+        meta, tab, path = entry.partition("\t")
+        parts = meta.split()
+        if tab and len(parts) == 3 and parts[0] == _GITLINK_MODE:
+            gitlinks[path] = parts[1]
+    return gitlinks
+
+
+def _parse_raw_gitlinks(output: str) -> list[str]:
+    """The paths ``git diff --cached --raw -z --no-renames`` shows with a gitlink on either side."""
+    tokens = output.split("\0")
+    paths: list[str] = []
+    for meta, path in zip(tokens[0::2], tokens[1::2], strict=False):
+        parts = meta.lstrip(":").split()
+        if len(parts) >= 2 and _GITLINK_MODE in (parts[0], parts[1]):
+            paths.append(path)
+    return paths
+
+
+def _parse_unmerged(output: str) -> dict[str, dict[str, str]]:
+    """``path -> {stage: sha}`` of ``git ls-files -u -z``."""
+    unmerged: dict[str, dict[str, str]] = {}
+    for entry in output.split("\0"):
+        meta, tab, path = entry.partition("\t")
+        parts = meta.split()
+        if tab and len(parts) == 3:
+            unmerged.setdefault(path, {})[parts[2]] = parts[1]
+    return unmerged
+
+
+def _submodule_summary(recorded_from: Mapping[str, str], record: Mapping[str, str], logs: Sequence[GitResult]) -> str:
+    """``git diff --submodule=log``'s lines for each recorded commit, or git's "commits not present" line when the
+    submodule's clone lacks them (a pin, in a sandbox that never fetched the merged commit)."""
+    lines: list[str] = []
+    for (path, old), log in zip(recorded_from.items(), logs, strict=True):
+        new = record[path]
+        if log.exit_code == 0:
+            lines.append(f"Submodule {path} {old[:7]}..{new[:7]}:")
+            lines += [line for line in log.output.splitlines() if line.startswith("  > ")]
+        else:
+            lines.append(f"Submodule {path} {old[:7]}...{new[:7]} (commits not present)")
+    return "\n".join(lines) + "\n"

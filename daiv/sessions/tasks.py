@@ -112,6 +112,18 @@ async def evaluate_pipeline_watch_task(repo_id: str, ref: str, pipeline_id: int 
         await watch.aevaluate(ref=ref, pipeline_id=pipeline_id)
 
 
+@task(queue_name=TASK_QUEUE_INTERACTIVE)
+async def settle_submodule_merge_task(repo_id: str, iid: int) -> None:
+    """Settle the submodules of DAIV's sessions whose merge request ``iid`` of ``repo_id`` merged: record the merged
+    commit in their parents where needed, then let their sessions archive (``sessions.submodule_merges``).
+
+    A couple of platform reads per submodule, so it runs on the interactive queue rather than behind agent runs.
+    """
+    from sessions.submodule_merges import SubmoduleMerges
+
+    await SubmoduleMerges(repo_id, iid).asettle()
+
+
 @cron("*/10 * * * *")
 @task
 @locked_task(key="reconcile-pipeline-watches")

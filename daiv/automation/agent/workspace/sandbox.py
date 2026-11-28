@@ -4,11 +4,11 @@ import logging
 from time import monotonic
 from typing import TYPE_CHECKING
 
+from asgiref.sync import sync_to_async
 from deepagents.backends.composite import CompositeBackend
 
 from automation.agent.constants import REPO_PATH, WORKSPACE_PATH
-from automation.agent.context import extra_repo_path
-from automation.agent.workspace.git_manager import FastForward, GitManager
+from automation.agent.workspace.git_manager import FastForward, GitManager, PublishScope
 from automation.agent.workspace.git_runners import SandboxGitRunner
 from automation.agent.workspace.repo_view import RepoWorkspace
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
@@ -104,17 +104,24 @@ class SandboxWorkspace:
             )
 
     def for_repo(self, handle: RepoHandle) -> PublishWorkspace:
-        path = extra_repo_path(handle)
+        """A submodule's repository gets its egress credential just before its publish: the turn ran without one."""
+        path = handle.workspace_path
         git = GitManager(SandboxGitRunner(self.bash, repo_path=path))
 
         async def authenticate() -> GitManager:
-            await self._refresh_credential()
+            if handle.submodule is not None:
+                await self.session.aadd_repository(
+                    handle.repository,
+                    lambda: sync_to_async(handle.client.get_git_egress_credential)(handle.repository, scoped_only=True),
+                )
+            else:
+                await self._refresh_credential()
             return git
 
         return RepoWorkspace(self.backend, path, authenticate)
 
-    async def fast_forward(self, branch: str) -> FastForward:
-        return await (await self.authenticated_git()).fast_forward(branch)
+    async def fast_forward(self, branch: str, *, scope: PublishScope = PublishScope()) -> FastForward:  # noqa: B008
+        return await (await self.authenticated_git()).fast_forward(branch, scope=scope)
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.bash.adownload_files([path], max_bytes=max_bytes)

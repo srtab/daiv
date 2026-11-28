@@ -16,7 +16,7 @@ from sessions.models import EventKind, EventState, InboxEvent, QuietReason, Run,
 
 from accounts.models import User
 from automation.agent.synthetic import synthetic_kind
-from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload
+from tests.unit_tests.sessions.inbox.conftest import amake_event, amake_session, ci_payload, submodule_merged_payload
 
 _START = timezone.now() - timedelta(hours=1)
 
@@ -418,3 +418,35 @@ class TestSiblingRepository:
 
         assert "- CI on !9 (branch chore/x): pipeline 1 PASSED" in context
         assert "- CI on group/lib!9 (branch chore/x): pipeline 2 PASSED" in context
+
+
+class TestSubmoduleMerged:
+    def _event(self, **fields) -> InboxEvent:
+        return _event(
+            EventKind.SUBMODULE_MERGED,
+            submodule_merged_payload(merged_sha="1a2b3c4d5e6f"),
+            repo_id="group/core",
+            merge_request_iid=12,
+            **fields,
+        )
+
+    def test_a_run_it_alone_woke_gets_daivs_prompt_from_its_payload(self):
+        assert RunInput([self._event()]).request() == (
+            "The merge request `group/core!12` for the submodule `libs/core` was merged as commit `1a2b3c4`, which "
+            "doesn't contain the commit this repository records. The harness records `1a2b3c4` for `libs/core` when "
+            "your turn ends, if this branch still records DAIV's commit, and reports the outcome itself. Change "
+            "nothing else; reply in one sentence that the submodule's merge request was merged."
+        )
+
+    def test_it_reads_on_the_session_page_as_the_merge(self):
+        assert (
+            EventText(self._event()).summary() == "group/core!12 for the submodule `libs/core` was merged as 1a2b3c4."
+        )
+
+    def test_it_comes_after_a_ci_fix(self):
+        ci = _event(EventKind.CI_FAILED, ci_payload(), minute=1)
+
+        sections = RunInput([self._event(), ci]).request().split("\n\n")
+
+        assert sections[0].startswith("CI failed on this merge request.")
+        assert sections[-1].startswith("The merge request `group/core!12` for the submodule")

@@ -4,6 +4,7 @@ import logging
 import re
 from dataclasses import dataclass, replace
 from textwrap import dedent
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote, urlencode
 
@@ -22,6 +23,7 @@ from automation.agent.references import (
     render_references_block,
 )
 from automation.agent.utils import build_langsmith_config, repo_relative_text
+from automation.agent.workspace.git_manager import KeptOut, KeptOutSubmodule, PublishScope
 from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope
 from codebase.clients.base import aget_open_merge_request
 from codebase.exceptions import MergeRequestBranchNotVisibleError
@@ -32,10 +34,10 @@ from .diff_to_metadata.graph import create_diff_to_metadata_graph
 from .diff_to_metadata.prompts import sanitize_agent_report
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from automation.agent.agent_settings import AgentSettings
-    from automation.agent.context import RepoHandle, RuntimeCtx
+    from automation.agent.context import RepoHandle, RuntimeCtx, SubmoduleRole
     from automation.agent.session_links import SessionLinks, SessionLinksResolver
     from automation.agent.workspace.base import PublishWorkspace, Workspace
     from automation.agent.workspace.git_manager import PendingMerge
@@ -66,8 +68,12 @@ def run_base_branch(ctx: RuntimeCtx) -> str:
     """The branch a publish with no MR bases its diff on and targets a fresh MR at.
 
     The clone's recorded branch, not ``ctx.repo.ref``, which can be a tag. A tag or commit ref detaches HEAD and names
-    no branch, so the default branch stands in: the recorded sha is not a usable diff base or MR target.
+    no branch, so the default branch stands in: the recorded sha is not a usable diff base or MR target. A submodule
+    targets the branch its checkout settled (research R17), even on a working branch whose merge request merged or
+    closed.
     """
+    if ctx.repo.submodule is not None:
+        return ctx.repo.submodule.target_branch
     if ctx.repo.head_detached:
         return cast("str", ctx.config.default_branch)
     return ctx.repo.current_ref
@@ -114,6 +120,26 @@ class PublishOutcome:
     counts: GitLab has no aggregate endpoint and downloads the whole MR diff to add it up
     (truncating it past a size cap), and a freshly-created MR whose diff is still being
     prepared answers zero."""
+    kept_out: KeptOut | None = None
+    """What the publish left out of its commit, each read-only submodule with its block; ``None`` when no publish was
+    attempted. A submodule DAIV publishes on its own is not in it: its publish reports it."""
+
+
+def annotate_kept_out(kept_out: KeptOut, handle: RepoHandle) -> KeptOut:
+    """``kept_out`` of ``handle``'s publish as the person reads it: each read-only child with the reason it is
+    read-only, and without the children DAIV publishes on their own, whose publish reports their changes. A child
+    added, removed or moved by the remote stays."""
+    if not kept_out.submodules:
+        return kept_out
+    children = {handle.child_path(child): child for child in handle.direct_submodules}
+    submodules = []
+    for entry in kept_out.submodules:
+        child = children.get(entry.path)
+        role = child.submodule if child is not None else None
+        if role is not None and role.publish_block is None and not (entry.added or entry.removed or entry.remote_moved):
+            continue
+        submodules.append(replace(entry, block=role.publish_block) if role is not None else entry)
+    return KeptOut(lfs_paths=kept_out.lfs_paths, submodules=tuple(submodules))
 
 
 class GitChangePublisher:
@@ -145,9 +171,13 @@ class GitChangePublisher:
         skip_ci: bool = False,
         as_draft: bool = False,
         agent_summary: str | None = None,
+        scope: PublishScope | None = None,
     ) -> PublishOutcome:
         """
         Daiv-direct publish: ensure the run's changes reach a merge request.
+
+        ``scope`` (the repository's ``.daiv.yml`` ``checkout`` by default) keeps submodules and LFS-tracked paths out
+        of the commit, and names the submodule commits it records; what it kept out comes back as ``kept_out``.
 
         Computes one ``status_snapshot`` and decides whether anything is new (folding the former
         ``GitMiddleware._is_unpublished`` gate): a clean tree whose work is already on its MR — or no
@@ -159,6 +189,8 @@ class GitChangePublisher:
         is committed.
         """
         protected_branch_fallback_source: str | None = None
+        if scope is None:
+            scope = PublishScope.from_config(self.ctx.config.checkout)
         default_branch = cast("str", self.ctx.config.default_branch)
         # The MR's real target, so a branch stacked off a release branch diffs against the release
         # branch. With no MR, the branch the run started from — which is what the fresh MR targets.
@@ -178,20 +210,24 @@ class GitChangePublisher:
             base_branch=base_branch,
             mr_source_branch=merge_request.source_branch if merge_request is not None else None,
             merge_head=pending_merge.head if pending_merge is not None else None,
+            scope=scope,
         )
         # A merge that leaves the tree as it was still needs its commit, to record the merged parent.
         dirty = snapshot.dirty or pending_merge is not None
+        kept_out = annotate_kept_out(snapshot.kept_out, self.ctx.repo)
 
         # Above the empty-diff return, not below it: see ``PublishOutcome.diff_stats``.
         diff_stats = diff_line_stats(snapshot.diff)
 
         if not dirty and not snapshot.diff.strip():
             logger.info("No changes to publish.")
-            return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
+            return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats, kept_out=kept_out)
 
         if not dirty and merge_request is not None and not snapshot.has_unpushed:
             logger.info("Changes already on MR !%s; nothing new.", merge_request.merge_request_id)
-            return PublishOutcome(merge_request=merge_request, published=False, diff_stats=diff_stats)
+            return PublishOutcome(
+                merge_request=merge_request, published=False, diff_stats=diff_stats, kept_out=kept_out
+            )
 
         fallback_from_mr: MergeRequest | None = None
         if merge_request is not None and await sync_to_async(self.client.is_branch_protected)(
@@ -208,7 +244,7 @@ class GitChangePublisher:
 
         if merge_request is None and not snapshot.diff.strip():
             logger.info("No changes to open a merge request with.")
-            return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats)
+            return PublishOutcome(merge_request=None, published=False, diff_stats=diff_stats, kept_out=kept_out)
 
         links = await self.session_links() if self.session_links else None
 
@@ -230,7 +266,16 @@ class GitChangePublisher:
             )
             if skip_ci:
                 commit_message = f"[skip ci] {commit_message}"
-            await git_manager.commit_all(self._with_trailers(commit_message, links))
+            committed = await git_manager.commit_all(
+                self._with_trailers(commit_message, links),
+                keep_out=snapshot.kept_out.paths,
+                record=scope.record if scope.submodules else None,
+            )
+            if not committed and not (merge_request is not None and snapshot.has_unpushed):
+                logger.info("Nothing to publish once the changes the publish keeps out were left out.")
+                return PublishOutcome(
+                    merge_request=merge_request, published=False, diff_stats=diff_stats, kept_out=kept_out
+                )
 
         if merge_request is None:
             branch_name = git_manager.unique_branch_name(
@@ -251,10 +296,22 @@ class GitChangePublisher:
         # A fresh, unique branch can't, so leave integration off for new MRs.
         try:
             await git_manager.push_head_to(
-                branch_name, integrate_on_reject=merge_request is not None, skip_ci=suppress_bot_pipeline
+                branch_name,
+                integrate_on_reject=merge_request is not None,
+                skip_ci=suppress_bot_pipeline,
+                scope=scope,
+                from_detached=self.ctx.repo.head_detached,
             )
         except GitCommandError as exc:
             raise PushRejectedError(str(exc)) from exc
+        if git_manager.remote_moved:
+            kept_out = replace(
+                kept_out,
+                submodules=(
+                    *kept_out.submodules,
+                    *(KeptOutSubmodule(path=path, remote_moved=True) for path in git_manager.remote_moved),
+                ),
+            )
         # Read after the push: an integrate-on-reject rebase or merge moves HEAD, and both the heal below and the CI
         # watch need the sha that actually landed on the remote.
         pushed_sha = ""
@@ -301,6 +358,7 @@ class GitChangePublisher:
                     protected_branch_fallback_source=protected_branch_fallback_source,
                     pushed_sha=pushed_sha,
                     diff_stats=diff_stats,
+                    kept_out=kept_out,
                 )
             created_merge_request = True
             logger.info(
@@ -331,6 +389,7 @@ class GitChangePublisher:
             protected_branch_fallback_source=protected_branch_fallback_source,
             pushed_sha=pushed_sha,
             diff_stats=diff_stats,
+            kept_out=kept_out,
         )
 
     async def _opened_by_daiv(self, merge_request: MergeRequest) -> bool:
@@ -682,36 +741,146 @@ async def apublish_extra_repos(
     skip_ci: bool = False,
     recovering: bool = False,
 ) -> list[RepoPublish]:
-    """Publish each of ``ctx``'s extra repositories to its own branch and merge request, one after the other.
+    """Publish each of ``ctx``'s extra repositories to its own branch and merge request, one after the other, each
+    after its submodules (:func:`apublish_submodules`), which it then records.
 
     Each goes through its own views of ``ctx`` and ``workspace``, onto the open merge request of the branch its clone is
     on. A repository that fails is recorded on its :class:`RepoPublish` and never raised, so it cannot stop the others
     or the main repository. ``recovering`` is draft recovery: a new merge request opens as a draft, and a draft one
-    stays a draft. The agent's closing summary is left out: it covers the whole turn, not this repository.
+    stays a draft. The agent's closing summary is left out: it covers the whole turn, not this repository. The
+    returned list holds each repository's submodule publishes before its own.
     """
-    return [
-        await _apublish_extra_repo(
+    publishes: list[RepoPublish] = []
+    for handle in ctx.extra_repos:
+        submodule_publishes, record = await apublish_submodules(
             ctx,
-            handle,
             workspace,
+            handle,
             settings=settings,
             session_links=session_links,
             skip_ci=skip_ci,
             recovering=recovering,
         )
-        for handle in ctx.extra_repos
+        publish = await _apublish_repo(
+            ctx,
+            handle,
+            workspace,
+            scope=PublishScope.from_config(handle.config.checkout, record=record),
+            settings=settings,
+            session_links=session_links,
+            skip_ci=skip_ci,
+            recovering=recovering,
+        )
+        publishes += mark_recorded(submodule_publishes, record, recorded=publish.error is None)
+        publishes.append(publish)
+    return publishes
+
+
+async def apublish_submodules(
+    ctx: RuntimeCtx,
+    workspace: Workspace,
+    handle: RepoHandle,
+    *,
+    settings: AgentSettings,
+    session_links: SessionLinksResolver | None,
+    skip_ci: bool = False,
+    recovering: bool = False,
+) -> tuple[list[RepoPublish], dict[str, str]]:
+    """Publish the submodules of ``handle`` (the main or an extra repository) that DAIV publishes, deepest first, each
+    recording its own published children (research R16).
+
+    Each child's commit is the one its publish pushed, or the merged commit a pin records (R21); a pinned child gets an
+    entry with ``published`` false. A child's ``recorded_sha`` is set once its submodule parent's publish succeeded.
+    A failed publish is recorded on its entry and never raised: it stops neither the others nor its parent, whose
+    gitlink then stays as it was. Returns every entry, deepest first, and the record map of ``handle``'s direct
+    children, which ``handle``'s own publish takes; whoever publishes ``handle`` marks those entries recorded.
+    """
+    if not handle.submodules:
+        return [], {}
+    scope_base = PublishScope.from_config(handle.config.checkout)
+    commits: dict[str, str] = {}
+    entries: dict[str, RepoPublish] = {}
+    parents = {cast("SubmoduleRole", sub.submodule).path: sub for sub in handle.submodules}
+
+    def parent_repo_id(sub: RepoHandle) -> str:
+        parent_path = cast("SubmoduleRole", sub.submodule).parent_path
+        return parents[parent_path].repo_id if parent_path else handle.repo_id
+
+    for sub in handle.submodules:
+        role = cast("SubmoduleRole", sub.submodule)
+        if role.pinned:
+            commits[role.path] = role.pinned
+            entries[role.path] = RepoPublish(
+                repo_id=sub.repo_id,
+                merge_request=None,
+                published=False,
+                current_ref="" if sub.head_detached else sub.current_ref,
+                submodule_path=role.path,
+                root_repo_id=handle.repo_id,
+                parent_repo_id=parent_repo_id(sub),
+            )
+
+    publishable = [sub for sub in handle.submodules if cast("SubmoduleRole", sub.submodule).publish_block is None]
+    for sub in sorted(publishable, key=lambda s: -cast("SubmoduleRole", s.submodule).path.count("/")):
+        role = cast("SubmoduleRole", sub.submodule)
+        children = [child for child in sub.direct_submodules if cast("SubmoduleRole", child.submodule).path in commits]
+        record = {sub.child_path(child): commits[cast("SubmoduleRole", child.submodule).path] for child in children}
+        publish = await _apublish_repo(
+            ctx,
+            sub,
+            workspace,
+            scope=replace(scope_base, submodules=True, record=MappingProxyType(record)),
+            settings=settings,
+            session_links=session_links,
+            skip_ci=skip_ci,
+            recovering=recovering,
+            submodule_path=role.path,
+            root_repo_id=handle.repo_id,
+            parent_repo_id=parent_repo_id(sub),
+        )
+        if publish.error is None:
+            for child in children:
+                path = cast("SubmoduleRole", child.submodule).path
+                entries[path] = replace(entries[path], recorded_sha=commits[path])
+        if publish.published and publish.pushed_sha:
+            commits[role.path] = publish.pushed_sha
+        # A pinned child that published nothing this turn keeps its pin's entry.
+        if publish.published or publish.error or role.path not in entries:
+            entries[role.path] = publish
+    ordered = sorted(entries.values(), key=lambda entry: -entry.submodule_path.count("/"))
+    record = {
+        handle.child_path(child): commits[cast("SubmoduleRole", child.submodule).path]
+        for child in handle.direct_submodules
+        if cast("SubmoduleRole", child.submodule).path in commits
+    }
+    return ordered, record
+
+
+def mark_recorded(publishes: Sequence[RepoPublish], record: Mapping[str, str], *, recorded: bool) -> list[RepoPublish]:
+    """``publishes`` with ``recorded_sha`` set on the root's direct children ``record`` names, once the root's publish
+    succeeded (``recorded``). A root's ``record`` is keyed by its children's paths, which are their
+    ``submodule_path``."""
+    if not recorded:
+        return list(publishes)
+    return [
+        replace(publish, recorded_sha=record[publish.submodule_path]) if publish.submodule_path in record else publish
+        for publish in publishes
     ]
 
 
-async def _apublish_extra_repo(
+async def _apublish_repo(
     ctx: RuntimeCtx,
     handle: RepoHandle,
     workspace: Workspace,
     *,
+    scope: PublishScope,
     settings: AgentSettings,
     session_links: SessionLinksResolver | None,
     skip_ci: bool,
     recovering: bool,
+    submodule_path: str = "",
+    root_repo_id: str = "",
+    parent_repo_id: str = "",
 ) -> RepoPublish:
     slug = handle.repository.slug
     branch = "" if handle.head_detached else handle.current_ref
@@ -724,7 +893,7 @@ async def _apublish_extra_repo(
             _extra_repo_ctx(ctx, handle), workspace.for_repo(handle), settings=settings, session_links=session_links
         )
         outcome = await publisher.publish(
-            merge_request=target, skip_ci=skip_ci, as_draft=recovering and (target is None or target.draft)
+            merge_request=target, skip_ci=skip_ci, as_draft=recovering and (target is None or target.draft), scope=scope
         )
     except UnresolvedMergeConflictsError as exc:
         logger.warning("Not publishing %s: %s", slug, exc)
@@ -744,6 +913,10 @@ async def _apublish_extra_repo(
             pushed_sha=outcome.pushed_sha,
             diff_stats=outcome.diff_stats,
             created_merge_request=outcome.created_merge_request,
+            kept_out=outcome.kept_out,
+            submodule_path=submodule_path,
+            root_repo_id=root_repo_id,
+            parent_repo_id=parent_repo_id,
         )
     return RepoPublish(
         repo_id=handle.repo_id,
@@ -753,6 +926,9 @@ async def _apublish_extra_repo(
         error=error,
         error_kind=error_kind,
         conflicted_paths=conflicted_paths,
+        submodule_path=submodule_path,
+        root_repo_id=root_repo_id,
+        parent_repo_id=parent_repo_id,
     )
 
 

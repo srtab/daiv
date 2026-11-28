@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
@@ -16,7 +17,7 @@ from sessions.admission import AdmissionError, aadmit, aassert_repo_access
 from sessions.inbox import kinds
 from sessions.merge_request_runs.service import MergeRequestRuns
 from sessions.merge_request_runs.starter import Caller, Request
-from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository, SessionSubmodule
 from sessions.services import (
     BatchSubmitResult,
     RepoTarget,
@@ -63,14 +64,86 @@ async def aload_extra_repos(thread_id: str) -> list[SessionRepository]:
     return [row async for row in SessionRepository.objects.filter(session_id=thread_id).order_by("position")]
 
 
+@dataclass(frozen=True)
+class FetchedSubmodule:
+    """A submodule a run's checkout fetched: the session repository holding it, the repository recording it, its path
+    from the root's top and its own repository."""
+
+    root_repo_id: str
+    parent_repo_id: str
+    path: str
+    repo_id: str
+
+
+async def arecord_fetched_submodules(session_id: str, fetched: Sequence[FetchedSubmodule]) -> None:
+    """Create a ``SessionSubmodule`` row for each of ``fetched`` whose repository is neither the session's main nor one
+    of its extra repositories and has no row yet; the first entry per repository wins, and existing rows are left as
+    they are."""
+    session = await Session.objects.only("repo_id").aget(pk=session_id)
+    taken = {session.repo_id}
+    taken.update([repo_id async for repo_id in session.extra_repositories.values_list("repo_id", flat=True)])
+    taken.update([repo_id async for repo_id in session.submodules.values_list("repo_id", flat=True)])
+    rows = []
+    for submodule in fetched:
+        if submodule.repo_id in taken:
+            continue
+        taken.add(submodule.repo_id)
+        rows.append(
+            SessionSubmodule(
+                session_id=session_id,
+                root_repo_id=submodule.root_repo_id,
+                parent_repo_id=submodule.parent_repo_id,
+                path=submodule.path,
+                repo_id=submodule.repo_id,
+            )
+        )
+    if rows:
+        await SessionSubmodule.objects.abulk_create(rows, ignore_conflicts=True)
+
+
+async def aload_submodules(session_id: str) -> list[SessionSubmodule]:
+    return [row async for row in SessionSubmodule.objects.filter(session_id=session_id)]
+
+
+async def apersist_submodule_state(session_id: str, publishes: Sequence[RepoPublish]) -> None:
+    """Keep each published submodule's working branch, merge request (title, draft flag), change size and the commit its
+    parent recorded on its row, so the next turn continues there; the entries of extra repositories are skipped.
+
+    A failed publish leaves its row alone, and a pinned submodule's entry, which published nothing, writes only its
+    recorded commit. Neither the branch nor the merge request is ever cleared here: their merge or close does that
+    (``sessions.submodule_merges``).
+    """
+    for rp in publishes:
+        if not rp.submodule_path or rp.error:
+            continue
+        fields: dict[str, Any] = {}
+        if rp.merge_request is not None:
+            fields.update(
+                ref=rp.merge_request.source_branch,
+                merge_request_iid=rp.merge_request.merge_request_id,
+                merge_request_web_url=rp.merge_request.web_url or "",
+                merge_request_title=rp.merge_request.title,
+                merge_request_draft=rp.merge_request.draft,
+            )
+        elif rp.published and rp.current_ref:
+            fields["ref"] = rp.current_ref
+        if rp.diff_stats is not None and (rp.published or rp.merge_request is not None):
+            fields["diff_stats"] = rp.diff_stats.model_dump()
+        if rp.recorded_sha:
+            fields["recorded_sha"] = rp.recorded_sha
+        if fields:
+            await SessionSubmodule.objects.filter(session_id=session_id, repo_id=rp.repo_id).aupdate(**fields)
+
+
 async def apersist_extra_repo_state(thread_id: str, publishes: Sequence[RepoPublish]) -> None:
     """Keep each extra repository's working branch, MR (title, draft flag) and change size on its row, so the next
     turn continues there.
 
-    A failed publish leaves its row alone; a blank ref is never written, since it means the default branch.
+    A failed publish leaves its row alone; a blank ref is never written, since it means the default branch. A
+    submodule's entry is left to :func:`apersist_submodule_state`.
     """
     for rp in publishes:
-        if rp.error:
+        if rp.error or rp.submodule_path:
             continue
         fields: dict[str, Any] = {}
         if rp.merge_request is not None:

@@ -67,6 +67,7 @@ INTERACTIVE_TASKS = {
     "sessions.tasks:generate_batch_title_task",
     "sessions.tasks:generate_title_task",
     "sessions.tasks:keep_inbox_claims_alive_cron_task",
+    "sessions.tasks:settle_submodule_merge_task",
 }
 TITLING_TASKS = {"sessions.tasks:generate_title_task", "sessions.tasks:generate_batch_title_task"}
 

@@ -49,6 +49,13 @@ def is_git_ref_not_found_text(text: str) -> bool:
     return "not found in upstream" in text.lower()
 
 
+def is_git_object_missing_text(text: str) -> bool:
+    """True when git output says the remote no longer has a commit asked for: ``git submodule update``'s "Fetched in
+    submodule path …, but it did not contain <sha>", or a server refusing a fetch by sha ("not our ref")."""
+    lowered = text.lower()
+    return "did not contain" in lowered or "not our ref" in lowered
+
+
 def get_repo_branch(repo: Repo) -> str | None:
     """
     Get the branch HEAD is attached to, or None when HEAD is detached.

@@ -34,7 +34,6 @@ from automation.agent import provider_health
 from automation.agent.agent_settings import AgentSettings, RunOverrides, resolve_agent_settings
 from automation.agent.artifacts import ArtifactError, ArtifactFile
 from automation.agent.constants import REPO_PATH
-from automation.agent.context import extra_repo_path
 from automation.agent.workspace.sandbox_backend import SandboxFileBackend
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import GitPlatform, MergeRequest, Repository, User
@@ -382,7 +381,7 @@ class FakeWorkspace:
         return response
 
     def for_repo(self, handle: Any) -> Any:
-        return replace(self, repo_path=extra_repo_path(handle))
+        return replace(self, repo_path=handle.workspace_path)
 
 
 @dataclass

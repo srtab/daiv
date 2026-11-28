@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 from langchain_core.messages import HumanMessage
 from sessions.executor.lock import NoLock
 from sessions.executor.result import parse_agent_result
+from sessions.executor.run import SubmoduleHints
 from sessions.executor.spec import RunSpec
 from sessions.inbox.ownership import Ownerships
 
@@ -145,6 +146,9 @@ def agent_stack(
     reset = AsyncMock()
     load_extra_repos = AsyncMock(return_value=[])
     session_ref = AsyncMock(return_value="")
+    record_submodules = AsyncMock()
+    persist_submodules = AsyncMock()
+    submodule_hints = AsyncMock(return_value=SubmoduleHints({}, {}, frozenset()))
 
     with (
         stub_sandbox_spec() as build_spec,
@@ -165,7 +169,10 @@ def agent_stack(
             areset_session_ref=reset,
             aload_extra_repos=load_extra_repos,
             aget_session_ref=session_ref,
+            arecord_fetched_submodules=record_submodules,
+            apersist_submodule_state=persist_submodules,
         ),
+        patch.object(SubmoduleHints, "aload", submodule_hints),
         patch.object(Ownerships, "aclaim", _claim),
         patch("sessions.executor.run._fast_forward", new=AsyncMock(return_value=None)) as fast_forward,
         patch(
@@ -192,6 +199,9 @@ def agent_stack(
         stack.reset = reset
         stack.load_extra_repos = load_extra_repos
         stack.session_ref = session_ref
+        stack.record_submodules = record_submodules
+        stack.persist_submodules = persist_submodules
+        stack.submodule_hints = submodule_hints
         stack.build_absolute_url = build_absolute_url
         stack.delegator_for = delegator_for
         stack.fast_forward = fast_forward
@@ -206,7 +216,7 @@ def publisher_through_workspace(created: list, *, publishes: MergeRequest):
             self.workspace = workspace
             created.append(self)
 
-        async def publish(self, *, merge_request: MergeRequest | None, as_draft: bool):
+        async def publish(self, *, merge_request: MergeRequest | None, as_draft: bool, scope=None):
             self.target = (merge_request, as_draft)
             await self.workspace.bash.run_commands(["git push origin HEAD"], fail_fast=True)
             return SimpleNamespace(

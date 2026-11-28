@@ -293,6 +293,14 @@ class SWERepoClient(RepoClient):
         """Not supported for SWE client."""
         raise NotImplementedError("SWERepoClient does not support merge requests")
 
+    def get_merged_commit(self, repo_id: str, merge_request_id: int) -> str | None:
+        """Not supported for SWE client: evals publish nothing."""
+        raise NotImplementedError("SWERepoClient does not support merge requests")
+
+    def is_ancestor(self, repo_id: str, ancestor: str, descendant: str) -> bool:
+        """Not supported for SWE client: evals publish nothing."""
+        raise NotImplementedError("SWERepoClient does not support commit ancestry")
+
     def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:
         """SWE runs have no merge-request concept: there is never an open MR, so report
         none rather than raising — platform-agnostic callers (e.g. GitMiddleware's pre-run

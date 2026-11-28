@@ -1,6 +1,6 @@
 import logging
 from datetime import UTC, datetime
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 from git import GitCommandError
@@ -306,10 +306,9 @@ class TestGitHubClient:
         clone_url, clone_dir = mock_clone_from.call_args.args[:2]
         branch = mock_clone_from.call_args.kwargs["branch"]
         assert clone_url == "https://github.com/owner/repo.git"
-        assert (
-            mock_clone_from.call_args.kwargs["env"]
-            == GitAuthEnv.for_token("https://github.com/owner/repo.git", "token").as_env()
-        )
+        assert mock_clone_from.call_args.kwargs["env"] == GitAuthEnv.for_token(
+            "https://github.com/owner/repo.git", "token"
+        ).as_env() | {"GIT_LFS_SKIP_SMUDGE": "1"}
         assert clone_dir.name == "repo"
         assert branch == "main"
         mock_writer.set_value.assert_any_call("user", "name", "daiv-agent-test[bot]")
@@ -739,3 +738,59 @@ class TestGitHubClient:
 
         assert exc_info.value.ref == "gone-branch"
         assert exc_info.value.repo_slug == "owner/repo"
+
+
+class TestSubmoduleSupport:
+    @pytest.fixture
+    def client(self):
+        integration = Mock()
+        installation = Mock(permissions={"contents": "write"})
+        integration.get_app_installation.return_value = installation
+        return GitHubClient(integration=integration, installation_id=67890)
+
+    @staticmethod
+    def _repository() -> Repository:
+        return Repository(
+            pk=3,
+            slug="owner/lib",
+            name="lib",
+            clone_url="https://github.com/owner/lib.git",
+            html_url="https://github.com/owner/lib",
+            default_branch="main",
+            git_platform=GitPlatform.GITHUB,
+        )
+
+    @pytest.mark.parametrize("scoped_only", [False, True])
+    def test_with_git_auth_mints_a_repository_scoped_token_per_call(self, client, scoped_only):
+        repository = self._repository()
+        operation = Mock(return_value="ok")
+
+        with patch.object(GitHubClient, "_mint_installation_token", side_effect=["t1", "t2"]) as mint:
+            assert client.with_git_auth(repository, operation, scoped_only=scoped_only) == "ok"
+            client.with_git_auth(repository, operation, scoped_only=scoped_only)
+
+        assert mint.call_args_list == [call(repository), call(repository)]
+        assert operation.call_args_list == [
+            call(GitAuthEnv.for_token(repository.clone_url, "t1")),
+            call(GitAuthEnv.for_token(repository.clone_url, "t2")),
+        ]
+
+    @pytest.mark.parametrize(("merged", "expected"), [(True, "abc"), (False, None)])
+    def test_the_merged_commit(self, client, merged, expected):
+        repo = Mock()
+        repo.get_pull.return_value = Mock(merged=merged, merge_commit_sha="abc")
+        client.client.get_repo = Mock(return_value=repo)
+
+        assert client.get_merged_commit("owner/lib", 12) == expected
+        repo.get_pull.assert_called_once_with(12)
+
+    @pytest.mark.parametrize(
+        ("status", "expected"), [("ahead", True), ("identical", True), ("behind", False), ("diverged", False)]
+    )
+    def test_ancestry_is_read_from_the_comparison(self, client, status, expected):
+        repo = Mock()
+        repo.compare.return_value = Mock(status=status)
+        client.client.get_repo = Mock(return_value=repo)
+
+        assert client.is_ancestor("owner/lib", "a", "b") is expected
+        repo.compare.assert_called_once_with("a", "b")

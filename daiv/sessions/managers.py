@@ -25,17 +25,21 @@ if TYPE_CHECKING:
 
 
 def _readable_repos_q(user: User, session_ref: str) -> models.Q:
-    """Rows on a repository ``user`` can read whose session (``session_ref``) has no extra repository they can't."""
+    """Rows on a repository ``user`` can read whose session (``session_ref``) has no extra repository and no fetched
+    submodule they can't."""
     # Local import: keep this module from pulling codebase.authorization
     # (and its codebase.* / allauth graph) in at app-load time.
     from codebase.authorization import viewable_repo_ids_subquery
-    from sessions.models import SessionRepository
+    from sessions.models import SessionRepository, SessionSubmodule
 
     viewable = viewable_repo_ids_subquery(user)
     unreadable_extra = models.Exists(
         SessionRepository.objects.filter(session=models.OuterRef(session_ref)).exclude(repo_id__in=viewable)
     )
-    return models.Q(repo_id__in=viewable) & ~unreadable_extra
+    unreadable_submodule = models.Exists(
+        SessionSubmodule.objects.filter(session=models.OuterRef(session_ref)).exclude(repo_id__in=viewable)
+    )
+    return models.Q(repo_id__in=viewable) & ~unreadable_extra & ~unreadable_submodule
 
 
 _NEWEST_FIRST = ("-created_at", "-id")
@@ -119,18 +123,19 @@ class SessionQuerySet(models.QuerySet["Session"]):
 
     def on_merge_request(self, iid: int, *, repo_id: str | None = None) -> models.QuerySet[Session]:
         """Sessions that worked on merge request ``iid`` of ``repo_id``, or of any repository when ``None``: carry its
-        IID (on their main repository or another of theirs), ran on it, or own it.
+        IID (on their main repository, another of theirs or a submodule they published), ran on it, or own it.
 
         MR-scope sessions carry the IID from the webhook; an issue-scope session only learns it when its run backfills
         at completion. Subqueries rather than joins keep this one row per session, so ``with_latest_status``'s per-row
         subquery is not multiplied.
         """
-        from sessions.models import MergeRequestOwnership, Run, SessionRepository
+        from sessions.models import MergeRequestOwnership, Run, SessionRepository, SessionSubmodule
 
         on_it = {"merge_request_iid": iid} if repo_id is None else {"repo_id": repo_id, "merge_request_iid": iid}
         return self.filter(
             models.Q(**on_it)
             | models.Q(pk__in=SessionRepository.objects.filter(**on_it).values("session_id"))
+            | models.Q(pk__in=SessionSubmodule.objects.filter(**on_it).values("session_id"))
             | models.Q(pk__in=Run.objects.filter(**on_it).values("session_id"))
             | models.Q(pk__in=MergeRequestOwnership.objects.filter(**on_it).values("session_id"))
         )
@@ -142,17 +147,20 @@ class SessionQuerySet(models.QuerySet["Session"]):
         return self.exclude(models.Exists(MergeRequestOwnership.objects.open().filter(session=models.OuterRef("pk"))))
 
     def without_live_work(self) -> models.QuerySet[Session]:
-        """Exclude sessions that own an open merge request, have an unfinished run or a waking inbox event, or
-        delegated a leg that owns an open merge request or has an unfinished run."""
-        from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus
+        """Exclude sessions that own an open merge request, have an unfinished run, a waking inbox event or a
+        submodule whose merge DAIV hasn't settled yet, or delegated a leg that owns an open merge request or has an
+        unfinished run."""
+        from sessions.models import EventState, InboxEvent, MergeRequestOwnership, Run, RunStatus, SessionSubmodule
 
         unfinished = Run.objects.exclude(status__in=RunStatus.terminal())
         waking = InboxEvent.objects.filter(session=models.OuterRef("pk"), state=EventState.PENDING, wake=True)
+        merge_pending = SessionSubmodule.objects.filter(session=models.OuterRef("pk"), merge_pending=True)
         return self.without_open_merge_request().exclude(
             models.Exists(MergeRequestOwnership.objects.open().filter(session__parent=models.OuterRef("pk")))
             | models.Exists(unfinished.filter(session=models.OuterRef("pk")))
             | models.Exists(unfinished.filter(session__parent=models.OuterRef("pk")))
             | models.Exists(waking)
+            | models.Exists(merge_pending)
         )
 
     def without_watch_placeholders(self) -> models.QuerySet[Session]:

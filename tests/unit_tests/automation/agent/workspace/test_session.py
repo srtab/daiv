@@ -1,7 +1,7 @@
 import asyncio
 import io
 import tarfile
-from typing import TYPE_CHECKING
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import httpx
@@ -13,6 +13,7 @@ from automation.agent.workspace.session import (
     SandboxSession,
     SessionSeed,
     _make_global_skills_archive,
+    _make_repo_archive,
     _make_repos_archive,
     acquire_sandbox,
 )
@@ -21,9 +22,6 @@ from core.sandbox.client import SandboxCapabilityError
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credentials
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
 from tests.unit_tests.conftest import FakeSandboxClient, acquired_session, sandbox_spec, write_skill
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 def _repo_archive() -> bytes:
@@ -815,3 +813,93 @@ class TestMultiRepoCredentials:
         assert await session.refresh_credential() is False
 
         assert client.calls_to("update_egress") == []
+
+
+class TestSubmodulesAndLfsInTheSeed:
+    def _clone_with_submodule(self, tmp_path: Path) -> Path:
+        from tests.unit_tests.submodule_repos import World, git
+
+        world = World(tmp_path / "w")
+        world.create("group/lib", {"f": "1\n"})
+        world.create("group/app", submodules={"libs/lib": "../lib.git"})
+        top = Path(world.clone("group/app").working_dir)
+        git(top, "submodule", "update", "-q", "--init")
+        return top
+
+    def test_the_submodule_git_directory_and_gitfile_travel_and_status_is_clean(self, tmp_path: Path):
+        from tests.unit_tests.submodule_repos import git
+
+        top = self._clone_with_submodule(tmp_path)
+
+        archive = _make_repo_archive(str(top))
+        members = _tar_members(archive)
+        copy = tmp_path / "copy"
+        with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as tf:
+            tf.extractall(copy, filter="tar")
+
+        assert "libs/lib/.git" in members
+        assert any(name.startswith(".git/modules/libs/lib/") for name in members)
+        assert git(copy, "status", "--porcelain") == ""
+
+    def test_the_lfs_object_store_is_left_out_of_both_archives(self, tmp_path: Path):
+        top = self._clone_with_submodule(tmp_path)
+        for store in (top / ".git/lfs/objects", top / ".git/modules/libs/lib/lfs/objects"):
+            store.mkdir(parents=True)
+            (store / "obj").write_bytes(b"content")
+        (top / "lfs").mkdir()
+        (top / "lfs/kept.txt").write_text("a worktree directory named lfs stays")
+
+        for members in (
+            _tar_members(_make_repo_archive(str(top))),
+            {
+                name.removeprefix("g/app/"): kind
+                for name, kind in _tar_members(_make_repos_archive({"g/app": str(top)})).items()
+            },
+        ):
+            assert not any(name.startswith((".git/lfs", ".git/modules/libs/lib/lfs")) for name in members)
+            assert "lfs/kept.txt" in members
+            assert ".git/HEAD" in members
+
+    def test_without_an_lfs_store_the_members_are_unchanged(self, tmp_path: Path):
+        top = self._clone_with_submodule(tmp_path)
+        expected = set()
+        for path in top.rglob("*"):
+            expected.add(str(path.relative_to(top)))
+
+        assert set(_tar_members(_make_repo_archive(str(top)))) == expected
+
+
+class TestAddRepository:
+    @staticmethod
+    def _credential(token: str, path: str) -> object:
+        return GitEgressCredential.for_token(host="gitlab.com", token=token, path=path)
+
+    async def test_a_submodule_credential_takes_a_slot_after_the_acquire_time_ones(self):
+        client = FakeSandboxClient.opened()
+        main, mod = self._credential("M", "/g/app.git"), self._credential("S", "/g/mod.git")
+        session = SandboxSession(client, sandbox_spec(), credential_source=AsyncMock(return_value=[main, mod]))
+        await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+        lib = self._credential("L", "/g/lib.git")
+        mint = AsyncMock(return_value=lib)
+
+        await session.aadd_repository(Mock(slug="g/lib"), mint)
+
+        mint.assert_awaited_once_with()
+        ((_, pushed),) = client.calls_to("update_egress")
+        assert pushed == with_platform_credentials(sandbox_spec().egress, [main, mod, lib])
+
+    async def test_it_pushes_even_right_after_a_refresh_and_reuses_its_slot(self):
+        client = FakeSandboxClient.opened()
+        main = self._credential("M", "/g/app.git")
+        session = SandboxSession(client, sandbox_spec(), credential_source=AsyncMock(return_value=[main]))
+        await session.acquire(prior_id=None, prior_fingerprint=None, seed=_seed())
+        first, second = self._credential("L1", "/g/lib.git"), self._credential("L2", "/g/lib.git")
+
+        await session.aadd_repository(Mock(slug="g/lib"), AsyncMock(return_value=first))
+        await session.aadd_repository(Mock(slug="g/lib"), AsyncMock(return_value=second))
+
+        pushes = [egress for _, egress in client.calls_to("update_egress")]
+        assert pushes == [
+            with_platform_credentials(sandbox_spec().egress, [main, first]),
+            with_platform_credentials(sandbox_spec().egress, [main, second]),
+        ]

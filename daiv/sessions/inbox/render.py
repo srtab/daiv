@@ -11,7 +11,8 @@ Two messages, built from the events the run took:
   Omitted when there is nothing to report.
 - the **request**, a ``HumanMessage``: people's words when the run took any (chat messages, mentions with their
   authors, the follow-up job's prompt, a merge request job's prompt with whose job it is), then DAIV's own sections (a
-  delegated batch's summary, the CI fix prompt), in precedence order and separated by a blank line.
+  delegated batch's summary, the CI fix prompt, the merged submodule's prompt), in precedence order and separated by a
+  blank line.
 
 An event about another of a multi-repository session's repositories names that repository beside its merge request
 and branch. Everything here is addressed to the model, so none of it is translated. The owner's identity never appears.
@@ -49,6 +50,14 @@ FIX_RUN_PROMPT = (
     "Read the job logs to find the cause, then fix it. If the failure is not something a "
     "code change can fix, explain why instead of guessing."
 )
+
+SUBMODULE_MERGED_PROMPT = (
+    "The merge request `{merge_request}` for the submodule `{path}` was merged as commit `{sha}`, which doesn't "
+    "contain the commit this repository records. The harness records `{sha}` for `{path}` when your turn ends, if this "
+    "branch still records DAIV's commit, and reports the outcome itself. Change nothing else; reply in one sentence "
+    "that the submodule's merge request was merged."
+)
+SHORT_SHA_CHARS = 7
 
 _QUIET_REASONS = {
     QuietReason.NOT_DAIV_COMMIT: "the commit is not one you pushed",
@@ -154,6 +163,15 @@ class RunInput:
             return "\n\n".join(f"{event.payload['prompt']}\n\n{EventText(event).job_origin()}" for event in events)
         if kind == EventKind.DELEGATION_FINISHED:
             return "\n\n".join(event.payload["summary"] for event in events)
+        if kind == EventKind.SUBMODULE_MERGED:
+            return "\n\n".join(
+                SUBMODULE_MERGED_PROMPT.format(
+                    merge_request=EventText(event).merge_request(event.payload["merge_request_iid"]),
+                    path=event.payload["path"],
+                    sha=event.payload["merged_sha"][:SHORT_SHA_CHARS],
+                )
+                for event in events
+            )
         return "\n\n".join(
             FIX_RUN_PROMPT.format(
                 merge_request=(
@@ -341,6 +359,11 @@ class EventText:
                 return f"Delegated jobs finished. {self._not_woken()}\n  {self.cut(payload['summary'])}"
             case EventKind.NOTICE:
                 return payload["text"]
+            case EventKind.SUBMODULE_MERGED:
+                return (
+                    f"{self.merge_request(payload['merge_request_iid'])} for the submodule `{payload['path']}` was "
+                    f"merged as {payload['merged_sha'][:SHORT_SHA_CHARS]}."
+                )
         return f"{event.get_kind_display()}."
 
     def short(self) -> str:

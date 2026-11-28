@@ -9,7 +9,7 @@ from django.utils import timezone
 import pytest
 from gitlab.exceptions import GitlabError
 from sessions.hydration import HydratedThread
-from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository, SessionSubmodule
 from sessions.page_state import aload_session_state, turns_payload
 
 MERGE_REQUEST = {
@@ -288,7 +288,7 @@ async def test_the_payload_carries_what_a_turn_did_to_each_repository(member_use
     )
     after = await fetch()
 
-    unchanged = {"mr_draft": False, "diff_stats": None, "can_act": True}
+    unchanged = {"mr_draft": False, "diff_stats": None, "can_act": True, "submodule": None}
     main = {
         "repo_id": "group/project",
         "ref": "daiv/fix",
@@ -308,6 +308,51 @@ async def test_the_payload_carries_what_a_turn_did_to_each_repository(member_use
     }
     assert before["repositories"] == {"rows": [main, {**lib, "errors": []}], "ran": True}
     assert after["repositories"] == {"rows": [main, published], "ran": True}
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(("runnable", "can_act"), [({"group/project", "group/core"}, True), ({"group/project"}, False)])
+async def test_each_submodule_with_a_merge_request_gets_a_card_naming_its_path_and_parent(
+    member_user, runnable, can_act
+):
+    session = await _session(member_user, in_flight=False)
+    await SessionSubmodule.objects.acreate(
+        session=session,
+        root_repo_id="group/project",
+        parent_repo_id="group/project",
+        path="libs/core",
+        repo_id="group/core",
+        ref="daiv/core",
+        merge_request_iid=12,
+        merge_request_web_url="https://example.com/core/mr/12",
+        merge_request_title="Core fix",
+    )
+    await SessionSubmodule.objects.acreate(
+        session=session, root_repo_id="group/project", parent_repo_id="group/core", path="libs/core/fmt",
+        repo_id="group/fmt",
+    )  # fmt: skip
+
+    with (
+        patch("sessions.page_state.ahydrate_thread", _hydration()),
+        patch("sessions.page_state.aget_existing_mr_payload", AsyncMock(return_value=None)),
+        patch("sessions.page_state.runnable_repo_ids", Mock(return_value=runnable)),
+    ):
+        state = await aload_session_state(session, member_user, always_look_up_merge_request=False)
+
+    main, submodule = state.header["repositories"]["rows"]
+    assert main["submodule"] is None
+    assert submodule == {
+        "repo_id": "group/core",
+        "ref": "daiv/core",
+        "mr_url": "https://example.com/core/mr/12",
+        "mr_iid": 12,
+        "mr_title": "Core fix",
+        "mr_draft": False,
+        "diff_stats": None,
+        "can_act": can_act,
+        "submodule": {"path": "libs/core", "parent": "group/project"},
+        "errors": [],
+    }
 
 
 @pytest.mark.django_db(transaction=True)

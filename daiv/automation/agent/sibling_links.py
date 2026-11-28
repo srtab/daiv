@@ -28,6 +28,8 @@ class RelatedMergeRequest:
     client: RepoClient
     repo_slug: str
     merge_request: MergeRequest
+    parent_repo_id: str = ""
+    """The repository whose commit records this one, a submodule's; ``""`` for the session's own repositories."""
 
 
 def _reference(entry: RelatedMergeRequest) -> str:
@@ -35,11 +37,26 @@ def _reference(entry: RelatedMergeRequest) -> str:
     return f"{entry.repo_slug}{separator}{entry.merge_request.merge_request_id}"
 
 
-def render_related_block(related: Sequence[RelatedMergeRequest]) -> str:
-    """The block listing ``related`` as the platform's own cross-references, which it links and titles only for a
-    reader who can see the referenced repository: a title written out here would reach every reader of this one."""
-    lines = [f"- {_reference(entry)}" for entry in related]
-    return "\n".join([RELATED_START, "**Related merge requests** (same DAIV session):", "", *lines, RELATED_END])
+def render_related_block(viewer: RelatedMergeRequest, others: Sequence[RelatedMergeRequest]) -> str:
+    """The block listing ``others`` on ``viewer``'s merge request as the platform's own cross-references, which it links
+    and titles only for a reader who can see the referenced repository: a title written out here would reach every
+    reader of this one. Submodules ``viewer`` records are listed to merge first, and the merge request that records
+    ``viewer`` apart; only the groups present render."""
+    merge_first = [entry for entry in others if entry.parent_repo_id and entry.parent_repo_id == viewer.repo_slug]
+    recorded_by = [entry for entry in others if viewer.parent_repo_id and entry.repo_slug == viewer.parent_repo_id]
+    related = [entry for entry in others if entry not in merge_first and entry not in recorded_by]
+    groups = [
+        ("**Merge first** (submodules this merge request points at):", merge_first),
+        ("**Recorded by**:", recorded_by),
+        ("**Related merge requests** (same DAIV session):", related),
+    ]
+    lines = [RELATED_START]
+    for heading, entries in groups:
+        if entries:
+            if len(lines) > 1:
+                lines.append("")
+            lines += [heading, "", *(f"- {_reference(entry)}" for entry in entries)]
+    return "\n".join([*lines, RELATED_END])
 
 
 def with_related_block(description: str, block: str) -> str:
@@ -63,7 +80,7 @@ async def aensure_related_links(entries: Sequence[RelatedMergeRequest]) -> None:
                 merge_request.repo_id, merge_request.merge_request_id
             )
             current_description = current.description or ""
-            description = with_related_block(current_description, render_related_block(others))
+            description = with_related_block(current_description, render_related_block(entry, others))
             if description == current_description:
                 continue
             await sync_to_async(entry.client.update_merge_request)(

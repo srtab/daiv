@@ -37,19 +37,21 @@ def rel(
 
 
 def test_render_related_block():
-    assert render_related_block([rel("g/mod", iid=3)]) == (
+    assert render_related_block(rel("g/app"), [rel("g/mod", iid=3)]) == (
         f"{RELATED_START}\n**Related merge requests** (same DAIV session):\n\n- g/mod!3\n{RELATED_END}"
     )
 
 
 def test_render_related_block_uses_github_references_on_github():
-    assert "- octo/mod#3" in render_related_block([rel("octo/mod", iid=3, platform=GitPlatform.GITHUB)])
+    assert "- octo/mod#3" in render_related_block(rel("g/app"), [rel("octo/mod", iid=3, platform=GitPlatform.GITHUB)])
 
 
 def test_render_related_block_writes_no_title_or_url():
     """A platform reference is resolved per reader; a title or URL written out reaches readers of this repository
     who can't see the other one."""
-    block = render_related_block([rel("g/secret", title="Rotate prod KMS keys", url="https://gl/g/secret/-/mr/3")])
+    block = render_related_block(
+        rel("g/app"), [rel("g/secret", title="Rotate prod KMS keys", url="https://gl/g/secret/-/mr/3")]
+    )
 
     assert "Rotate prod KMS keys" not in block
     assert "https://gl/g/secret" not in block
@@ -75,16 +77,16 @@ async def test_ensure_updates_each_mr_with_the_others():
     await aensure_related_links([first, second])
 
     first.client.update_merge_request.assert_called_once_with(
-        "g/app", 1, description=with_related_block("body", render_related_block([second]))
+        "g/app", 1, description=with_related_block("body", render_related_block(rel("g/app"), [second]))
     )
     second.client.update_merge_request.assert_called_once_with(
-        "g/mod", 2, description=with_related_block("body", render_related_block([first]))
+        "g/mod", 2, description=with_related_block("body", render_related_block(rel("g/app"), [first]))
     )
 
 
 async def test_ensure_skips_unchanged_descriptions():
     other = rel("g/mod", iid=2)
-    current = rel("g/app", description=with_related_block("body", render_related_block([other])))
+    current = rel("g/app", description=with_related_block("body", render_related_block(rel("g/app"), [other])))
 
     await aensure_related_links([current, other])
 
@@ -120,7 +122,7 @@ async def test_ensure_builds_the_update_from_the_current_remote_description():
     await aensure_related_links([first, second])
 
     first.client.update_merge_request.assert_called_once_with(
-        "g/app", 1, description=with_related_block("edited by a reviewer", render_related_block([second]))
+        "g/app", 1, description=with_related_block("edited by a reviewer", render_related_block(rel("g/app"), [second]))
     )
 
 
@@ -128,7 +130,7 @@ async def test_ensure_skips_when_the_current_description_already_has_the_block()
     other = rel("g/mod", iid=2)
     current = rel("g/app", description="stale")
     current.client.get_merge_request.return_value = current.merge_request.model_copy(
-        update={"description": with_related_block("body", render_related_block([other]))}
+        update={"description": with_related_block("body", render_related_block(rel("g/app"), [other]))}
     )
 
     await aensure_related_links([current, other])
@@ -145,3 +147,39 @@ async def test_ensure_survives_one_failed_read(caplog):
     first.client.update_merge_request.assert_not_called()
     second.client.update_merge_request.assert_called_once()
     assert "Could not link g/app" in caplog.text
+
+
+def _rel_in(slug: str, iid: int, parent: str = "") -> RelatedMergeRequest:
+    entry = rel(slug, iid=iid)
+    return RelatedMergeRequest(entry.client, entry.repo_slug, entry.merge_request, parent_repo_id=parent)
+
+
+def test_each_merge_request_sees_its_submodules_to_merge_first_and_what_records_it():
+    app, lib, inner, other = (
+        _rel_in("g/app", 1),
+        _rel_in("g/lib", 2, "g/app"),
+        _rel_in("g/inner", 3, "g/lib"),
+        _rel_in("g/other", 4),
+    )
+    everyone = [app, lib, inner, other]
+
+    def block(viewer):
+        return render_related_block(viewer, [e for e in everyone if e is not viewer])
+
+    assert block(app) == (
+        f"{RELATED_START}\n**Merge first** (submodules this merge request points at):\n\n- g/lib!2\n\n"
+        f"**Related merge requests** (same DAIV session):\n\n- g/inner!3\n- g/other!4\n{RELATED_END}"
+    )
+    middle = block(lib)
+    assert "**Merge first** (submodules this merge request points at):\n\n- g/inner!3" in middle
+    assert "**Recorded by**:\n\n- g/app!1" in middle
+    assert "- g/other!4" in middle
+    assert block(inner).startswith(f"{RELATED_START}\n**Recorded by**:\n\n- g/lib!2\n")
+
+
+def test_rerendering_replaces_the_block_instead_of_adding_one():
+    app, lib = _rel_in("g/app", 1), _rel_in("g/lib", 2, "g/app")
+    once = with_related_block("body", render_related_block(app, [lib]))
+
+    assert with_related_block(once, render_related_block(app, [lib])) == once
+    assert once.count(RELATED_START) == 1

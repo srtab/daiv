@@ -30,6 +30,7 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
+from codebase.clients.base import GitAuthEnv, T
 from codebase.clients.gitlab.clone_tokens import get_ephemeral_clone_token, invalidate_clone_token
 from codebase.clients.gitlab.utils import CHILD_PIPELINE_SOURCE, title_in_draft_state
 from codebase.conf import settings as codebase_settings
@@ -451,14 +452,40 @@ class GitLabClient(RepoClient):
 
     def _clone(self, repository: Repository, sha: str, clone_dir: Path) -> Repo:
         """
-        Clone ``repository`` at ``sha`` into ``clone_dir``, tolerating clone-token propagation lag
-        and healing a genuinely stale cached token.
+        Clone ``repository`` at ``sha`` into ``clone_dir`` through :meth:`with_git_auth`.
 
         The credential rides a command-scoped env header (:class:`GitAuthEnv`) instead of the
         clone URL, so it never persists in ``.git/config`` — which is seeded into the sandbox —
         or appears on argv. In-sandbox git authenticates via the egress proxy's injected header;
         local-mode (sandbox-disabled) git gets the same env per invocation via
-        :meth:`RepoClient.get_git_auth_env`.
+        :meth:`RepoClient.get_git_auth_env`. LFS content is never smudged here, whatever the worker's git config says:
+        ``RepoCheckout`` fetches it when the repository asks for it.
+        """
+
+        retrying = False
+
+        def clone_with(auth_env: GitAuthEnv | None) -> Repo:
+            nonlocal retrying
+            if retrying:
+                # git refuses to clone into a non-empty directory, which a rejected attempt leaves behind.
+                shutil.rmtree(clone_dir, ignore_errors=True)
+            retrying = True
+            clone_dir.mkdir(exist_ok=True)
+            return Repo.clone_from(
+                repository.clone_url,
+                clone_dir,
+                branch=sha,
+                env={**(auth_env.as_env() if auth_env else {}), "GIT_LFS_SKIP_SMUDGE": "1"},
+            )
+
+        return self.with_git_auth(repository, clone_with)
+
+    def with_git_auth(
+        self, repository: Repository, operation: Callable[[GitAuthEnv | None], T], *, scoped_only: bool = False
+    ) -> T:
+        """
+        Run ``operation`` with ``repository``'s clone credential, tolerating clone-token propagation lag and healing a
+        genuinely stale cached token. ``operation`` signals an auth rejection by raising ``GitCommandError``.
 
         Two distinct auth-failure modes are handled, in order:
 
@@ -475,72 +502,61 @@ class GitLabClient(RepoClient):
 
         The PAT fallback gets neither: it is long-lived, so an auth rejection is a real
         misconfiguration rather than a propagation blip, and there is no ephemeral token to evict.
+        ``scoped_only`` never falls back to the PAT, which reaches every project DAIV's account can:
+        a failed mint raises ``CloneCredentialUnavailableError``.
         """
-        from codebase.clients.base import GitAuthEnv
 
-        def clone_with(token: str) -> Repo:
-            clone_dir.mkdir(exist_ok=True)
-            return Repo.clone_from(
-                repository.clone_url,
-                clone_dir,
-                branch=sha,
-                env=GitAuthEnv.for_token(repository.clone_url, token).as_env(),
-            )
+        def attempt(token: str) -> T:
+            auth_env = GitAuthEnv.for_token(repository.clone_url, token)
+            if token == self.client.private_token:
+                return operation(auth_env)
+            return self._await_token_propagation(operation, auth_env, repository)
 
-        def attempt(clone_token: str) -> Repo:
-            if clone_token == self.client.private_token:
-                return clone_with(clone_token)
-            return self._clone_awaiting_token_propagation(clone_with, clone_token, repository, clone_dir)
-
-        token = self._get_clone_token(repository)
+        token = self._get_clone_token(repository, scoped_only=scoped_only)
         try:
             return attempt(token)
         except GitCommandError as e:
             if token == self.client.private_token or not _is_clone_auth_error(e):
                 raise
             logger.warning(
-                "Clone of %s kept being rejected for authentication after the propagation window; "
+                "Git access to %s kept being rejected for authentication after the propagation window; "
                 "dropping the cached ephemeral token and retrying with a freshly minted one.",
                 repository.slug,
             )
             invalidate_clone_token(repository.pk)
-            shutil.rmtree(clone_dir, ignore_errors=True)
-            return attempt(self._get_clone_token(repository))
+            return attempt(self._get_clone_token(repository, scoped_only=scoped_only))
 
-    def _clone_awaiting_token_propagation(
-        self, clone_with: Callable[[str], Repo], token: str, repository: Repository, clone_dir: Path
-    ) -> Repo:
-        """Clone with ``token``, retrying past GitLab's clone-credential propagation lag.
+    def _await_token_propagation(
+        self, operation: Callable[[GitAuthEnv | None], T], auth_env: GitAuthEnv, repository: Repository
+    ) -> T:
+        """Run ``operation`` with ``auth_env``, retrying past GitLab's clone-credential propagation lag.
 
         A freshly minted project access token is not always immediately accepted for
         git-over-HTTPS (see :const:`CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS`); retry the same
-        token on the backoff schedule until the authorization lands. The partial clone directory
-        left by a rejected attempt is removed before the next one, since git refuses to clone into
-        a non-empty directory. A non-auth failure (missing branch, bad URL, network) propagates
-        immediately — waiting won't fix it.
+        token on the backoff schedule until the authorization lands. A non-auth failure (missing
+        branch, bad URL, network) propagates immediately — waiting won't fix it.
         """
         retries = CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS
         for attempt, delay in enumerate(retries, start=1):
             try:
-                return clone_with(token)
+                return operation(auth_env)
             except GitCommandError as e:
                 if not _is_clone_auth_error(e):
                     raise
                 logger.warning(
-                    "Clone of %s was rejected for authentication (retry %d/%d in %.1fs); a freshly "
+                    "Git access to %s was rejected for authentication (retry %d/%d in %.1fs); a freshly "
                     "minted clone token may not have propagated yet.",
                     repository.slug,
                     attempt,
                     len(retries),
                     delay,
                 )
-                shutil.rmtree(clone_dir, ignore_errors=True)
                 time.sleep(delay)
         # Retries exhausted: this final attempt's result — or its error, if the token never became
         # valid — is the caller's to handle.
-        return clone_with(token)
+        return operation(auth_env)
 
-    def _get_clone_token(self, repository: Repository) -> str:
+    def _get_clone_token(self, repository: Repository, *, scoped_only: bool = False) -> str:
         """
         Resolve the credential that authenticates the clone (via env header, never the URL).
 
@@ -548,8 +564,8 @@ class GitLabClient(RepoClient):
         the sandbox egress proxy's injected header — cannot reach beyond this project's
         repository. Falls back to the configured PAT when the token cannot be provisioned
         (e.g. PAT user below Maintainer, GitLab.com Free tier), unless
-        ``CODEBASE_GITLAB_PAT_FALLBACK`` is off, in which case the clone fails instead. Commit identity is unaffected:
-        _configure_commit_identity resolves the DAIV user through the PAT-authenticated client
+        ``CODEBASE_GITLAB_PAT_FALLBACK`` is off or ``scoped_only`` is set, in which case the clone fails instead. Commit
+        identity is unaffected: _configure_commit_identity resolves the DAIV user through the PAT-authenticated client
         either way.
 
         Logged per clone: the mint-time warning in clone_tokens fires once per negative-cache
@@ -559,13 +575,14 @@ class GitLabClient(RepoClient):
         if token := get_ephemeral_clone_token(self.client, repository.pk):
             logger.debug("Cloning %s with an ephemeral project access token", repository.slug)
             return token
-        if pat := self._fallback_pat():
+        if not scoped_only and (pat := self._fallback_pat()):
             logger.info("Cloning %s with the configured PAT (ephemeral clone token unavailable)", repository.slug)
             return pat
         raise CloneCredentialUnavailableError(
-            f"Cannot authenticate the git clone of {repository.slug}: no project access token could be created, and "
-            "the personal access token can't stand in (CODEBASE_GITLAB_PAT_FALLBACK is off, or "
-            "CODEBASE_GITLAB_AUTH_TOKEN is unset). DAIV's logs have the cause."
+            f"Cannot authenticate git access to {repository.slug}: no project access token could be created, and "
+            "the personal access token can't stand in (CODEBASE_GITLAB_PAT_FALLBACK is off, "
+            "CODEBASE_GITLAB_AUTH_TOKEN is unset, or the access needs a token for this repository alone). DAIV's logs "
+            "have the cause."
         )
 
     def _fallback_pat(self) -> str | None:
@@ -575,9 +592,11 @@ class GitLabClient(RepoClient):
             return None
         return self.client.private_token or None
 
-    def _git_egress_token(self, repository: Repository) -> str | None:
+    def _git_egress_token(self, repository: Repository, *, scoped_only: bool = False) -> str | None:
         """Same credential as the clone (see :meth:`_get_clone_token`); ``None`` (host-only
-        reachability) when there is none."""
+        reachability) when there is none. ``scoped_only`` raises instead of falling back to the PAT."""
+        if scoped_only:
+            return self._get_clone_token(repository, scoped_only=True)
         return get_ephemeral_clone_token(self.client, repository.pk) or self._fallback_pat()
 
     def push_uses_ephemeral_token(self, repository: Repository) -> bool:
@@ -1142,6 +1161,17 @@ class GitLabClient(RepoClient):
         project = self.client.projects.get(repo_id, lazy=True)
         mr = project.mergerequests.get(merge_request_id)
         return self._serialize_merge_request(repo_id, mr, merged=mr.state == "merged", closed=mr.state == "closed")
+
+    def get_merged_commit(self, repo_id: str, merge_request_id: int) -> str | None:
+        """``merge_commit_sha``, else ``squash_commit_sha``, else the head ``sha`` of a fast-forward merge."""
+        mr = self.client.projects.get(repo_id, lazy=True).mergerequests.get(merge_request_id)
+        if mr.state != "merged":
+            return None
+        return mr.merge_commit_sha or mr.squash_commit_sha or mr.sha
+
+    def is_ancestor(self, repo_id: str, ancestor: str, descendant: str) -> bool:
+        merge_base = self.client.projects.get(repo_id, lazy=True).repository_merge_base([ancestor, descendant])
+        return merge_base.get("id") == ancestor
 
     def get_merge_request_note(
         self, repo_id: str, merge_request_id: int, note_id: int, *, on_diff: bool = False

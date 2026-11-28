@@ -15,6 +15,7 @@ from automation.agent.git_state import RepoPublish
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from automation.agent.workspace.session import SandboxSession
 from codebase.base import MergeRequest, User
+from codebase.repo_config import Checkout
 from tests.unit_tests.conftest import FakeSandboxClient, FakeWorkspace, acquired_session, agent_settings, sandbox_spec
 from tests.unit_tests.sessions.executor.conftest import publisher_through_workspace
 
@@ -55,6 +56,8 @@ def _ctx(*, sandbox=None, current_ref: str = "daiv/issue-10") -> Mock:
     ctx.sandbox = sandbox
     ctx.merge_request = None
     ctx.repo.current_ref = current_ref
+    ctx.repo.submodules = ()
+    ctx.config.checkout = Checkout()
     ctx.extra_repos = ()
     del ctx.gitrepo
     return ctx
@@ -305,3 +308,61 @@ class TestExtraRepos:
 
         assert draft is None
         agent.aupdate_state.assert_awaited_once_with(config={}, values={"repo_publishes": [failed.to_state()]})
+
+
+class TestSubmoduleDrafts:
+    @staticmethod
+    def _sub(**kwargs) -> RepoPublish:
+        return RepoPublish(
+            repo_id="g/lib",
+            merge_request=None,
+            published=True,
+            current_ref="",
+            pushed_sha="lib-sha",
+            submodule_path="libs/lib",
+            root_repo_id="owner/repo",
+            parent_repo_id="owner/repo",
+            **kwargs,
+        )
+
+    async def _recover(self, *, main_publish):
+        order: list[str] = []
+        agent = _agent({"merge_request": None})
+
+        async def submodules(ctx, workspace, handle, *, recovering, **_):
+            order.append(f"submodules recovering={recovering}")
+            return [self._sub()], {"libs/lib": "lib-sha"}
+
+        async def publish(**kwargs):
+            order.append(f"main {dict(kwargs['scope'].record)} draft={kwargs['as_draft']}")
+            if isinstance(main_publish, Exception):
+                raise main_publish
+            return main_publish
+
+        with (
+            patch("automation.agent.publishers.apublish_submodules", side_effect=submodules),
+            patch("automation.agent.publishers.GitChangePublisher") as pub_cls,
+        ):
+            pub_cls.return_value.publish = AsyncMock(side_effect=publish)
+            await recover_draft(
+                _ctx(), agent, {}, thread_id="t-1", workspace=FakeWorkspace(), settings=SETTINGS, session_links=None
+            )
+        return order, agent
+
+    async def test_submodules_recover_first_and_the_main_draft_records_them(self):
+        order, agent = await self._recover(
+            main_publish=Mock(merge_request=_DRAFT_MR, protected_branch_fallback_source=None)
+        )
+
+        assert order == ["submodules recovering=True", "main {'libs/lib': 'lib-sha'} draft=True"]
+        call = next(c for c in agent.aupdate_state.await_args_list if "repo_publishes" in c.kwargs["values"])
+        (publish,) = [RepoPublish.from_state(p) for p in call.kwargs["values"]["repo_publishes"]]
+        assert publish.recorded_sha == "lib-sha"
+
+    async def test_a_failed_main_draft_leaves_its_submodules_unrecorded(self, caplog):
+        with caplog.at_level("ERROR", logger="daiv.sessions"):
+            _, agent = await self._recover(main_publish=RuntimeError("push rejected"))
+
+        call = next(c for c in agent.aupdate_state.await_args_list if "repo_publishes" in c.kwargs["values"])
+        (publish,) = [RepoPublish.from_state(p) for p in call.kwargs["values"]["repo_publishes"]]
+        assert publish.recorded_sha == ""

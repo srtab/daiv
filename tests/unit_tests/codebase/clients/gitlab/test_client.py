@@ -24,8 +24,9 @@ _CLONE_URL = "https://gitlab.com/group/repo.git"
 
 
 def _expected_clone_env(token: str) -> dict[str, str]:
-    """The git env the clone/publish is expected to run with for ``token`` (fixture's clone_url)."""
-    return GitAuthEnv.for_token(_CLONE_URL, token).as_env()
+    """The git env the clone is expected to run with for ``token`` (fixture's clone_url): LFS content is never smudged
+    by the clone."""
+    return GitAuthEnv.for_token(_CLONE_URL, token).as_env() | {"GIT_LFS_SKIP_SMUDGE": "1"}
 
 
 def _clone_dir_removals(mock_rmtree: Mock) -> int:
@@ -1409,3 +1410,135 @@ class TestGitLabClient:
         gitlab_client.client.projects.get.return_value.pipelines.list.return_value = []
 
         assert gitlab_client.get_latest_pipelines_for_ref("group/repo", "daiv/branch") == []
+
+
+class TestWithGitAuth:
+    @pytest.fixture
+    def client(self, monkeypatch):
+        with patch("codebase.clients.gitlab.client.Gitlab", return_value=Mock()):
+            client = GitLabClient(auth_token="pat-token", url="https://gitlab.com")  # noqa: S106
+        client.client.private_token = "pat-token"  # noqa: S105
+        monkeypatch.setattr("codebase.clients.gitlab.client.CLONE_TOKEN_PROPAGATION_RETRY_BACKOFF_SECONDS", (0, 0))
+        return client
+
+    @staticmethod
+    def _repository() -> Repository:
+        return Repository(
+            pk=7,
+            slug="group/lib",
+            name="lib",
+            clone_url="https://gitlab.com/group/lib.git",
+            html_url="https://gitlab.com/group/lib",
+            default_branch="main",
+            git_platform=GitPlatform.GITLAB,
+        )
+
+    @staticmethod
+    def _auth_error() -> GitCommandError:
+        return GitCommandError(["git"], 128, "fatal: Authentication failed")
+
+    def test_an_auth_error_is_retried_with_the_same_token(self, client):
+        seen = []
+
+        def operation(auth_env):
+            seen.append(auth_env.header.get_secret_value())
+            if len(seen) < 3:
+                raise self._auth_error()
+            return "ok"
+
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"):
+            assert client.with_git_auth(self._repository(), operation) == "ok"
+
+        assert len(set(seen)) == 1
+        assert seen[0] == GitAuthEnv.for_token(_CLONE_URL, "glpat-eph").header.get_secret_value()
+
+    def test_spent_retries_drop_the_cached_token_and_try_one_fresh_token(self, client):
+        tokens = iter(["glpat-stale", "glpat-fresh"])
+        seen = []
+
+        def operation(auth_env):
+            seen.append(auth_env.header.get_secret_value())
+            stale = GitAuthEnv.for_token(_CLONE_URL, "glpat-stale").header.get_secret_value()
+            if auth_env.header.get_secret_value() == stale:
+                raise self._auth_error()
+            return "ok"
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", side_effect=lambda *_: next(tokens)),
+            patch("codebase.clients.gitlab.client.invalidate_clone_token") as invalidate,
+        ):
+            assert client.with_git_auth(self._repository(), operation) == "ok"
+
+        invalidate.assert_called_once_with(7)
+        assert len(seen) == 3 + 1
+
+    def test_the_pat_is_never_retried(self, client):
+        operation = Mock(side_effect=self._auth_error())
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None),
+            pytest.raises(GitCommandError),
+        ):
+            client.with_git_auth(self._repository(), operation)
+
+        operation.assert_called_once()
+
+    def test_a_non_auth_error_propagates_at_once(self, client):
+        operation = Mock(side_effect=GitCommandError(["git"], 128, "fatal: did not contain abc"))
+
+        with (
+            patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value="glpat-eph"),
+            pytest.raises(GitCommandError),
+        ):
+            client.with_git_auth(self._repository(), operation)
+
+        operation.assert_called_once()
+
+    def test_scoped_only_never_falls_back_to_the_pat(self, client, monkeypatch):
+        monkeypatch.setattr("codebase.clients.gitlab.client.codebase_settings.GITLAB_PAT_FALLBACK", True)
+        operation = Mock()
+
+        with patch("codebase.clients.gitlab.client.get_ephemeral_clone_token", return_value=None):
+            with pytest.raises(CloneCredentialUnavailableError):
+                client.with_git_auth(self._repository(), operation, scoped_only=True)
+            with pytest.raises(CloneCredentialUnavailableError):
+                client.get_git_egress_credential(self._repository(), scoped_only=True)
+            assert client.get_git_egress_credential(self._repository()).value is not None
+
+        operation.assert_not_called()
+
+
+class TestMergedCommit:
+    @pytest.fixture
+    def client(self):
+        with patch("codebase.clients.gitlab.client.Gitlab", return_value=Mock()):
+            return GitLabClient(auth_token="pat-token", url="https://gitlab.com")  # noqa: S106
+
+    @pytest.mark.parametrize(
+        ("fields", "expected"),
+        [
+            ({"merge_commit_sha": "m", "squash_commit_sha": "s", "sha": "h"}, "m"),
+            ({"merge_commit_sha": None, "squash_commit_sha": "s", "sha": "h"}, "s"),
+            ({"merge_commit_sha": None, "squash_commit_sha": None, "sha": "h"}, "h"),
+        ],
+        ids=["merge-commit", "squash", "fast-forward"],
+    )
+    def test_the_merged_commit(self, client, fields, expected):
+        mr = Mock(state="merged", **fields)
+        client.client.projects.get.return_value.mergerequests.get.return_value = mr
+
+        assert client.get_merged_commit("group/lib", 12) == expected
+        client.client.projects.get.return_value.mergerequests.get.assert_called_once_with(12)
+
+    def test_an_unmerged_merge_request_has_none(self, client):
+        client.client.projects.get.return_value.mergerequests.get.return_value = Mock(state="opened")
+
+        assert client.get_merged_commit("group/lib", 12) is None
+
+    @pytest.mark.parametrize(("merge_base", "expected"), [("a" * 40, True), ("c" * 40, False)])
+    def test_ancestry_is_read_from_the_merge_base(self, client, merge_base, expected):
+        project = client.client.projects.get.return_value
+        project.repository_merge_base.return_value = {"id": merge_base}
+
+        assert client.is_ancestor("group/lib", "a" * 40, "b" * 40) is expected
+        project.repository_merge_base.assert_called_once_with(["a" * 40, "b" * 40])

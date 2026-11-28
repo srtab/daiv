@@ -202,8 +202,11 @@ Analytics is off unless you set `DAIV_UMAMI_WEBSITE_ID`, so DAIV sends no visito
 | `CODEBASE_WEBHOOK_SETUP_CRON` | Cron expression for periodic webhook setup (GitLab only) | `*/5 * * * *` | `*/10 * * * *` |
 | `CODEBASE_REPO_ACCESS_SYNC_CRON` | Cron expression for the periodic repository access sync | `*/15 * * * *` | `*/10 * * * *` |
 | `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` | Hours a repository's synced access data stays trusted before it is denied (fails closed); tracked per repository | `24` | `12` |
+| `CODEBASE_LFS_MAX_CLONE_BYTES` | The most Git LFS content, in bytes, one clone downloads, summed over the repository and its submodules, for repositories whose `.daiv.yml` turns on `checkout.lfs`. Files past it keep their pointer text and are reported to the agent. `0` downloads none | `268435456` (256 MiB) | `1073741824` |
 
 Set `CODEBASE_CLIENT` to `gitlab` or `github`. Only one platform is active at a time.
+
+DAIV builds the seed of a sandbox session in the worker's memory, so `CODEBASE_LFS_MAX_CLONE_BYTES` also bounds the memory LFS content adds to it. See [Submodules and LFS](../customization/repository-config.md#submodules-and-lfs).
 
 `CODEBASE_REPO_ACCESS_SYNC_CRON` sets how often DAIV copies each user's repository membership from the Git platform into its database, with one member-list call per repository. Admins are exempt from repository authorization and always have full access. DAIV tracks freshness per repository: if a repository's sync stops succeeding, for example because the platform token loses access to it, DAIV keeps using the last known access data until `CODEBASE_REPO_ACCESS_HARD_TTL_HOURS` elapse. After that the repository denies access, while the others keep syncing. See [Accounts and roles](../getting-started/accounts.md#repository-access) for the access model.
 

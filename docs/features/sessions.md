@@ -26,6 +26,8 @@ A chat is a session whose origin is **Chat**, and each message you send is a run
 
 A session can also span several repositories. A [jobs API](jobs-api.md#multi-repository-sessions) or MCP request with `shared_session` opens one session over up to 5 repositories, the first being the main one. The agent edits them together, each changed repository gets its own merge request, and the session page lists every repository and merge request. Only admins and users who can read all of its repositories can see such a session.
 
+The same holds for the submodules DAIV checked out in a session, when a repository's `.daiv.yml` turns on [submodules](../customization/repository-config.md#submodules-and-lfs): only admins and users who can read every such submodule's repository can see the session, and the session adds no observations to [repository memory](memory.md). A submodule DAIV published shows as a repository card of its own, labelled with its path and the repository that records it.
+
 ### Session origins
 
 Each session carries the origin that created it:
@@ -42,6 +44,7 @@ Each session carries the origin that created it:
 | **Pipeline Webhook** | A CI result that DAIV's [pipeline watch](pipeline-watch.md) acts on | DAIV starts a run to fix a failed pipeline on a merge request it published |
 | **Delegated Run** | A coordinator's `delegate_jobs` call ([orchestration](orchestration.md)), including a leg follow-up that continues the session | One repository's part of a multi-repository change |
 | **Delegation Resume** | The run that resumes a coordinator once its delegated batch has finished ([orchestration](orchestration.md)) | The coordinator checks every leg's outcome and reports |
+| **Submodule Merge** | The run DAIV starts when a submodule merge request it opened was squashed or rebased as it merged ([submodules](../customization/repository-config.md#after-a-submodules-merge-request-merges)) | DAIV points the parent's merge request at the commit the merge produced |
 
 ## The app sidebar
 

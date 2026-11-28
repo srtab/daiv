@@ -5,7 +5,7 @@ from django.utils import timezone
 import pytest
 from sessions.inbox.drain import Drain
 from sessions.inbox.ownership import Ownerships
-from sessions.models import InboxEvent, Session
+from sessions.models import InboxEvent, Session, SessionOrigin, SessionSubmodule
 from webhooks.dispatch import Author, Mention
 from webhooks.github.callbacks import (
     IssueCallback,
@@ -270,6 +270,34 @@ class TestPullRequestCallback:
         with patch("webhooks.github.callbacks.MergeArchive", autospec=True) as archive:
             yield archive
 
+    @pytest.fixture(autouse=True)
+    def submodules(self):
+        with patch("webhooks.github.callbacks.SubmoduleMerges", autospec=True) as submodules:
+            yield submodules
+
+    async def test_a_merge_marks_its_submodules_before_telling_the_owner_and_archiving(self, archive, submodules):
+        order = Mock()
+        order.attach_mock(submodules.return_value.amark_merged, "mark")
+        with (
+            patch.object(Ownerships, "aclose", autospec=True) as close,
+            patch("codebase.tasks.record_merge_metrics_task", aenqueue=AsyncMock()),
+        ):
+            order.attach_mock(close, "close")
+            order.attach_mock(archive.return_value.aarchive, "archive")
+            await create_pull_request_callback().process_callback()
+
+        submodules.assert_called_once_with("owner/repo", 42)
+        assert [name for name, _args, _kwargs in order.mock_calls] == ["mark", "close", "archive"]
+        submodules.return_value.aclose.assert_not_awaited()
+
+    async def test_a_close_without_merge_clears_its_submodules(self, submodules):
+        with patch.object(Ownerships, "aclose", autospec=True):
+            await create_pull_request_callback(merged=False).process_callback()
+
+        submodules.assert_called_once_with("owner/repo", 42)
+        submodules.return_value.aclose.assert_awaited_once_with()
+        submodules.return_value.amark_merged.assert_not_awaited()
+
     async def test_a_merge_archives_its_sessions(self, archive):
         with (
             patch.object(Ownerships, "aclose", autospec=True),
@@ -410,6 +438,41 @@ class TestPullRequestStateOnAnOwnedPullRequest:
         await create_pull_request_callback(merged=False).process_callback()
 
         assert not await InboxEvent.objects.aexists()
+
+    async def test_a_merge_of_a_published_submodule_keeps_its_session_pending(self):
+        session = await Session.objects.acreate(thread_id="parent", origin=SessionOrigin.CHAT, repo_id="owner/app")
+        row = await SessionSubmodule.objects.acreate(
+            session=session, root_repo_id="owner/app", parent_repo_id="owner/app", path="libs/repo",
+            repo_id="owner/repo", merge_request_iid=42, ref="daiv/repo",
+        )  # fmt: skip
+
+        with (
+            patch("sessions.tasks.settle_submodule_merge_task") as task,
+            patch("codebase.tasks.record_merge_metrics_task", aenqueue=AsyncMock()),
+        ):
+            task.aenqueue = AsyncMock()
+            await create_pull_request_callback().process_callback()
+
+        task.aenqueue.assert_awaited_once_with(repo_id="owner/repo", iid=42)
+        await row.arefresh_from_db()
+        assert row.merge_pending
+        await session.arefresh_from_db()
+        assert (session.archived_at, session.archive_pending) == (None, True)
+
+    async def test_a_close_of_a_published_submodule_clears_its_branch_and_merge_request(self):
+        session = await Session.objects.acreate(thread_id="parent", origin=SessionOrigin.CHAT, repo_id="owner/app")
+        row = await SessionSubmodule.objects.acreate(
+            session=session, root_repo_id="owner/app", parent_repo_id="owner/app", path="libs/repo",
+            repo_id="owner/repo", merge_request_iid=42, ref="daiv/repo",
+        )  # fmt: skip
+
+        with patch("sessions.tasks.settle_submodule_merge_task") as task:
+            task.aenqueue = AsyncMock()
+            await create_pull_request_callback(merged=False).process_callback()
+
+        task.aenqueue.assert_not_awaited()
+        await row.arefresh_from_db()
+        assert (row.ref, row.merge_request_iid, row.merge_pending) == ("", None, False)
 
     @pytest.mark.parametrize("merged", [True, False])
     async def test_only_a_merge_archives_the_owning_session(self, merged):

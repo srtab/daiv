@@ -7,15 +7,19 @@ import pytest
 from asgiref.sync import sync_to_async
 from sandbox_envs.models import SandboxEnvironment, Visibility
 from sessions.admission import AdmissionError, RepoAccessError
-from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository
+from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository, SessionSubmodule
 from sessions.multi_repo import (
     MAX_REPOS_PER_SESSION,
     THREAD_NOT_FOUND,
+    FetchedSubmodule,
     SharedSessionError,
     _asubmit_shared_session_run,
     ais_multi_repo,
     aload_extra_repos,
+    aload_submodules,
     apersist_extra_repo_state,
+    apersist_submodule_state,
+    arecord_fetched_submodules,
     asubmit_jobs,
     validate_shared_repos,
 )
@@ -269,6 +273,7 @@ def _publish(
     title="t",
     draft=False,
     diff_stats=None,
+    **submodule,
 ):
     from automation.agent.git_state import RepoPublish
     from codebase.base import MergeRequest, User
@@ -295,6 +300,7 @@ def _publish(
         current_ref=current_ref,
         error=error,
         diff_stats=diff_stats,
+        **submodule,
     )
 
 
@@ -410,3 +416,119 @@ async def test_persist_extra_repo_state_without_an_mr():
 
     refs = {row.repo_id: row.ref for row in await aload_extra_repos(session.thread_id)}
     assert refs == {"g/pushed": "", "g/local": "feat/local", "g/detached": ""}
+
+
+def _sub(repo_id: str, path: str = "libs/core", **publish):
+    return _publish(repo_id, submodule_path=path, root_repo_id="g/main", parent_repo_id="g/main", **publish)
+
+
+async def _session_with_submodules(*repo_ids, **fields):
+    session = await Session.objects.acreate(thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="g/main")
+    for repo_id in repo_ids:
+        await SessionSubmodule.objects.acreate(
+            session=session, root_repo_id="g/main", parent_repo_id="g/main", path=f"libs/{repo_id}", repo_id=repo_id,
+            **fields,
+        )  # fmt: skip
+    return session
+
+
+async def test_record_fetched_submodules_adds_rows_only_for_repositories_the_session_lacks():
+    session = await _session_with_submodules("g/known", recorded_sha="abc", ref="daiv/known")
+    await SessionRepository.objects.acreate(session=session, position=1, repo_id="g/extra")
+
+    await arecord_fetched_submodules(
+        session.thread_id,
+        [
+            FetchedSubmodule("g/main", "g/main", "libs/core", "g/core"),
+            FetchedSubmodule("g/extra", "g/extra", "vendor/core", "g/core"),
+            FetchedSubmodule("g/main", "g/core", "libs/core/fmt", "g/fmt"),
+            FetchedSubmodule("g/main", "g/main", "libs/self", "g/main"),
+            FetchedSubmodule("g/main", "g/main", "libs/extra", "g/extra"),
+            FetchedSubmodule("g/main", "g/main", "libs/elsewhere", "g/known"),
+        ],
+    )
+
+    rows = {row.repo_id: row for row in await aload_submodules(session.thread_id)}
+    assert set(rows) == {"g/known", "g/core", "g/fmt"}
+    assert (rows["g/core"].root_repo_id, rows["g/core"].path) == ("g/main", "libs/core")
+    assert (rows["g/fmt"].parent_repo_id, rows["g/fmt"].path) == ("g/core", "libs/core/fmt")
+    assert (rows["g/known"].path, rows["g/known"].recorded_sha, rows["g/known"].ref) == (
+        "libs/g/known", "abc", "daiv/known",
+    )  # fmt: skip
+
+
+async def test_persist_submodule_state_keeps_the_branch_merge_request_size_and_recorded_commit():
+    session = await _session_with_submodules("g/core")
+    stats = MergeRequestDiffStats(lines_added=2, lines_removed=1, files_changed=1)
+
+    await apersist_submodule_state(
+        session.thread_id,
+        [
+            _sub(
+                "g/core", iid=12, branch="daiv/core", published=True, title="Fix", draft=True, diff_stats=stats,
+                recorded_sha="1a2b3c",
+            )
+        ],
+    )  # fmt: skip
+
+    row = await SessionSubmodule.objects.aget(session_id=session.thread_id, repo_id="g/core")
+    assert (row.ref, row.merge_request_iid, row.merge_request_title, row.merge_request_draft) == (
+        "daiv/core", 12, "Fix", True,
+    )  # fmt: skip
+    assert row.merge_request_web_url == "https://git/g/core/-/merge_requests/12"
+    assert row.diff_stats == {"lines_added": 2, "lines_removed": 1, "files_changed": 1}
+    assert row.recorded_sha == "1a2b3c"
+
+
+async def test_persist_submodule_state_writes_a_branch_pushed_without_a_merge_request():
+    session = await _session_with_submodules("g/core")
+
+    await apersist_submodule_state(session.thread_id, [_sub("g/core", published=True, current_ref="daiv/core")])
+
+    assert (await SessionSubmodule.objects.aget(repo_id="g/core")).ref == "daiv/core"
+
+
+async def test_persist_submodule_state_skips_a_failed_publish_and_never_clears_a_branch_or_merge_request():
+    stored = {"ref": "daiv/core", "merge_request_iid": 12, "merge_request_title": "Kept", "recorded_sha": "old"}
+    session = await _session_with_submodules("g/core", "g/fmt", **stored)
+
+    await apersist_submodule_state(
+        session.thread_id,
+        [
+            _sub("g/core", iid=13, branch="daiv/other", error="push rejected", recorded_sha="new"),
+            _sub("g/fmt", published=False, current_ref=""),
+        ],
+    )
+
+    for repo_id in ("g/core", "g/fmt"):
+        row = await SessionSubmodule.objects.aget(repo_id=repo_id)
+        assert (row.ref, row.merge_request_iid, row.merge_request_title, row.recorded_sha) == (
+            "daiv/core", 12, "Kept", "old",
+        )  # fmt: skip
+
+
+async def test_persist_submodule_state_takes_only_a_pinned_submodules_recorded_commit():
+    session = await _session_with_submodules("g/core")
+    stats = MergeRequestDiffStats(lines_added=9)
+
+    await apersist_submodule_state(
+        session.thread_id,
+        [_sub("g/core", published=False, current_ref="feat/x", diff_stats=stats, recorded_sha="merged")],
+    )
+
+    row = await SessionSubmodule.objects.aget(repo_id="g/core")
+    assert (row.ref, row.merge_request_iid, row.diff_stats, row.recorded_sha) == ("", None, None, "merged")
+
+
+async def test_extra_repositories_and_submodules_each_persist_only_their_own_entries():
+    session = await _session_with_submodules("g/core")
+    await SessionRepository.objects.acreate(session=session, position=1, repo_id="g/core")
+    publishes = [_sub("g/core", iid=12, branch="daiv/core", published=True), _publish("g/core", current_ref="feat/x")]
+
+    await apersist_extra_repo_state(session.thread_id, publishes[:1])
+    await apersist_submodule_state(session.thread_id, publishes[1:])
+
+    extra = await SessionRepository.objects.aget(repo_id="g/core")
+    submodule = await SessionSubmodule.objects.aget(repo_id="g/core")
+    assert (extra.ref, extra.merge_request_iid) == ("", None)
+    assert (submodule.ref, submodule.merge_request_iid) == ("", None)

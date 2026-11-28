@@ -2,8 +2,10 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
+from automation.agent.constants import EXTRA_REPOS_PATH
 from automation.agent.context import RepoHandle
 from codebase.base import MergeRequest, User
+from codebase.repo_config import Checkout
 
 
 @pytest.fixture(autouse=True)
@@ -41,16 +43,23 @@ def make_merge_request(**overrides) -> MergeRequest:
 
 
 def make_repo_handle(
-    slug: str, *, current_ref: str = "main", default_branch: str = "main", head_detached: bool = False
+    slug: str,
+    *,
+    current_ref: str = "main",
+    default_branch: str = "main",
+    head_detached: bool = False,
+    workspace_path: str | None = None,
 ) -> RepoHandle:
+    """A handle at ``workspace_path``, an extra repository's ``/workspace/repos/<slug>`` by default."""
     return RepoHandle(
         repo_id=slug,
         client=Mock(),
         repository=Mock(slug=slug),
         gitrepo=Mock(),
-        config=Mock(default_branch=default_branch),
+        config=Mock(default_branch=default_branch, checkout=Checkout()),
         ref=current_ref,
         current_ref=current_ref,
         head_detached=head_detached,
         clone_seconds=0.0,
+        workspace_path=workspace_path or f"{EXTRA_REPOS_PATH}/{slug}",
     )

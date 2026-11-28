@@ -4,7 +4,13 @@ import pytest
 from sessions.inbox_display import bubble, reason_text, run_bubble
 from sessions.models import EventKind, Run, RunStatus, Session, SessionOrigin
 
-from tests.unit_tests.sessions.inbox.conftest import chat_payload, ci_payload, make_event, mention_payload
+from tests.unit_tests.sessions.inbox.conftest import (
+    chat_payload,
+    ci_payload,
+    make_event,
+    mention_payload,
+    submodule_merged_payload,
+)
 
 
 @pytest.fixture
@@ -97,6 +103,16 @@ def test_a_finished_delegation_with_no_outcome_leaves_the_text_to_its_source_lin
     result = bubble(make_event(session, EventKind.DELEGATION_FINISHED))
 
     assert (result["failed"], result["text"]) == (False, "")
+
+
+def test_a_merged_submodule_bubble_is_received_with_its_merge_request_and_commit(session):
+    payload = submodule_merged_payload(merged_sha="1a2b3c4d5e6f")
+    event = make_event(session, EventKind.SUBMODULE_MERGED, payload=payload, repo_id="group/core")
+
+    result = bubble(event)
+
+    assert (result["received"], result["failed"]) == (True, False)
+    assert result["text"] == "group/core!12 for the submodule libs/core was merged as 1a2b3c4"
 
 
 def test_a_mention_bubble_names_its_author_and_merge_request(session):

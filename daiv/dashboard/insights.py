@@ -69,6 +69,7 @@ ORIGIN_SEGMENT_CSS = {
     SessionOrigin.CHAT: "bg-teal-500/40",
     SessionOrigin.DELEGATED_JOB: "bg-fuchsia-500/40",
     SessionOrigin.DELEGATION_RESUME: "bg-pink-500/40",
+    SessionOrigin.SUBMODULE_MERGE: "bg-lime-500/40",
 }
 
 RUN_OUTCOMES = [

@@ -9,7 +9,7 @@ from django.utils.translation import gettext as _
 from django.utils.translation import ngettext
 
 from sessions.inbox.policy import MAX_SYSTEM_RUNS_IN_A_ROW
-from sessions.inbox.render import EventText
+from sessions.inbox.render import SHORT_SHA_CHARS, EventText
 from sessions.models import EventKind, QuietReason
 
 if TYPE_CHECKING:
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from sessions.models import InboxEvent, Run
 
-RECEIVED_KINDS = frozenset({EventKind.CI_FAILED, EventKind.DELEGATION_FINISHED})
+RECEIVED_KINDS = frozenset({EventKind.CI_FAILED, EventKind.DELEGATION_FINISHED, EventKind.SUBMODULE_MERGED})
 
 
 def reason_text(kind: str, reason: str, payload: Mapping[str, Any] | None = None) -> str:
@@ -63,8 +63,14 @@ def _gave_up(payload: Mapping[str, Any]) -> str:
 
 
 def received_summary(event: InboxEvent) -> str:
-    """The one line a CI failure or a finished delegated batch shows in its received bubble; ``""`` for a batch that
-    recorded no outcome, whose bubble's source line says it all."""
+    """The one line a CI failure, a finished delegated batch or a merged submodule shows in its received bubble; ``""``
+    for a batch that recorded no outcome, whose bubble's source line says it all."""
+    if event.kind == EventKind.SUBMODULE_MERGED:
+        return _("%(merge_request)s for the submodule %(path)s was merged as %(sha)s") % {
+            "merge_request": f"{event.repo_id}!{event.payload['merge_request_iid']}",
+            "path": event.payload["path"],
+            "sha": event.payload["merged_sha"][:SHORT_SHA_CHARS],
+        }
     if event.kind == EventKind.DELEGATION_FINISHED:
         if (total := event.payload.get("total")) is None:
             return ""

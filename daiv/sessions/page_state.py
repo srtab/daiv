@@ -29,7 +29,7 @@ from sessions.header import build_session_header, delegations_for, retry_for
 from sessions.hydration import ahydrate_thread
 from sessions.inbox.timeline import Timeline
 from sessions.models import Run, RunStatus
-from sessions.multi_repo import aload_extra_repos
+from sessions.multi_repo import aload_extra_repos, aload_submodules
 from sessions.repo_state import aget_existing_mr_payload
 from sessions.templatetags.session_tags import session_title
 from sessions.transcript import (
@@ -46,7 +46,7 @@ if TYPE_CHECKING:
     from accounts.models import User
     from sessions.executor.lock import LiveRun, SessionActivity
     from sessions.hydration import HydratedThread
-    from sessions.models import Session, SessionRepository
+    from sessions.models import Session, SessionRepository, SessionSubmodule
 
 logger = logging.getLogger("daiv.sessions")
 
@@ -102,6 +102,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
     )
     expired_banner = hydrated.expired and not activity.in_flight and not annotated
     extra_repositories = await aload_extra_repos(session.thread_id)
+    published_submodules = [row for row in await aload_submodules(session.thread_id) if row.merge_request_iid]
     # The pill is the working branch, as the live stream's ``_applyRepoState`` couples it to the merge request;
     # ``Session.ref`` lags it on any run that never synced back.
     thread_ref = (merge_request or {}).get("source_branch") or session.ref
@@ -114,7 +115,10 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
         )
         mark_run_openings(turns, Timeline(session.thread_id).opening_events())
         mark_skill_links(turns, session.thread_id)
-        runnable = runnable_repo_ids(user, [session.repo_id, *(r.repo_id for r in extra_repositories)])
+        runnable = runnable_repo_ids(
+            user,
+            [session.repo_id, *(r.repo_id for r in extra_repositories), *(r.repo_id for r in published_submodules)],
+        )
         can_act = session.repo_id in runnable
         delegations = delegations_for(turns, session, user)
         retry = retry_for(session, runs, turns, user, can_act=can_act)
@@ -126,6 +130,7 @@ async def aload_session_state(session: Session, user: User, *, always_look_up_me
             session,
             runs,
             extra_repositories,
+            published_submodules,
             merge_request=merge_request,
             ref=thread_ref,
             main_diff_stats=hydrated.diff_stats,
@@ -154,17 +159,20 @@ def _repositories(
     session: Session,
     runs: list[Run],
     extra_repositories: list[SessionRepository],
+    submodules: list[SessionSubmodule],
     *,
     merge_request: dict | None,
     ref: str,
     main_diff_stats: dict | None,
     runnable: set[str],
 ) -> dict:
-    """SYNC ONLY: the session's ``rows``, the main repository first, each with its branch, merge request, change
-    size, the ``errors`` of its publish in the latest run once that finished, and whether the viewer may act on its
-    merge request (``can_act``: run access to it and to the main repository, from ``runnable``); and ``ran``, whether
-    the last finished run completed, since a failed one may have left work unpublished. The main row takes
-    ``merge_request`` and ``ref`` when known, else what the database knows; the page lays the chat's live ones over it.
+    """SYNC ONLY: the session's ``rows``, the main repository first, then its extra repositories and ``submodules``,
+    each with its branch, merge request, change size, the ``errors`` of its publish in the latest run once that
+    finished, and whether the viewer may act on its merge request (``can_act``: run access to it and to the main
+    repository, from ``runnable``); and ``ran``, whether the last finished run completed, since a failed one may have
+    left work unpublished. A submodule's row has its ``submodule``, its ``path`` and the ``parent`` repository that
+    records it, which other rows leave ``None``. The main row takes ``merge_request`` and ``ref`` when known, else what
+    the database knows; the page lays the chat's live ones over it.
 
     A blank branch is the repository's default one, named when the catalog knows it. A change size that counts
     nothing is ``None``: a publish of a clean tree records zeros.
@@ -190,6 +198,7 @@ def _repositories(
             **main_mr,
             "diff_stats": _change_size(main_diff_stats),
             "can_act": can_act,
+            "submodule": None,
         },
         *(
             {
@@ -201,8 +210,23 @@ def _repositories(
                 "mr_draft": r.merge_request_draft,
                 "diff_stats": _change_size(r.diff_stats),
                 "can_act": can_act and r.repo_id in runnable,
+                "submodule": None,
             }
             for r in extra_repositories
+        ),
+        *(
+            {
+                "repo_id": r.repo_id,
+                "ref": r.ref,
+                "mr_url": r.merge_request_web_url,
+                "mr_iid": r.merge_request_iid,
+                "mr_title": r.merge_request_title,
+                "mr_draft": r.merge_request_draft,
+                "diff_stats": _change_size(r.diff_stats),
+                "can_act": can_act and r.repo_id in runnable,
+                "submodule": {"path": r.path, "parent": r.parent_repo_id},
+            }
+            for r in submodules
         ),
     ]
     for row in rows:

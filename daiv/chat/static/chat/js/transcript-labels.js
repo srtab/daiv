@@ -196,6 +196,7 @@
     inbox_notice: "Notice",
     inbox_leg_follow_up: "Leg follow-up",
     inbox_merge_request_job: "Merge request job",
+    inbox_submodule_merged: "Submodule merged",
     inbox_not_handled: "{kind} not handled",
     up_next: "Up next",
     up_next_info:

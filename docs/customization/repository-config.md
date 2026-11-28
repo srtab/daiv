@@ -1,5 +1,5 @@
 ---
-description: "Configure DAIV per repository with a .daiv.yml file: who can trigger it, which diff content it omits, feature toggles and model overrides."
+description: "Configure DAIV per repository with a .daiv.yml file: who can trigger it, which diff content it omits, feature toggles, submodules and Git LFS, and model overrides."
 ---
 
 # Repository configuration
@@ -45,6 +45,11 @@ orchestration:
 
 memory:
   enabled: true
+
+# Submodules and Git LFS content
+checkout:
+  submodules: true
+  lfs: true
 
 # Model overrides
 models:
@@ -134,6 +139,57 @@ slash_commands:
 | `memory` | `enabled` | `true` | Repository memory: capture observations from finished runs, consolidate them, and add them to the system prompt of later runs. Set it to `false` to opt this repository out. |
 
 `pipeline_watch.enabled` and `memory.enabled` apply only while the matching site-wide setting is on too: **Pipeline Watch** and **Memory** in [Site configuration](../reference/site-configuration.md). The other toggles apply to the repository alone.
+
+## Submodules and LFS
+
+By default DAIV clones the repository alone: submodule directories are empty and files Git LFS tracks hold their pointer text. The `checkout` section turns on each one for this repository.
+
+```yaml
+checkout:
+  submodules: true
+  lfs: true
+```
+
+| Section | Option | Default | Description |
+|---------|--------|---------|-------------|
+| `checkout` | `submodules` | `false` | Check out the repository's submodules, nested ones included, at the commits the branch records, and publish the changes inside those the run's person can write as merge requests in their own repositories. |
+| `checkout` | `lfs` | `false` | Download the content of LFS-tracked files, in the repository and in the submodules DAIV checked out, up to the operator's limit, `CODEBASE_LFS_MAX_CLONE_BYTES` (see [Environment variables](../reference/env-variables.md)). Files past the limit keep their pointer text. |
+
+Each repository of a session, the main one and each extra one, follows its own `.daiv.yml`. Nested submodules follow the repository that started the clone: DAIV reads a submodule's own `.daiv.yml` only for its default branch, omitted diff content and context file name, never for its `checkout` section. At the start of every run the agent is told which submodules and LFS files DAIV fetched, which it left out and why, and which submodules it may change.
+
+### What DAIV fetches, and with whose access
+
+DAIV checks out a submodule only when all of these hold:
+
+- Its URL is on the run's git platform: an HTTPS or SSH URL on the same host, or a relative URL. DAIV fetches it over HTTPS whatever the URL's scheme, and never contacts another host or uses another protocol.
+- Its repository is one DAIV works on: in the repository list DAIV syncs, which on GitLab means DAIV's account is a Maintainer of the project. Only there can DAIV mint a credential for that repository alone.
+- The person the run belongs to can read the repository, as DAIV's repository access records it. DAIV records members only, so a public or internal repository counts only for its members. For a run a DAIV user started, the rules that decide which repositories that user sees apply; for a label, mention or pipeline from a platform account, that account's access applies; for a run DAIV starts on its own, the session owner's.
+
+Each submodule is fetched with a short-lived credential minted for its repository alone, never the main repository's. LFS content comes only from the platform's own LFS API: an `lfs.url` in the repository's `.lfsconfig` is ignored. A submodule or LFS file DAIV can't fetch never fails the run: its directory stays empty, or the file keeps its pointer text, and the agent is told why.
+
+### Which submodule changes DAIV publishes
+
+DAIV publishes the changes inside a checked-out submodule when the run's person can write its repository, and every submodule between it and the repository that contains it is published too. Changes inside any other submodule are read-only and stay out of the publish. A session publishes each repository from one checkout only: the session's own repository when a submodule is also the main or an extra repository, else the first checkout of it.
+
+When the agent changed files inside a published submodule, DAIV:
+
+1. Publishes the innermost submodules first, each to a merge request in its own repository. The merge request targets the branch `.gitmodules` names for that submodule when its repository has that branch, and the repository's default branch otherwise.
+2. Records each submodule, in the repository that contains it, at exactly the commit it pushed, in that repository's own merge request.
+3. Links the merge requests to each other. The merge request of the repository that records a submodule lists the submodule's under **Merge first**.
+
+A submodule whose publish fails leaves the commit its parent records as it was, and the run's reply names it. Later turns of the session continue on each submodule's branch and update the same merge request. On GitLab, each submodule's project needs DAIV's webhook, as every project DAIV works on does, so DAIV learns when a submodule's merge request merges.
+
+### After a submodule's merge request merges
+
+Merge a submodule's merge request before the merge request that records it. When the submodule's merge request is squashed or rebased as it merges, the commit DAIV recorded is no longer on any of that repository's branches. DAIV then wakes the session and records the commit the merge produced: in the parent's open merge request, or in a new one from the default branch when the parent's merge request already merged. When the parent's branch no longer records the commit DAIV pushed, DAIV changes nothing. Either way the session says what DAIV did. A merge commit that keeps DAIV's commit needs no change, and DAIV starts no run for it.
+
+### What DAIV doesn't publish
+
+- Changes to LFS-tracked files, new ones included, in the repository or in a submodule DAIV publishes.
+- Changes inside read-only submodules.
+- Adding, removing or moving a submodule. Edits to `.gitmodules` are published like any other file.
+
+DAIV publishes the rest of the run's changes, and the run's reply names what it left out and why. A turn whose only changes are left out publishes nothing.
 
 ## Model overrides
 

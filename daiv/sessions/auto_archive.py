@@ -18,10 +18,11 @@ class MergeArchive:
     it still has live work (:meth:`SessionQuerySet.without_live_work`).
 
     One that owns another open merge request is archived when that one merges. One held back only by its own unfinished
-    run or waking inbox event, or by a leg's unfinished run or open merge request, is marked ``archive_pending``, and
-    archived by :meth:`settle` once that work ends: when a run of its own or of one of its legs ends, or when a leg's
-    merge request merges or closes. Each merge is handled once (``ArchivedMerge``), so a redelivered merge archives
-    nothing, not even a session someone has unarchived since.
+    run, waking inbox event or unsettled submodule merge (``sessions.submodule_merges``), or by a leg's unfinished run
+    or open merge request, is marked ``archive_pending``, and archived by :meth:`settle` once that work ends: when a run
+    of its own or of one of its legs ends, when its submodule merge is settled, or when a leg's merge request merges or
+    closes. Each merge is handled once (``ArchivedMerge``), so a redelivered merge archives nothing, not even a session
+    someone has unarchived since.
     """
 
     def __init__(self, repo_id: str, merge_request_iid: int) -> None:

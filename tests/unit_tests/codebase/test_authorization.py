@@ -16,6 +16,9 @@ from codebase.authorization import (
     can_run,
     can_view,
     get_access_level,
+    is_catalogued,
+    platform_account_can_view,
+    platform_account_can_write,
     runnable_repo_ids,
     runnable_repository_facets,
     runnable_repository_matches,
@@ -617,3 +620,42 @@ class TestRunnableRepositoryMatches:
         assert result.total == 2
         assert result.candidates == [("team/billing", "main"), ("team/etl", "main")]
         assert result.matching_selected == ["team/etl"]
+
+
+class TestPlatformAccountAccess:
+    def test_a_fresh_row_lets_the_account_read(self, fresh_sync):
+        _grant("555", "a/b", RepoAccessLevel.READ)
+
+        assert platform_account_can_view("555", "a/b") is True
+        assert platform_account_can_write("555", "a/b") is False
+
+    def test_a_write_row_lets_the_account_write(self, fresh_sync):
+        _grant("555", "a/b", RepoAccessLevel.WRITE)
+
+        assert platform_account_can_write("555", "a/b") is True
+
+    def test_no_row_a_stale_row_or_another_providers_row_denies(self, fresh_sync):
+        _grant("555", "stale/repo", RepoAccessLevel.WRITE, synced_at=timezone.now() - timedelta(hours=30))
+        RepositoryAccess.objects.create(
+            provider="github",
+            uid="555",
+            username="u",
+            repo_id="gh/repo",
+            access_level="write",
+            synced_at=timezone.now(),
+        )
+
+        for repo_id in ("missing/repo", "stale/repo", "gh/repo"):
+            assert platform_account_can_view("555", repo_id) is False
+            assert platform_account_can_write("555", repo_id) is False
+
+
+class TestIsCatalogued:
+    def test_only_a_catalogued_repository(self, db):
+        _catalog("a/b")
+
+        assert is_catalogued("a/b") is True
+        assert is_catalogued("c/d") is False
+
+    def test_an_empty_catalog_holds_nothing(self, db):
+        assert is_catalogued("a/b") is False

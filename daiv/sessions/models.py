@@ -15,6 +15,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
+from django_extensions.db.models import TimeStampedModel
+
 from automation.agent.references import ExternalRef, refs_from_stored  # noqa: TC001
 from core.constants import INTERRUPTED_MESSAGE
 from core.models import ProviderFailureKind, ThinkingLevelChoices
@@ -43,7 +45,15 @@ RESULT_SUMMARY_MAX_CHARS = 2000
 # The agent may still push a commit or open an MR while the row shows FAILED.
 LINK_FAILED_PREFIX = "link_failed (agent task will run but its result cannot be captured)"
 
-_INBOX_TRIGGER_LITERALS = ["chat", "mr_webhook", "api_job", "mcp_job", "delegation_resume", "pipeline_webhook"]
+_INBOX_TRIGGER_LITERALS = [
+    "chat",
+    "mr_webhook",
+    "api_job",
+    "mcp_job",
+    "delegation_resume",
+    "pipeline_webhook",
+    "submodule_merge",
+]
 
 
 class RunStatus(models.TextChoices):
@@ -100,6 +110,7 @@ class SessionOrigin(models.TextChoices):
     PIPELINE_WEBHOOK = "pipeline_webhook", _("Pipeline Webhook")
     DELEGATED_JOB = "delegated_job", _("Delegated Run")
     DELEGATION_RESUME = "delegation_resume", _("Delegation Resume")
+    SUBMODULE_MERGE = "submodule_merge", _("Submodule Merge")
 
     @classmethod
     def webhooks(cls) -> frozenset[str]:
@@ -120,19 +131,20 @@ class SessionOrigin(models.TextChoices):
 
     @classmethod
     def daiv_authored(cls) -> frozenset[str]:
-        """Triggers whose run prompt DAIV writes rather than a person: a CI fix and a delegation resume."""
-        return frozenset({cls.PIPELINE_WEBHOOK, cls.DELEGATION_RESUME})
+        """Triggers whose run prompt DAIV writes rather than a person: a CI fix, a delegation resume and the update of a
+        submodule's recorded commit after its merge request merged."""
+        return frozenset({cls.PIPELINE_WEBHOOK, cls.DELEGATION_RESUME, cls.SUBMODULE_MERGE})
 
     @classmethod
     def classified(cls) -> frozenset[str]:
         """Non-chat origins that receive a RunEnvelope: SCHEDULE, the webhooks, the prompt-driven triggers and the runs
-        DAIV writes the prompt of (a CI fix, a delegation resume)."""
+        DAIV writes the prompt of (a CI fix, a delegation resume, a submodule merge)."""
         return frozenset({cls.SCHEDULE}) | cls.webhooks() | cls.prompt_driven() | cls.daiv_authored()
 
     @classmethod
     def unattended(cls) -> frozenset[str]:
         """Job triggers nobody is around to answer a question for."""
-        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK, cls.DELEGATED_JOB})
+        return frozenset({cls.SCHEDULE, cls.PIPELINE_WEBHOOK, cls.DELEGATED_JOB, cls.SUBMODULE_MERGE})
 
     @classmethod
     def one_active(cls) -> frozenset[str]:
@@ -292,6 +304,15 @@ class Session(models.Model):
     async def arepo_ids(self) -> list[str]:
         return [self.repo_id, *[repo_id async for repo_id in self.extra_repositories.values_list("repo_id", flat=True)]]
 
+    def submodule_repo_ids(self) -> list[str]:
+        """The repositories of the submodules DAIV fetched in the session (``SessionSubmodule``)."""
+        return list(self.submodules.values_list("repo_id", flat=True))
+
+    async def aholds_other_repositories(self) -> bool:
+        """Whether the session holds code from a repository besides its main one: an extra repository or a submodule
+        DAIV fetched."""
+        return await self.extra_repositories.aexists() or await self.submodules.aexists()
+
     def touch(self) -> None:
         """Bump ``last_active_at`` (a queryset update, so no other column is written)."""
         type(self).objects.filter(pk=self.pk).update(last_active_at=timezone.now())
@@ -400,6 +421,53 @@ class SessionRepository(models.Model):
 
     def __str__(self) -> str:
         return f"{self.repo_id} ({self.session_id})"
+
+
+class SessionSubmodule(TimeStampedModel):
+    """A submodule repository DAIV fetched in a session, never its main or an extra repository.
+
+    ``ref`` and the merge request fields are its working branch and merge request, blank until it is published and
+    again once that merge request merges or closes (``sessions.submodule_merges``). ``recorded_sha`` is the commit its
+    parent records, as DAIV's last successful publish of that parent set it.
+    """
+
+    session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name="submodules", verbose_name=_("session"))
+    root_repo_id = models.CharField(
+        _("root repository"),
+        max_length=255,
+        help_text=_("The repository of the session whose checkout holds the submodule."),
+    )
+    parent_repo_id = models.CharField(
+        _("parent repository"),
+        max_length=255,
+        help_text=_("The repository whose commit records the submodule: the root, or an outer submodule's."),
+    )
+    path = models.TextField(_("path"), help_text=_("The submodule's path from the top of the root's checkout."))
+    repo_id = models.CharField(_("repository"), max_length=255)
+    ref = models.CharField(_("branch / ref"), max_length=255, blank=True, default="")
+    recorded_sha = models.CharField(_("recorded commit"), max_length=64, blank=True, default="")
+    merge_pending = models.BooleanField(
+        _("merge pending"),
+        default=False,
+        help_text=_(
+            "Its merge request merged, and DAIV hasn't checked yet whether its parent needs the merged commit."
+        ),
+    )
+    merge_request_iid = models.PositiveIntegerField(_("merge request IID"), null=True, blank=True)
+    merge_request_web_url = models.URLField(_("merge request URL"), max_length=500, blank=True, default="")
+    merge_request_title = models.TextField(_("merge request title"), blank=True, default="")
+    merge_request_draft = models.BooleanField(_("merge request is a draft"), default=False)
+    diff_stats = models.JSONField(_("change size"), null=True, blank=True)
+
+    class Meta:
+        verbose_name = _("Session submodule")
+        verbose_name_plural = _("Session submodules")
+        ordering = ["created", "pk"]
+        indexes = [models.Index(fields=["repo_id", "merge_request_iid"], name="session_submodule_mr_idx")]
+        constraints = [models.UniqueConstraint(fields=["session", "repo_id"], name="session_submodule_unique")]
+
+    def __str__(self) -> str:
+        return f"{self.repo_id} at {self.path} of {self.root_repo_id} ({self.session_id})"
 
 
 class Run(models.Model):
@@ -1004,6 +1072,7 @@ class EventKind(models.TextChoices):
     NOTICE = "notice", _("Notice")
     LEG_FOLLOW_UP = "leg_follow_up", _("Leg follow-up")
     MERGE_REQUEST_JOB = "merge_request_job", _("Merge request job")
+    SUBMODULE_MERGED = "submodule_merged", _("Submodule merged")
 
 
 class EventState(models.TextChoices):

@@ -250,6 +250,7 @@ def test_detail_lists_every_repository_and_its_mr(member_client, member_user):
         "mr_draft": True,
         "diff_stats": {"lines_added": 4, "lines_removed": 9, "files_changed": 1},
         "can_act": True,
+        "submodule": None,
         "errors": [],
     }
     assert rows[0]["repo_id"] == "g/app"

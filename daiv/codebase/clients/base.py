@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import urlparse
 
 from asgiref.sync import sync_to_async
@@ -34,15 +34,37 @@ from codebase.conf import settings
 from core.sandbox.egress import PlatformCredential
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator
+    from collections.abc import Callable, Iterable, Iterator
 
     from git import Repo
     from github import Github
     from gitlab import Gitlab
 
+    from codebase.clients.checkout import CheckoutOptions, CheckoutReport, RunRepoAccess
+
 logger = logging.getLogger("daiv.clients")
 
+T = TypeVar("T")
+
 GIT_NO_PROMPT_ENV = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": ""}
+
+GIT_INHERITED_ENV = (
+    "PATH",
+    "HOME",
+    "http_proxy",
+    "https_proxy",
+    "no_proxy",
+    "all_proxy",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "NO_PROXY",
+    "ALL_PROXY",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+)
+"""The variables of the worker's environment a git subprocess keeps: the rest holds DAIV's secrets."""
 
 PLATFORM_ERRORS: tuple[type[Exception], ...] = (GitlabError, GithubException, OSError)
 """A failure of the platform rather than of DAIV: an API error, or a network one, since both SDKs transport over
@@ -282,22 +304,51 @@ class RepoClient(abc.ABC):
     def load_repo(self, repository: Repository, sha: str) -> Iterator[Repo]:
         pass
 
-    def get_git_egress_credential(self, repository: Repository) -> GitEgressCredential | None:
+    def complete_checkout(
+        self,
+        repo: Repo,
+        repository: Repository,
+        options: CheckoutOptions,
+        access: RunRepoAccess,
+        *,
+        parent_base_branch: str = "",
+    ) -> CheckoutReport:
+        """Check out ``repo``'s submodules and fetch its LFS content, as ``options`` asks; see
+        :class:`~codebase.clients.checkout.RepoCheckout`. Blocking: call it from a worker thread."""
+        from codebase.clients.checkout import RepoCheckout
+
+        return RepoCheckout(self, options=options, access=access).complete(
+            repo, repository, parent_base_branch=parent_base_branch
+        )
+
+    def with_git_auth(
+        self, repository: Repository, operation: Callable[[GitAuthEnv | None], T], *, scoped_only: bool = False
+    ) -> T:
+        """Run ``operation`` with a credential for ``repository``'s git-over-HTTPS, minted now.
+
+        ``scoped_only`` refuses any credential that reaches beyond ``repository``: a failed mint raises instead. GitLab
+        overrides this to wait out its token propagation lag and heal a dead cached token."""
+        return operation(self.get_git_auth_env(repository, scoped_only=scoped_only))
+
+    def get_git_egress_credential(
+        self, repository: Repository, *, scoped_only: bool = False
+    ) -> GitEgressCredential | None:
         """Egress allow-rule + credential for this repo's git platform, or ``None`` for platforms
         that need none. Resolved per run because the host is repo-derived and the token is
         short-lived — never stored on the environment.
 
         The shared shape lives here — derive the host from the clone URL, then build a
         ``Basic oauth2:<token>`` credential. Platforms supply only the token via
-        :meth:`_git_egress_token` (overriding this method is unnecessary)."""
+        :meth:`_git_egress_token` (overriding this method is unnecessary). ``scoped_only`` is
+        :meth:`with_git_auth`'s."""
         parsed = urlparse(repository.clone_url)
         if not parsed.hostname:
             return None
         return GitEgressCredential.for_token(
-            host=parsed.hostname, token=self._git_egress_token(repository), path=parsed.path
+            host=parsed.hostname, token=self._git_egress_token(repository, scoped_only=scoped_only), path=parsed.path
         )
 
-    def _git_egress_token(self, repository: Repository) -> str | None:
+    def _git_egress_token(self, repository: Repository, *, scoped_only: bool = False) -> str | None:
         """Short-lived token authenticating git-over-HTTPS for this repo's platform, or ``None`` for
         platforms that need no credential (host-only reachability). Overridden by GitLab/GitHub."""
         return None
@@ -336,7 +387,7 @@ class RepoClient(abc.ABC):
         when the branch has none."""
         raise NotImplementedError
 
-    def get_git_auth_env(self, repository: Repository) -> GitAuthEnv | None:
+    def get_git_auth_env(self, repository: Repository, *, scoped_only: bool = False) -> GitAuthEnv | None:
         """Per-invocation credential overlay for *local-mode* git network operations
         (push/fetch/ls-remote), or ``None`` for platforms whose remotes need no credential
         (e.g. SWE eval's public repos).
@@ -345,8 +396,8 @@ class RepoClient(abc.ABC):
         overlay it on each git subprocess instead. Resolved at call time — the token is short-lived,
         so it is minted/fetched per publish rather than pinned at clone time. A ``None`` return also
         covers the case where a credential *was* required but could not be minted; the debug log
-        distinguishes that from the no-credential-needed case."""
-        token = self._git_egress_token(repository)
+        distinguishes that from the no-credential-needed case. ``scoped_only`` is :meth:`with_git_auth`'s."""
+        token = self._git_egress_token(repository, scoped_only=scoped_only)
         if not token:
             logger.debug(
                 "No git credential resolved for %s; local-mode git will run unauthenticated "
@@ -495,6 +546,15 @@ class RepoClient(abc.ABC):
     @abc.abstractmethod
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         pass
+
+    @abc.abstractmethod
+    def get_merged_commit(self, repo_id: str, merge_request_id: int) -> str | None:
+        """The commit a merged merge request produced on its target branch: the merge commit, the squash commit, or
+        for a fast-forward or rebase merge its last commit. ``None`` while it is not merged."""
+
+    @abc.abstractmethod
+    def is_ancestor(self, repo_id: str, ancestor: str, descendant: str) -> bool:
+        """Whether ``descendant`` contains ``ancestor`` (the same commit counts)."""
 
     @abc.abstractmethod
     def get_merge_request_by_branches(self, repo_id: str, source_branch: str) -> MergeRequest | None:

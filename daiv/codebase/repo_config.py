@@ -77,6 +77,27 @@ class Memory(BaseModel):
     )
 
 
+class Checkout(BaseModel):
+    """
+    What DAIV checks out beyond the repository's own files.
+    """
+
+    submodules: bool = Field(
+        default=False,
+        description=(
+            "Check out the repository's submodules, nested ones included, at the commits the branch records, and "
+            "publish changes inside those the person can write as merge requests in their own repositories."
+        ),
+    )
+    lfs: bool = Field(
+        default=False,
+        description=(
+            "Download the content of LFS-tracked files, in the repository and in the submodules DAIV checked out, up "
+            "to the operator's limit. Changes to LFS-tracked files are not published."
+        ),
+    )
+
+
 class Orchestration(BaseModel):
     """
     Delegation configuration.
@@ -229,6 +250,9 @@ class RepositoryConfig(BaseModel):
         default_factory=PipelineWatch, description="Configure CI babysitting for published merge requests."
     )
     memory: Memory = Field(default_factory=Memory, description="Configure learned repository memory features.")
+    checkout: Checkout = Field(
+        default_factory=Checkout, description="Configure checking out submodules and Git LFS content."
+    )
     orchestration: Orchestration = Field(
         default_factory=Orchestration,
         description="Configure delegation of sub-jobs to other repositories or to this one.",

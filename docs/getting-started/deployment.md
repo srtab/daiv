@@ -20,6 +20,8 @@ To try DAIV on one machine first, follow the [Quickstart](quickstart.md).
 
 You also need a domain name that points to your server, with an SSL certificate for it, and a way for your Git platform to reach `DAIV_EXTERNAL_URL`. Your Git platform sends webhooks to that URL.
 
+DAIV's image includes `git-lfs`, which the worker needs to download Git LFS content for repositories that turn on [`checkout.lfs`](../customization/repository-config.md#submodules-and-lfs). If you build your own image, install the `git-lfs` package in it. Without it, DAIV reports every LFS file of those repositories as a failed download, and the worker log names the missing program. Sandbox images need no `git-lfs`.
+
 ## Services DAIV runs
 
 DAIV needs these services. The samples below run all of them:

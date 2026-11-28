@@ -12,7 +12,7 @@ from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langsmith import get_current_run_tree
 
-from automation.agent.context import RuntimeCtx, extra_repo_path
+from automation.agent.context import RepoHandle, RuntimeCtx, SubmoduleRole
 from automation.agent.events import (
     PUBLISH_RESULT_EVENT,
     publish_result_payload,
@@ -27,13 +27,17 @@ from automation.agent.publishers import (
     UnresolvedMergeConflictsError,
     aopen_branch_merge_request,
     apublish_extra_repos,
+    apublish_submodules,
+    mark_recorded,
     publish_failure,
 )
 from automation.agent.sibling_links import RelatedMergeRequest, aensure_related_links
 from automation.agent.synthetic import PUBLISH_FAILURES_KIND, synthetic_ai_message
 from automation.agent.utils import final_assistant_text, streamed_assistant_message
+from automation.agent.workspace.git_manager import KeptOut, KeptOutSubmodule, PublishScope
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
-from codebase.base import MergeRequest, Scope
+from codebase.base import GitPlatform, MergeRequest, Scope
+from codebase.clients.checkout import CheckoutReport, PublishBlock, SkipReason, SubmoduleNote
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -93,7 +97,11 @@ The repository above is the main one, checked out at `/workspace/repo`. This ses
 - Fix a problem in the repository whose code causes it; never work around one repository's bug in another.
 - When your turn ends, each repository's changes are committed, pushed and opened as their own merge request.
 - A repository's own agent instructions, if any, are in `<path>/.agents/AGENTS.md` or `<path>/AGENTS.md`: read them before changing that repository.
-{{/has_other_repositories}}""",  # noqa: E501
+{{/has_other_repositories}}
+{{#has_checkout_sections}}
+
+{{&checkout_sections}}
+{{/has_checkout_sections}}""",  # noqa: E501
     "mustache",
 )
 
@@ -178,18 +186,202 @@ def _turn_publish_reset() -> dict[str, Any]:
     return {"code_changes": False, "published": False, "repo_publishes": [], "main_publish_error": None}
 
 
+LIST_CAP = 20
+
+SKIP_PHRASES = {
+    SkipReason.OUTSIDE_PLATFORM: "it is outside this git platform",
+    SkipReason.NOT_CATALOGUED: "DAIV doesn't work on that repository",
+    SkipReason.DAIV_NO_ACCESS: "DAIV's account can't read that repository",
+    SkipReason.PERSON_NO_ACCESS: "the person this run belongs to can't read that repository",
+    SkipReason.COMMIT_MISSING: "the commit this branch records no longer exists in that repository",
+    SkipReason.OVER_LIMIT: "over the LFS download limit",
+    SkipReason.FETCH_FAILED: "the download failed",
+}
+
+
+def block_phrase(role: SubmoduleRole) -> str:
+    """Why DAIV doesn't publish a submodule, as the agent and the person read it."""
+    if role.publish_block is PublishBlock.PUBLISHED_ELSEWHERE:
+        return f"that repository is published from `{role.published_from}`"
+    if role.publish_block is PublishBlock.PARENT_NOT_PUBLISHED:
+        return "the submodule that contains it is read-only"
+    return "the person this run belongs to can't write to that repository"
+
+
+def _capped[T](items: Sequence[T]) -> tuple[list[T], int]:
+    return list(items[:LIST_CAP]), max(len(items) - LIST_CAP, 0)
+
+
+def checkout_section(handle: RepoHandle) -> str:
+    """The prompt's section on what completing ``handle``'s clone checked out and left out, and which submodules DAIV
+    publishes (contracts/agent-context.md §1); ``""`` for a repository that didn't opt in."""
+    report = handle.checkout
+    if report.is_empty:
+        return ""
+    lines = [f"## Submodules and LFS files in `{handle.repository.slug}`", ""]
+    published = [sub for sub in handle.submodules if cast("SubmoduleRole", sub.submodule).publish_block is None]
+    read_only = [sub for sub in handle.submodules if cast("SubmoduleRole", sub.submodule).publish_block is not None]
+    if published:
+        lines.append(
+            "- Submodules whose changes are published as their own merge request, with this repository updated to "
+            "point at it:"
+        )
+        shown, more = _capped(published)
+        for sub in shown:
+            role = cast("SubmoduleRole", sub.submodule)
+            entry = f"  - `{role.path}` (`{sub.repository.slug}`, into `{role.target_branch}`)"
+            if role.note is SubmoduleNote.BRANCH_MOVED_ON:
+                entry += (
+                    ": its branch no longer contains the commit this repository records, so changes there open a new "
+                    "merge request"
+                )
+            elif not sub.head_detached:
+                entry += f": continues its open merge request on its branch `{sub.current_ref}`"
+            lines.append(f"{entry}.")
+        if more:
+            lines.append(f"  - and {more} more.")
+    if read_only:
+        lines.append("- Submodules checked out read-only (changes there are not published):")
+        shown, more = _capped(read_only)
+        for sub in shown:
+            role = cast("SubmoduleRole", sub.submodule)
+            lines.append(f"  - `{role.path}` (`{sub.repository.slug}`): {block_phrase(role)}.")
+        if more:
+            lines.append(f"  - and {more} more.")
+    if skipped := report.skipped_submodules:
+        lines.append("- Not checked out (the directory is empty):")
+        shown_skipped, more = _capped(skipped)
+        for sub in shown_skipped:
+            lines.append(
+                f"  - `{sub.path}` (`{sub.repo_id or sub.url}`): {SKIP_PHRASES[cast('SkipReason', sub.skipped)]}."
+            )
+        if more:
+            lines.append(f"  - and {more} more.")
+    if report.options.lfs and (skipped_files := report.skipped_lfs_files):
+        shown_files, more = _capped(skipped_files)
+        names = ", ".join(f"`{file.path}` ({SKIP_PHRASES[cast('SkipReason', file.skipped)]})" for file in shown_files)
+        lines.append(
+            f"- LFS files not downloaded (they hold their pointer text): {names}{f', and {more} more' if more else ''}."
+        )
+    lines.append(_not_published_bullet(report))
+    return "\n".join(lines)
+
+
+def _not_published_bullet(report: CheckoutReport) -> str:
+    parts = []
+    if report.options.lfs:
+        parts.append("Changes to LFS-tracked files")
+    if report.options.submodules:
+        parts += ["adding or removing a submodule", "changes inside read-only submodules"]
+    what = parts[0] if len(parts) == 1 else f"{', '.join(parts[:-1])}, and {parts[-1]}"
+    what = what[0].upper() + what[1:]
+    bullet = f"- {what} are not published: the harness leaves them out of the commit and says so when your turn ends."
+    if report.options.submodules:
+        bullet += " Don't commit inside a submodule; the harness does that for the published ones."
+    return bullet
+
+
 def _sibling_notices(ctx: RuntimeCtx, repo_publishes: list[RepoPublish]) -> tuple[list[str], str | None]:
     """The turn-end notices of the extra repositories: one naming the conflicted files of each that stopped on merge
-    conflicts, and the list of the others whose publish failed (``None`` when none did)."""
+    conflicts, and the list of the others whose publish failed (``None`` when none did). A submodule's failure is in
+    its root's kept-out notice instead."""
+    slugs = {handle.repo_id: handle.repository.slug for handle in ctx.extra_repos}
     conflicts: list[str] = []
     failed: list[str] = []
-    for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True):
+    for publish in repo_publishes:
+        if publish.submodule_path or publish.repo_id not in slugs:
+            continue
+        slug = slugs[publish.repo_id]
         if publish.conflicted_paths:
-            conflicts.append(_conflicts_notice(publish.conflicted_paths, where=f" in `{handle.repository.slug}`"))
+            conflicts.append(_conflicts_notice(publish.conflicted_paths, where=f" in `{slug}`"))
         elif publish.error:
-            failed.append(f"- `{handle.repository.slug}`: {publish.error}")
+            failed.append(f"- `{slug}`: {publish.error}")
     failures = "\n".join(["I couldn't publish the changes in these repositories:", *failed]) if failed else None
     return conflicts, failures
+
+
+def _merge_request_ref(handle: RepoHandle, merge_request: MergeRequest) -> str:
+    separator = "!" if handle.client.git_platform == GitPlatform.GITLAB else "#"
+    return f"{handle.repository.slug}{separator}{merge_request.merge_request_id}"
+
+
+def kept_out_notice(
+    root: RepoHandle, kept_out: KeptOut | None, submodule_publishes: Sequence[RepoPublish], *, where: str
+) -> str | None:
+    """The turn-end notice of what ``root``'s publish and its submodules' publishes left out, the submodules that
+    couldn't be published, and the pins applied or left (contracts/agent-context.md §2); ``None`` when there is none.
+    ``where`` is a trailing place phrase or ``""``."""
+    subs = {cast("SubmoduleRole", sub.submodule).path: sub for sub in root.submodules}
+    lines: list[str] = []
+    sources: list[tuple[str, KeptOut | None]] = [("", kept_out)]
+    sources += [(f"{publish.submodule_path}/", publish.kept_out) for publish in submodule_publishes]
+    lfs_paths: list[str] = []
+    for prefix, source in sources:
+        if not source:
+            continue
+        lfs_paths += [f"{prefix}{path}" for path in source.lfs_paths]
+        for entry in source.submodules:
+            lines.append(_kept_out_line(f"{prefix}{entry.path}", entry, subs, submodule_publishes))
+    for publish in submodule_publishes:
+        if publish.error:
+            lines.append(
+                f"- The submodule `{publish.submodule_path}` couldn't be published, so its parent still points at its "
+                "old commit."
+            )
+    if lfs_paths:
+        shown, more = _capped(lfs_paths)
+        lines.append(
+            f"- LFS-tracked files: {', '.join(f'`{path}`' for path in shown)}{f', and {more} more' if more else ''}."
+        )
+    pins = _pin_lines(subs, submodule_publishes)
+    if not lines and not pins:
+        return None
+    paragraphs = [f"I didn't publish some of my changes{where}:\n" + "\n".join(lines)] if lines else []
+    return "\n\n".join([*paragraphs, *pins])
+
+
+def _kept_out_line(
+    path: str, entry: KeptOutSubmodule, subs: dict[str, RepoHandle], publishes: Sequence[RepoPublish]
+) -> str:
+    if entry.remote_moved:
+        line = (
+            f"- The submodule `{path}` is still at the commit the branch's latest push set: someone moved it while I "
+            "worked, and their commit wins."
+        )
+        merge_request = next(
+            (p.merge_request for p in publishes if p.submodule_path == path and p.merge_request is not None), None
+        )
+        if merge_request is not None and path in subs:
+            line += f" My changes there are in `{_merge_request_ref(subs[path], merge_request)}`."
+        return line
+    if entry.removed:
+        return f"- The submodule `{path}` was removed or moved, which DAIV doesn't publish."
+    if entry.added:
+        return f"- `{path}` was added as a submodule, which DAIV doesn't publish."
+    if entry.changed_files:
+        why = f" ({block_phrase(cast('SubmoduleRole', subs[path].submodule))})" if path in subs and entry.block else ""
+        files = ", ".join(f"`{name}`" for name in entry.changed_files)
+        more = f", and {entry.more} more" if entry.more else ""
+        return f"- Inside the read-only submodule `{path}`{why}: {files}{more}."
+    return f"- The submodule `{path}` points at another commit, which DAIV doesn't publish."
+
+
+def _pin_lines(subs: dict[str, RepoHandle], publishes: Sequence[RepoPublish]) -> list[str]:
+    recorded = {publish.submodule_path: publish.recorded_sha for publish in publishes}
+    lines = []
+    for path, sub in subs.items():
+        role = cast("SubmoduleRole", sub.submodule)
+        if role.pinned and recorded.get(path) == role.pinned:
+            lines.append(
+                f"Updated the submodule `{path}` to `{role.pinned[:7]}`, the commit its merge request in "
+                f"`{sub.repository.slug}` was merged as."
+            )
+        elif role.note is SubmoduleNote.PIN_LEFT:
+            lines.append(
+                f"Left the submodule `{path}` as it is: this branch no longer records the commit DAIV pushed to "
+                f"`{sub.repository.slug}`."
+            )
+    return lines
 
 
 def _conflicts_notice(paths: Sequence[str], *, where: str) -> str:
@@ -403,7 +595,7 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
         other_repositories = [
             {
                 "repository": handle.repository.slug,
-                "path": extra_repo_path(handle),
+                "path": handle.workspace_path,
                 "current_branch": handle.current_ref,
                 "default_branch": handle.config.default_branch,
             }
@@ -420,6 +612,8 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             "has_other_repositories": bool(other_repositories),
             "other_repositories": other_repositories,
         }
+        if sections := [section for handle in runtime_ctx.repos if (section := checkout_section(handle))]:
+            context |= {"has_checkout_sections": True, "checkout_sections": "\n\n".join(sections)}
 
         system_prompt = ""
         if request.system_prompt:
@@ -439,20 +633,47 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
     async def _alink_related(
         ctx: RuntimeCtx, main_merge_request: MergeRequest | None, repo_publishes: list[RepoPublish]
     ) -> None:
-        """Link the session's merge requests to each other, the main one first; a no-op below two of them."""
-        if not ctx.extra_repos:
-            return
+        """Link the session's merge requests to each other, the main one first, each submodule's with the repository
+        that records it; a no-op below two of them."""
+        handles = {handle.repo_id: handle for handle in ctx.repos}
+        handles |= {sub.repo_id: sub for handle in ctx.repos for sub in handle.submodules}
         entries = (
             [RelatedMergeRequest(ctx.repo.client, ctx.repository.slug, main_merge_request)]
             if main_merge_request
             else []
         )
-        entries += [
-            RelatedMergeRequest(handle.client, handle.repository.slug, publish.merge_request)
-            for handle, publish in zip(ctx.extra_repos, repo_publishes, strict=True)
-            if publish.merge_request is not None
-        ]
+        for publish in repo_publishes:
+            handle = handles.get(publish.repo_id)
+            if publish.merge_request is None or handle is None:
+                continue
+            parent = handles.get(publish.parent_repo_id) if publish.parent_repo_id else None
+            entries.append(
+                RelatedMergeRequest(
+                    handle.client,
+                    handle.repository.slug,
+                    publish.merge_request,
+                    parent_repo_id=parent.repository.slug if parent is not None else "",
+                )
+            )
         await aensure_related_links(entries)
+
+    @staticmethod
+    def _kept_out_notices(
+        ctx: RuntimeCtx, outcome: PublishOutcome | None, repo_publishes: Sequence[RepoPublish]
+    ) -> list[str]:
+        """Each repository's kept-out notice, main first, naming the repository when the session has more than one."""
+        notices = []
+        for root in ctx.repos:
+            if root is ctx.repo:
+                kept_out = outcome.kept_out if outcome is not None else None
+            else:
+                own = next((p for p in repo_publishes if p.repo_id == root.repo_id and not p.submodule_path), None)
+                kept_out = own.kept_out if own is not None else None
+            submodule_publishes = [p for p in repo_publishes if p.submodule_path and p.root_repo_id == root.repo_id]
+            where = f" in `{root.repository.slug}`" if ctx.extra_repos else ""
+            if notice := kept_out_notice(root, kept_out, submodule_publishes, where=where):
+                notices.append(notice)
+        return notices
 
     @staticmethod
     async def _emit_publish_result(payload: dict[str, Any]) -> None:
@@ -525,7 +746,16 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
 
         ctx = runtime.context
         multi_repo = bool(ctx.extra_repos)
-        if multi_repo:
+        main_submodules, main_record = await apublish_submodules(
+            ctx,
+            self._workspace,
+            ctx.repo,
+            settings=self._settings,
+            session_links=self._session_links,
+            skip_ci=self.skip_ci,
+        )
+        tolerant = multi_repo or any(publish.published for publish in main_submodules)
+        if tolerant:
             update["main_publish_error"] = None
 
         publisher = GitChangePublisher(ctx, self._workspace, settings=self._settings, session_links=self._session_links)
@@ -537,10 +767,11 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
                 merge_request=self._publish_target(state, runtime),
                 skip_ci=self.skip_ci,
                 agent_summary=None if multi_repo else agent_summary,
+                scope=PublishScope.from_config(ctx.config.checkout, record=main_record),
             )
         except UnresolvedMergeConflictsError as exc:
             logger.warning("Not publishing: %s", exc)
-            if multi_repo:
+            if tolerant:
                 update["main_publish_error"] = str(exc)
             where = f" in the main repository `{ctx.repository.slug}`" if multi_repo else ""
             notice = _conflicts_notice(exc.paths, where=where)
@@ -551,38 +782,49 @@ class GitMiddleware(AgentMiddleware[GitState, RuntimeCtx]):
             main_payload = publish_result_payload(
                 status="failed", error_kind=publish_error_kind(exc), repository=ctx.repo.repo_id
             )
-            if not multi_repo:
+            if not tolerant:
                 await self._emit_publish_result(main_payload)
                 raise
             logger.exception("Publishing to %s failed", ctx.repository.slug)
             update["main_publish_error"] = publish_failure(ctx.repository.slug, exc)
+            others = "The other repositories were published" if multi_repo else "Its submodules were published"
             notice = (
                 f"I couldn't publish the changes in the main repository `{ctx.repository.slug}` "
-                f"({type(exc).__name__}). The other repositories were published on their own, and their results stand."
+                f"({type(exc).__name__}). {others} on their own, and their results stand."
             )
         else:
             if outcome.published:
                 main_payload = published_outcome_payload(outcome, repository=ctx.repo.repo_id)
+        main_submodules = mark_recorded(main_submodules, main_record, recorded=outcome is not None)
 
-        repo_publishes: list[RepoPublish] = []
+        extra_publishes: list[RepoPublish] = []
         if multi_repo:
-            repo_publishes = await apublish_extra_repos(
+            extra_publishes = await apublish_extra_repos(
                 ctx, self._workspace, settings=self._settings, session_links=self._session_links, skip_ci=self.skip_ci
             )
+        repo_publishes = [*main_submodules, *extra_publishes]
+        if multi_repo or repo_publishes:
             update["repo_publishes"] = [publish.to_state() for publish in repo_publishes]
         for payload in [main_payload, *map(repo_publish_payload, repo_publishes)]:
             if payload is not None:
                 await self._emit_publish_result(payload)
 
         # A link block only goes stale when a publish opens a merge request or rewrites its description.
-        if outcome is None or outcome.published or any(publish.published for publish in repo_publishes):
+        published_submodule_mr = any(
+            publish.submodule_path and publish.published and publish.merge_request is not None
+            for publish in repo_publishes
+        )
+        if (multi_repo or published_submodule_mr) and (
+            outcome is None or outcome.published or any(publish.published for publish in repo_publishes)
+        ):
             main_merge_request = outcome.merge_request if outcome is not None else None
             await self._alink_related(
                 ctx, main_merge_request or checkpointed_merge_request(state, strict=False), repo_publishes
             )
         conflicts, failures = _sibling_notices(ctx, repo_publishes)
+        kept_out_notices = self._kept_out_notices(ctx, outcome, repo_publishes)
         messages = []
-        if visible_text := "\n\n".join(filter(None, [notice, *conflicts])):
+        if visible_text := "\n\n".join(filter(None, [notice, *conflicts, *kept_out_notices])):
             messages.append(await streamed_assistant_message(visible_text))
         if failures:
             messages.append(synthetic_ai_message(failures, kind=PUBLISH_FAILURES_KIND))

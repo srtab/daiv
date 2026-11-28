@@ -9,6 +9,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from automation.agent.workspace.git_manager import KeptOut
 from codebase.base import MergeRequest, MergeRequestDiffStats
 
 if TYPE_CHECKING:
@@ -19,11 +20,16 @@ logger = logging.getLogger("daiv.tools")
 
 @dataclass(frozen=True)
 class RepoPublish:
-    """How one of the session's extra repositories fared at the end of a turn; kept in ``GitState.repo_publishes``.
+    """How one of the session's extra repositories, or a submodule, fared at the end of a turn; kept in
+    ``GitState.repo_publishes``.
 
     ``current_ref`` is the branch the clone is on (``""`` on a detached HEAD). ``error`` is set when the publish failed,
     which left that repository's work unpublished. ``pushed_sha`` is the commit the publish pushed, ``""`` when it
-    pushed none.
+    pushed none. ``kept_out`` is what the publish left out of its commit.
+
+    A submodule's entry has ``submodule_path`` (from its root's top), its ``root_repo_id`` and ``parent_repo_id`` (the
+    repository whose commit records it), and ``recorded_sha``: the commit its parent's successful publish recorded,
+    ``""`` otherwise. A pinned submodule (research R21) gets an entry with ``published`` false and ``recorded_sha`` set.
     """
 
     repo_id: str
@@ -36,6 +42,11 @@ class RepoPublish:
     created_merge_request: bool = False
     error_kind: str | None = None
     conflicted_paths: tuple[str, ...] = ()
+    kept_out: KeptOut | None = None
+    submodule_path: str = ""
+    root_repo_id: str = ""
+    parent_repo_id: str = ""
+    recorded_sha: str = ""
 
     def to_state(self) -> dict[str, Any]:
         return {
@@ -49,12 +60,18 @@ class RepoPublish:
             "created_merge_request": self.created_merge_request,
             "error_kind": self.error_kind,
             "conflicted_paths": list(self.conflicted_paths),
+            "kept_out": self.kept_out.to_state() if self.kept_out is not None else None,
+            "submodule_path": self.submodule_path,
+            "root_repo_id": self.root_repo_id,
+            "parent_repo_id": self.parent_repo_id,
+            "recorded_sha": self.recorded_sha,
         }
 
     @classmethod
     def from_state(cls, data: Mapping[str, Any]) -> RepoPublish:
         merge_request = data.get("merge_request")
         diff_stats = data.get("diff_stats")
+        kept_out = data.get("kept_out")
         return cls(
             repo_id=data["repo_id"],
             merge_request=MergeRequest.model_validate(merge_request) if merge_request else None,
@@ -66,6 +83,11 @@ class RepoPublish:
             created_merge_request=bool(data.get("created_merge_request")),
             error_kind=data.get("error_kind"),
             conflicted_paths=tuple(data.get("conflicted_paths") or ()),
+            kept_out=KeptOut.from_state(kept_out) if kept_out else None,
+            submodule_path=data.get("submodule_path") or "",
+            root_repo_id=data.get("root_repo_id") or "",
+            parent_repo_id=data.get("parent_repo_id") or "",
+            recorded_sha=data.get("recorded_sha") or "",
         )
 
 

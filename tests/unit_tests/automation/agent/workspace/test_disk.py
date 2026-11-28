@@ -5,6 +5,7 @@ import pytest
 
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS
 from automation.agent.workspace.disk import DiskWorkspace
+from automation.agent.workspace.git_manager import PublishScope
 from automation.agent.workspace.git_runners import LocalGitRunner
 from codebase.clients.base import GitAuthEnv
 
@@ -136,7 +137,7 @@ def test_a_disk_workspace_sits_at_the_main_repo_path(tmp_path):
 
 
 async def test_extra_repos_are_routed_at_their_workspace_paths(tmp_path):
-    mod = MagicMock()
+    mod = MagicMock(workspace_path="/workspace/repos/g/mod")
     mod.repository.slug = "g/mod"
     mod.gitrepo.working_dir = str(tmp_path / "mod")
     (tmp_path / "mod").mkdir()
@@ -151,7 +152,7 @@ async def test_extra_repos_are_routed_at_their_workspace_paths(tmp_path):
 
 async def test_for_repo_sibling_runs_git_in_its_clone_and_mints_its_auth(tmp_path):
     ctx = _ctx(tmp_path)
-    sibling = MagicMock()
+    sibling = MagicMock(submodule=None, workspace_path="/workspace/repos/g/mod")
     sibling.repository.slug = "g/mod"
     auth_env = GitAuthEnv.for_token("https://gitlab.com/g/mod.git", "tok")
     sibling.client.get_git_auth_env.return_value = auth_env
@@ -171,10 +172,11 @@ async def test_fast_forward_fetches_with_a_credential_minted_now(tmp_path):
     workspace = DiskWorkspace(ctx)
     git = MagicMock(fast_forward=AsyncMock(return_value="advanced"))
 
+    scope = PublishScope(submodules=True)
     with patch.object(DiskWorkspace, "authenticated_git", AsyncMock(return_value=git)):
-        assert await workspace.fast_forward("chore/x") == "advanced"
+        assert await workspace.fast_forward("chore/x", scope=scope) == "advanced"
 
-    git.fast_forward.assert_awaited_once_with("chore/x")
+    git.fast_forward.assert_awaited_once_with("chore/x", scope=scope)
 
 
 async def test_a_disk_workspace_never_has_a_browser(tmp_path):
@@ -184,3 +186,16 @@ async def test_a_disk_workspace_never_has_a_browser(tmp_path):
     await workspace.aresolve_browser(site_snapshot(sandbox_browser_enabled=True))
 
     assert workspace.browser is None
+
+
+async def test_for_repo_submodule_runs_git_in_its_checkout_with_its_scoped_auth(tmp_path):
+    ctx = _ctx(tmp_path)
+    sub = MagicMock(workspace_path="/workspace/repo/libs/lib")
+    auth_env = GitAuthEnv.for_token("https://gitlab.com/g/lib.git", "tok")
+    sub.client.get_git_auth_env.return_value = auth_env
+
+    view = DiskWorkspace(ctx).for_repo(sub)
+
+    assert view.repo_path == "/workspace/repo/libs/lib"
+    assert (await view.authenticated_git())._runner == LocalGitRunner(sub.gitrepo, auth_env=auth_env)
+    sub.client.get_git_auth_env.assert_called_once_with(sub.repository, scoped_only=True)
