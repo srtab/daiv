@@ -125,6 +125,33 @@ async def test_extraction_skips_a_run_of_a_multi_repo_session(caplog):
 
 
 @pytest.mark.django_db(transaction=True)
+async def test_extraction_skips_a_run_of_a_session_with_a_submodule(caplog):
+    from sessions.models import SessionSubmodule
+
+    run = await _create_run()
+    await SessionSubmodule.objects.acreate(
+        session_id=run.session_id,
+        root_repo_id=run.repo_id,
+        parent_repo_id=run.repo_id,
+        path="libs/core",
+        repo_id="group/core",
+    )
+
+    with (
+        patch("memory.tasks.RepositoryConfig") as cfg,
+        patch("memory.extraction.extract_observations", AsyncMock(return_value=[])) as extract,
+        patch("memory.tasks.site_settings", _site_settings()),
+        caplog.at_level("INFO", logger="daiv.memory"),
+    ):
+        cfg.get_config.return_value = _enabled_config()
+        await extract_observations_task.func(str(run.pk))
+
+    extract.assert_not_awaited()
+    assert "submodules" in caplog.text
+    assert await MemoryObservation.objects.acount() == 0
+
+
+@pytest.mark.django_db(transaction=True)
 async def test_extraction_noop_when_pipeline_returns_empty():
     # Covers the `if not (observations := await extract_observations(run)): return` fall-through in
     # extract_observations_task. Patch at source so the task's lazy import resolves to the mock.

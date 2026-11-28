@@ -1757,10 +1757,11 @@
       if (anchor.opening) return anchor.opening;
       if (anchor.author !== "daiv") return null;
       const ci = anchor.origin === "pipeline_webhook";
+      const kinds = { pipeline_webhook: "ci_failed", submodule_merge: "submodule_merged" };
       return [
         {
           id: `${anchor.id}-received`,
-          kind: ci ? "ci_failed" : "delegation_finished",
+          kind: kinds[anchor.origin] ?? "delegation_finished",
           received: true,
           failed: ci,
           text: "",
@@ -1781,6 +1782,7 @@
 
     receivedSource(bubble) {
       const T = window.TranscriptLabels;
+      if (bubble.kind === "submodule_merged") return T.t("inbox_submodule_merged");
       if (bubble.kind !== "ci_failed") return T.t("delegated_jobs");
       return bubble.source_iid ? T.t("received_ci", { iid: bubble.source_iid }) : T.t("received_ci_plain");
     },

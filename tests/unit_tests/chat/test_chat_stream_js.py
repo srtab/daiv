@@ -1273,9 +1273,10 @@ def test_a_received_bubble_names_its_source():
         {"kind": "ci_failed", "received": True, "source_iid": 101},
         {"kind": "ci_failed", "received": True, "source_iid": None},
         {"kind": "delegation_finished", "received": True, "source_iid": None},
+        {"kind": "submodule_merged", "received": True, "source_iid": 12},
     ]
 
-    assert _bubbles(bubbles=bubbles)["sources"] == ["CI · !101", "CI", "Delegated jobs"]
+    assert _bubbles(bubbles=bubbles)["sources"] == ["CI · !101", "CI", "Delegated jobs", "Submodule merged"]
 
 
 def test_a_run_opens_with_its_events_or_what_started_it():
@@ -1285,9 +1286,10 @@ def test_a_run_opens_with_its_events_or_what_started_it():
         {"id": "u2", "author": "daiv", "origin": "pipeline_webhook", "sent_at": "2026-11-01T10:00:00Z"},
         {"id": "u3", "author": "daiv", "origin": "delegation_resume", "sent_at": "2026-11-01T10:00:00Z"},
         {"id": "u4", "author": "sfr"},
+        {"id": "u5", "author": "daiv", "origin": "submodule_merge", "sent_at": "2026-11-01T10:00:00Z"},
     ]
 
-    first, ci, delegation, plain = _bubbles(anchors=anchors)["openings"]
+    first, ci, delegation, plain, submodule = _bubbles(anchors=anchors)["openings"]
 
     assert first == opening
     assert ci == [
@@ -1303,6 +1305,7 @@ def test_a_run_opens_with_its_events_or_what_started_it():
     ]
     assert (delegation[0]["kind"], delegation[0]["failed"]) == ("delegation_finished", False)
     assert plain is None
+    assert (submodule[0]["kind"], submodule[0]["failed"]) == ("submodule_merged", False)
 
 
 def test_an_event_daiv_could_not_handle_reads_not_handled():

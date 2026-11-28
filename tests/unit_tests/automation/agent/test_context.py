@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 import pytest
 from git import Repo
 
-from automation.agent.context import ExtraRepo, RepoHandle, RuntimeCtx, extra_repo_path, set_runtime_ctx
+from automation.agent.context import ExtraRepo, RepoHandle, RuntimeCtx, set_runtime_ctx
 from automation.agent.middlewares.sandbox import SandboxMiddleware
 from automation.agent.references import ExternalRef
 from automation.agent.workspace.sandbox import SandboxWorkspace
@@ -398,12 +398,6 @@ def test_repo_is_main_and_extra_repos_are_the_rest():
     assert ctx.extra_repos == (mod,)
 
 
-def test_extra_repo_path_keeps_same_named_repos_apart():
-    a, b = _make_handle("group-a/utils"), _make_handle("group-b/utils")
-    assert extra_repo_path(a) == "/workspace/repos/group-a/utils"
-    assert extra_repo_path(b) == "/workspace/repos/group-b/utils"
-
-
 def _multi_repo_client(*, gone: set[str] = frozenset()):
     """A client whose ``load_repo`` yields a fake clone per repository slug, or a vanished-ref failure."""
     repo_client = _repo_client()
@@ -566,3 +560,190 @@ async def test_credential_source_mints_every_repo_main_first():
             extra_repos=[ExtraRepo("g/mod"), ExtraRepo("g/none")],
         ) as ctx:
             assert await ctx.credential_source() == [creds["g/app"], creds["g/mod"], None]
+
+
+def _configs(checkouts):
+    from codebase.repo_config import Checkout
+
+    return patch.multiple(
+        "automation.agent.context",
+        RepositoryConfig=MagicMock(
+            get_config=MagicMock(
+                side_effect=lambda repo_id, **_: MagicMock(
+                    repo_id=repo_id, default_branch="main", checkout=checkouts.get(repo_id, Checkout())
+                )
+            )
+        ),
+    )
+
+
+class TestCompletingTheCheckout:
+    async def test_every_clone_is_completed_with_its_own_settings_in_a_worker_thread(self, monkeypatch):
+        import threading
+
+        from codebase.clients.checkout import DENY_ALL, CheckoutReport
+        from codebase.repo_config import Checkout
+        from tests.unit_tests.submodule_repos import Access
+
+        monkeypatch.setattr("automation.agent.context.codebase_settings.LFS_MAX_CLONE_BYTES", 123)
+        repo_client, _ = _multi_repo_client()
+        calls = []
+
+        def complete(repo, repository, options, access, *, parent_base_branch):
+            calls.append((repository.slug, options, access, threading.current_thread(), parent_base_branch))
+            return CheckoutReport(options)
+
+        repo_client.complete_checkout.side_effect = complete
+        access = Access()
+        checkouts = {"g/app": Checkout(submodules=True), "g/mod": Checkout(lfs=True)}
+
+        with _context_deps(repo_client), _configs(checkouts):
+            async with set_runtime_ctx(
+                "g/app",
+                scope=RepoScope.GLOBAL,
+                ref="feat",
+                sandbox_spec=sandbox_spec(base_image=None),
+                extra_repos=[ExtraRepo("g/mod")],
+                access=access,
+            ) as ctx:
+                loop_thread = threading.current_thread()
+                assert ctx.repo.checkout.options.submodules and not ctx.repo.checkout.options.lfs
+                assert ctx.extra_repos[0].checkout.options.lfs
+                assert (ctx.repo.workspace_path, ctx.extra_repos[0].workspace_path) == (
+                    "/workspace/repo",
+                    "/workspace/repos/g/mod",
+                )
+
+        assert sorted((slug, o.submodules, o.lfs, o.lfs_max_bytes) for slug, o, *_ in calls) == [
+            ("g/app", True, False, 123),
+            ("g/mod", False, True, 123),
+        ]
+        assert all(call[2] is access and call[3] is not loop_thread for call in calls)
+        assert {slug: base for slug, _, _, _, base in calls} == {"g/app": "feat", "g/mod": "main"}
+
+        calls.clear()
+        with _context_deps(repo_client), _configs(checkouts):
+            async with set_runtime_ctx("g/app", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)):
+                pass
+        assert calls[0][2] is DENY_ALL
+
+    async def test_a_checkout_that_raises_leaves_the_clone_with_an_empty_report(self, caplog):
+        from codebase.clients.checkout import CheckoutReport
+
+        repo_client, _ = _multi_repo_client()
+        repo_client.complete_checkout.side_effect = RuntimeError("boom")
+
+        with _context_deps(repo_client), _configs({}), caplog.at_level("ERROR", logger="daiv.agent"):
+            async with set_runtime_ctx(
+                "g/app", scope=RepoScope.GLOBAL, sandbox_spec=sandbox_spec(base_image=None)
+            ) as ctx:
+                assert ctx.repo.checkout is CheckoutReport.EMPTY
+                assert ctx.repo.submodules == ()
+
+        assert "Could not complete the checkout of g/app" in caplog.text
+        assert any(record.exc_info for record in caplog.records)
+
+
+class TestSubmoduleHandles:
+    @staticmethod
+    def _sub(path, repo_id, *, parent="", block=None, branch="", pinned="", note=""):
+        from codebase.clients.checkout import SubmoduleCheckout
+
+        repository = Mock(slug=repo_id)
+        return SubmoduleCheckout(
+            path=path,
+            parent_path=parent,
+            url=f"../{repo_id}.git",
+            repo_id=repo_id,
+            repository=repository,
+            commit=f"{path}-sha",
+            publish_block=block,
+            target_branch="main",
+            branch=branch,
+            pinned=pinned,
+            note=note,
+        )
+
+    async def _ctx(self, reports):
+        from codebase.clients.checkout import CheckoutOptions, CheckoutReport
+
+        repo_client, _ = _multi_repo_client()
+        repo_client.complete_checkout.side_effect = lambda repo, repository, *a, **k: CheckoutReport(
+            CheckoutOptions(submodules=True), submodules=tuple(reports.get(repository.slug, ()))
+        )
+        with _context_deps(repo_client), _configs({}), patch("automation.agent.context.Repo") as repo_cls:
+            async with set_runtime_ctx(
+                "g/app",
+                scope=RepoScope.GLOBAL,
+                sandbox_spec=sandbox_spec(base_image=None),
+                extra_repos=[ExtraRepo("g/mod")],
+            ) as ctx:
+                return ctx, repo_cls
+
+    async def test_each_checked_out_submodule_becomes_a_handle_of_its_root(self):
+        from codebase.clients.checkout import SubmoduleNote
+
+        reports = {
+            "g/app": [
+                self._sub("libs/lib", "g/lib", branch="daiv/fix", note=SubmoduleNote.BRANCH_MOVED_ON),
+                self._sub("libs/lib/vendor/inner", "g/inner", parent="libs/lib", pinned="f" * 40),
+            ],
+            "g/mod": [self._sub("vendor/x", "g/x")],
+        }
+
+        ctx, repo_cls = await self._ctx(reports)
+
+        lib, inner = ctx.repo.submodules
+        assert [h.repo_id for h in ctx.repos] == ["g/app", "g/mod"]
+        assert (lib.workspace_path, inner.workspace_path) == (
+            "/workspace/repo/libs/lib",
+            "/workspace/repo/libs/lib/vendor/inner",
+        )
+        assert ctx.extra_repos[0].submodules[0].workspace_path == "/workspace/repos/g/mod/vendor/x"
+        assert (lib.current_ref, lib.head_detached, inner.current_ref, inner.head_detached) == (
+            "daiv/fix",
+            False,
+            "libs/lib/vendor/inner-sha",
+            True,
+        )
+        assert lib.config.repo_id == "g/lib"
+        assert (lib.submodule.recorded_commit, lib.submodule.target_branch, lib.submodule.note) == (
+            "libs/lib-sha",
+            "main",
+            SubmoduleNote.BRANCH_MOVED_ON,
+        )
+        assert (inner.submodule.parent_path, inner.submodule.pinned) == ("libs/lib", "f" * 40)
+        assert lib.submodules == (inner,)
+        assert ctx.repo.direct_submodules == (lib,)
+        assert lib.child_path(inner) == "vendor/inner"
+        assert repo_cls.call_count == 3
+
+    async def test_verdicts_are_settled_across_the_session(self):
+        from codebase.clients.checkout import PublishBlock
+
+        reports = {
+            "g/app": [
+                self._sub("libs/lib", "g/lib"),
+                self._sub("libs/mod", "g/mod"),
+                self._sub("libs/ui", "g/ui", block=PublishBlock.PERSON_NO_WRITE),
+                self._sub("libs/ui/deep", "g/deep", parent="libs/ui"),
+            ],
+            "g/mod": [self._sub("vendor/lib", "g/lib"), self._sub("vendor/deep", "g/deep")],
+        }
+
+        ctx, _ = await self._ctx(reports)
+
+        roles = {h.submodule.path: h.submodule for h in ctx.repo.submodules}
+        assert roles["libs/lib"].publish_block is None
+        assert (roles["libs/mod"].publish_block, roles["libs/mod"].published_from) == (
+            PublishBlock.PUBLISHED_ELSEWHERE,
+            "/workspace/repos/g/mod",
+        )
+        assert roles["libs/ui"].publish_block is PublishBlock.PERSON_NO_WRITE
+        assert roles["libs/ui/deep"].publish_block is PublishBlock.PARENT_NOT_PUBLISHED
+        extra = {h.submodule.path: h.submodule for h in ctx.extra_repos[0].submodules}
+        assert (extra["vendor/lib"].publish_block, extra["vendor/lib"].published_from) == (
+            PublishBlock.PUBLISHED_ELSEWHERE,
+            "/workspace/repo/libs/lib",
+        )
+        assert extra["vendor/deep"].publish_block is None

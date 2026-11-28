@@ -28,12 +28,12 @@ from codebase.base import (
     User,
 )
 from codebase.clients import RepoClient
-from codebase.clients.base import CommentThread, Emoji, WebhookSetupResult, is_not_found
+from codebase.clients.base import CommentThread, Emoji, GitAuthEnv, T, WebhookSetupResult, is_not_found
 from codebase.exceptions import CloneRefNotFoundError
 from codebase.utils import is_git_ref_not_found_text
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
 
     from github.IssueComment import IssueComment
     from github.PullRequest import PullRequest
@@ -315,7 +315,6 @@ class GitHubClient(RepoClient):
         Yields:
             The repository object cloned to the temporary directory.
         """
-        from codebase.clients.base import GitAuthEnv
         from codebase.clients.utils import safe_slug
 
         with tempfile.TemporaryDirectory(prefix=f"{safe_slug(repository.slug)}-{repository.pk}") as tmpdir:
@@ -323,17 +322,21 @@ class GitHubClient(RepoClient):
             # The token (valid for 1 hour) rides a command-scoped env header instead of the clone
             # URL, so it never persists in .git/config — which is seeded into the sandbox — or
             # appears on argv. In-sandbox git authenticates via the egress proxy's injected header;
-            # local-mode git gets the same env per invocation via RepoClient.get_git_auth_env.
-            token = self._mint_installation_token(repository)
+            # local-mode git gets the same env per invocation via RepoClient.get_git_auth_env. LFS content is never
+            # smudged here: RepoCheckout fetches it when the repository asks for it.
             clone_dir = Path(tmpdir) / "repo"
             clone_dir.mkdir(exist_ok=True)
-            try:
-                repo = Repo.clone_from(
+
+            def clone_with(auth_env: GitAuthEnv | None) -> Repo:
+                return Repo.clone_from(
                     repository.clone_url,
                     clone_dir,
                     branch=sha,
-                    env=GitAuthEnv.for_token(repository.clone_url, token).as_env(),
+                    env={**(auth_env.as_env() if auth_env else {}), "GIT_LFS_SKIP_SMUDGE": "1"},
                 )
+
+            try:
+                repo = self.with_git_auth(repository, clone_with)
             except GitCommandError as e:
                 if is_git_ref_not_found_text(f"{e.stderr or ''} {e}"):
                     raise CloneRefNotFoundError(sha, repository.slug) from e
@@ -373,7 +376,14 @@ class GitHubClient(RepoClient):
             )
         return response["token"]
 
-    def _git_egress_token(self, repository: Repository) -> str | None:
+    def with_git_auth(
+        self, repository: Repository, operation: Callable[[GitAuthEnv | None], T], *, scoped_only: bool = False
+    ) -> T:
+        """Run ``operation`` with an installation token minted now for ``repository`` alone (see
+        :meth:`_mint_installation_token`), so ``scoped_only`` holds either way."""
+        return operation(GitAuthEnv.for_token(repository.clone_url, self._mint_installation_token(repository)))
+
+    def _git_egress_token(self, repository: Repository, *, scoped_only: bool = False) -> str | None:
         """Mint the same repository-scoped installation token used to clone (see :meth:`_mint_installation_token`).
 
         The egress proxy injects this token over the ``Authorization`` header for *every* request to
@@ -782,6 +792,15 @@ class GitHubClient(RepoClient):
         bot_login = f"{self.client_installation.app_slug}[bot]"
         bot_user_id = self.current_user.id
         return f"{bot_user_id}+{bot_login}@users.noreply.github.com"
+
+    def get_merged_commit(self, repo_id: str, merge_request_id: int) -> str | None:
+        """``merge_commit_sha``: the merge, squash or last rebased commit once merged."""
+        pull = self.client.get_repo(repo_id, lazy=True).get_pull(merge_request_id)
+        return pull.merge_commit_sha if pull.merged else None
+
+    def is_ancestor(self, repo_id: str, ancestor: str, descendant: str) -> bool:
+        comparison = self.client.get_repo(repo_id, lazy=True).compare(ancestor, descendant)
+        return comparison.status in ("ahead", "identical")
 
     def get_merge_request(self, repo_id: str, merge_request_id: int) -> MergeRequest:
         """

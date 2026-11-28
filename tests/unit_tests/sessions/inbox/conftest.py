@@ -33,6 +33,16 @@ def chat_payload(text: str = "Please also add a test", message_id: str | None = 
     return {"text": text, "agui_message_id": message_id or f"msg-{uuid.uuid4().hex[:8]}", **extra}
 
 
+def submodule_merged_payload(*, merged_sha: str = "1a2b3c4d5e6f", recorded_sha: str = "9f8e7d6c5b4a") -> dict:
+    return {
+        "path": "libs/core",
+        "root_repo_id": "group/repo",
+        "merge_request_iid": 12,
+        "recorded_sha": recorded_sha,
+        "merged_sha": merged_sha,
+    }
+
+
 def mention_payload(body: str = "@daiv why is CI red?", note_id: int = 5521) -> dict:
     return {
         "note_id": note_id,
@@ -60,6 +70,7 @@ def _event_fields(session: Session, kind: str, fields: dict) -> dict:
         EventKind.DELEGATION_FINISHED: lambda: {"batch_id": str(uuid.uuid4()), "summary": "2 jobs finished."},
         EventKind.FOLLOW_UP_JOB: lambda: {"prompt": "Bump the version", "trigger_type": SessionOrigin.API_JOB},
         EventKind.MR_MERGED: lambda: {"target_branch": "main", "by_username": "sfr"},
+        EventKind.SUBMODULE_MERGED: submodule_merged_payload,
     }
     payload = fields.pop("payload", None) or payloads[kind]()
     return {

@@ -74,6 +74,7 @@ class TestWakingKinds:
                 SessionOrigin.MCP_JOB,
                 SessionOrigin.DELEGATION_RESUME,
                 SessionOrigin.PIPELINE_WEBHOOK,
+                SessionOrigin.SUBMODULE_MERGE,
             })
             == kinds.INBOX_TRIGGERS
         )
@@ -162,3 +163,35 @@ class TestMergeRequestJob:
 
         assert content.run_trigger_type() == trigger
         assert not content.follows_session()
+
+
+class TestSubmoduleMerged:
+    PAYLOAD = {
+        "path": "libs/core",
+        "root_repo_id": "group/app",
+        "merge_request_iid": 12,
+        "recorded_sha": "9f8e7d6",
+        "merged_sha": "1a2b3c4",
+    }
+
+    def test_its_payload_needs_every_field(self):
+        EventContent(EventKind.SUBMODULE_MERGED, self.PAYLOAD).validate_payload()
+        for key in self.PAYLOAD:
+            payload = {name: value for name, value in self.PAYLOAD.items() if name != key}
+            with pytest.raises(ValueError, match=key):
+                EventContent(EventKind.SUBMODULE_MERGED, payload).validate_payload()
+
+    def test_it_wakes_after_a_ci_failure_ungated_as_daivs_own_run(self):
+        assert EventKind.SUBMODULE_MERGED in kinds.WAKING_KINDS
+        assert kinds.PRECEDENCE[EventKind.SUBMODULE_MERGED] > kinds.PRECEDENCE[EventKind.CI_FAILED]
+        assert EventKind.SUBMODULE_MERGED not in kinds.GATED_KINDS
+        assert EventKind.SUBMODULE_MERGED not in kinds.PERSON_KINDS
+
+    def test_its_run_is_a_submodule_merge(self):
+        content = EventContent(EventKind.SUBMODULE_MERGED, self.PAYLOAD)
+
+        assert content.run_trigger_type() == SessionOrigin.SUBMODULE_MERGE
+        assert not content.follows_session()
+
+    def test_its_source_key_is_one_per_merge_request(self):
+        assert kinds.SourceKey.submodule_merged("group/core", 12) == "submodule_merged:group/core!12"

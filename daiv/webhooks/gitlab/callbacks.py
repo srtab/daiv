@@ -6,6 +6,7 @@ from sessions.auto_archive import MergeArchive
 from sessions.inbox.ownership import Ownerships
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.service import PipelineWatch
+from sessions.submodule_merges import SubmoduleMerges
 
 from codebase.base import GitPlatform, NoteType
 from codebase.clients import RepoClient
@@ -275,8 +276,8 @@ class MergeRequestCallback(GitLabCallback):
 
     async def process_callback(self):
         """
-        Record merge metrics for a merge into the default branch, then tell the session owning the merge request, then
-        archive every session that worked on a merged one.
+        Record merge metrics for a merge into the default branch, settle the submodules DAIV published on it, then tell
+        the session owning the merge request, then archive every session that worked on a merged one.
         """
         if self._merged_into_default_branch:
             await self._record_merge_metrics()
@@ -291,6 +292,10 @@ class MergeRequestCallback(GitLabCallback):
             )
             return
         merged = self.object_attributes.action == MergeRequestAction.MERGE
+        if merged:
+            await SubmoduleMerges(repo_id, iid).amark_merged()
+        else:
+            await SubmoduleMerges(repo_id, iid).aclose()
         await Ownerships(repo_id).aclose(
             iid, merged=merged, by_username=self.user.username, target_branch=self.object_attributes.target_branch
         )

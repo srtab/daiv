@@ -1,5 +1,7 @@
 import inspect
 import json
+from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock, call, patch
 from urllib.parse import parse_qs, urlparse
@@ -23,17 +25,24 @@ from automation.agent.publishers import (
     _extra_repo_ctx,
     append_trailer,
     apublish_extra_repos,
+    apublish_submodules,
     run_base_branch,
 )
 from automation.agent.references import ExternalRef
 from automation.agent.session_links import SessionLinks
-from automation.agent.workspace.git_manager import GitPushPermissionError, PendingMerge, RepoStatus
+from automation.agent.workspace.git_manager import (
+    GitPushPermissionError,
+    KeptOut,
+    PendingMerge,
+    PublishScope,
+    RepoStatus,
+)
 from automation.agent.workspace.repo_view import RepoWorkspace
 from automation.agent.workspace.sandbox import SandboxWorkspace
 from codebase.base import GitPlatform, Issue, MergeRequestDiffStats, Pipeline, Scope, TriggeredPipeline, User
 from codebase.clients.base import GitEgressCredential
 from codebase.exceptions import MergeRequestBranchNotVisibleError
-from codebase.repo_config import RepositoryConfig
+from codebase.repo_config import Checkout, RepositoryConfig
 from core.constants import BOT_AUTO_LABEL, BOT_NAME
 from core.sandbox.egress import PLATFORM_EGRESS_SECRET_NAME, with_platform_credentials
 from core.sandbox.schemas import EgressConfigRequest, EgressPolicy, EgressRule, EgressSecret, StartSessionRequest
@@ -73,8 +82,9 @@ def _fake_git_manager(
             has_unpushed=has_unpushed,
         )
     )
-    gm.commit_all = AsyncMock()
+    gm.commit_all = AsyncMock(return_value=True)
     gm.push_head_to = AsyncMock(return_value="pushed")
+    gm.remote_moved = ()
     gm.head_sha = AsyncMock(return_value="post-push-sha")
     gm.unique_branch_name = Mock(side_effect=lambda name, existing: name)
     return gm
@@ -110,11 +120,13 @@ def _make_publisher(
     ctx.repository.git_platform = git_platform
     ctx.config.context_file_name = context_file_name
     ctx.config.default_branch = "main"
+    ctx.config.checkout = Checkout()
     ctx.git_platform = git_platform
     ctx.references = ()
     ctx.acting_user_id = None
     ctx.repo.current_ref = base_ref
     ctx.repo.head_detached = False
+    ctx.repo.submodule = None
 
     if git_platform == GitPlatform.GITHUB:
         ctx.repository.html_url = "https://github.com/owner/repo"
@@ -669,7 +681,7 @@ class TestPublishPendingMerge:
 
         outcome = await publisher.publish(merge_request=make_merge_request())
 
-        gm.commit_all.assert_awaited_once_with(expected)
+        gm.commit_all.assert_awaited_once_with(expected, keep_out=(), record=None)
         assert gm.status_snapshot.await_args.kwargs["merge_head"] == "b" * 40
         assert outcome.published is True
 
@@ -707,6 +719,7 @@ class TestRunBaseBranch:
         ctx.config.default_branch = default_branch
         ctx.repo.current_ref = branch or "80e486c6dce6d10b13ef1705a8e9255bbc4a521b"
         ctx.repo.head_detached = branch is None
+        ctx.repo.submodule = None
         return ctx
 
     def test_attached_head_names_the_branch_the_clone_is_on(self):
@@ -979,7 +992,9 @@ class TestPublishSuggestsContextFile:
 
             gm.commit_all.assert_awaited_once()
             # Fresh branch for a brand-new MR: no remote work to integrate, so no rebase-on-reject.
-            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+            gm.push_head_to.assert_awaited_once_with(
+                "feature", integrate_on_reject=False, skip_ci=False, scope=PublishScope(), from_detached=False
+            )
             mock_suggest.assert_called_once_with(mr)
             assert result == PublishOutcome(
                 merge_request=mr,
@@ -987,6 +1002,7 @@ class TestPublishSuggestsContextFile:
                 created_merge_request=True,
                 pushed_sha="post-push-sha",
                 diff_stats=_LOCAL_STATS,
+                kept_out=KeptOut(),
             )
 
     async def test_degrades_to_pending_when_branch_not_visible(self, publisher, monkeypatch, caplog):
@@ -1014,10 +1030,12 @@ class TestPublishSuggestsContextFile:
             result = await publisher.publish(merge_request=None)
 
         gm.commit_all.assert_awaited_once()
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=False)
+        gm.push_head_to.assert_awaited_once_with(
+            "feature", integrate_on_reject=False, skip_ci=False, scope=PublishScope(), from_detached=False
+        )
         mock_suggest.assert_not_called()
         assert result == PublishOutcome(
-            merge_request=None, published=True, pushed_sha="post-push-sha", diff_stats=_LOCAL_STATS
+            merge_request=None, published=True, pushed_sha="post-push-sha", diff_stats=_LOCAL_STATS, kept_out=KeptOut()
         )
         assert "MR pending" in caplog.text
 
@@ -1050,6 +1068,7 @@ class TestPublishSuggestsContextFile:
             protected_branch_fallback_source="dev",
             pushed_sha="post-push-sha",
             diff_stats=_LOCAL_STATS,
+            kept_out=KeptOut(),
         )
 
     async def test_falls_back_to_new_mr_when_source_branch_protected(self, publisher, monkeypatch):
@@ -1079,7 +1098,9 @@ class TestPublishSuggestsContextFile:
             assert mock_diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is not None
             # Fresh unique branch generated + pushed for the fallback MR (no remote work to integrate).
             gm.unique_branch_name.assert_called_once_with("feature-fix", ["main", "release/x"])
-            gm.push_head_to.assert_awaited_once_with("feature-fix", integrate_on_reject=False, skip_ci=False)
+            gm.push_head_to.assert_awaited_once_with(
+                "feature-fix", integrate_on_reject=False, skip_ci=False, scope=PublishScope(), from_detached=False
+            )
             # The new MR is created with a back-link to the original protected MR.
             mock_create_mr.assert_called_once()
             assert mock_create_mr.call_args.kwargs["fallback_from_mr"] is existing_mr
@@ -1097,6 +1118,7 @@ class TestPublishSuggestsContextFile:
                 protected_branch_fallback_source="dev",
                 pushed_sha="post-push-sha",
                 diff_stats=_LOCAL_STATS,
+                kept_out=KeptOut(),
             )
 
     async def test_protected_branch_fallback_is_per_call(self, publisher, monkeypatch):
@@ -1218,7 +1240,9 @@ class TestPublishSuggestsContextFile:
 
             # Existing MR: push to its source branch, integrating remote work on a non-ff rejection
             # (the branch may have moved under the run, e.g. a concurrent push).
-            gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=False)
+            gm.push_head_to.assert_awaited_once_with(
+                "feature", integrate_on_reject=True, skip_ci=False, scope=PublishScope(), from_detached=False
+            )
             mock_suggest.assert_not_called()
 
 
@@ -1233,7 +1257,9 @@ class TestPublishDecision:
         with patch.object(publisher, "_diff_to_metadata") as meta:
             outcome = await publisher.publish(merge_request=None)
 
-        assert outcome == PublishOutcome(merge_request=None, published=False, diff_stats=_LOCAL_STATS)
+        assert outcome == PublishOutcome(
+            merge_request=None, published=False, diff_stats=_LOCAL_STATS, kept_out=KeptOut()
+        )
         meta.assert_not_called()
         gm.push_head_to.assert_not_called()
 
@@ -1246,7 +1272,7 @@ class TestPublishDecision:
         with patch.object(publisher, "_diff_to_metadata") as meta:
             outcome = await publisher.publish(merge_request=mr)
 
-        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_LOCAL_STATS)
+        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_LOCAL_STATS, kept_out=KeptOut())
         meta.assert_not_called()
         gm.push_head_to.assert_not_called()
 
@@ -1263,7 +1289,7 @@ class TestPublishDecision:
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
         assert gm.status_snapshot.await_args.kwargs["mr_source_branch"] == "feat/x"
         # Clean tree already on its MR → no duplicate MR, no metadata call.
-        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_LOCAL_STATS)
+        assert outcome == PublishOutcome(merge_request=mr, published=False, diff_stats=_LOCAL_STATS, kept_out=KeptOut())
         meta.assert_not_called()
 
     async def test_diffs_against_existing_mr_target_branch_on_dirty_tree(self, monkeypatch):
@@ -1289,9 +1315,11 @@ class TestPublishDecision:
 
         assert gm.status_snapshot.await_args.kwargs["base_branch"] == "release/x"
         meta.assert_called_once()  # proceeded past the clean short-circuit
-        gm.push_head_to.assert_awaited_once_with("feat/x", integrate_on_reject=True, skip_ci=False)
+        gm.push_head_to.assert_awaited_once_with(
+            "feat/x", integrate_on_reject=True, skip_ci=False, scope=PublishScope(), from_detached=False
+        )
         assert outcome == PublishOutcome(
-            merge_request=mr, published=True, pushed_sha="post-push-sha", diff_stats=_LOCAL_STATS
+            merge_request=mr, published=True, pushed_sha="post-push-sha", diff_stats=_LOCAL_STATS, kept_out=KeptOut()
         )
 
     async def test_commit_message_describes_only_the_uncommitted_work(self):
@@ -1464,7 +1492,9 @@ class TestPublishPipelineHeal:
         ):
             await publisher.publish(merge_request=mr)
 
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=False)
+        gm.push_head_to.assert_awaited_once_with(
+            "feature", integrate_on_reject=True, skip_ci=False, scope=PublishScope(), from_detached=False
+        )
         trigger.assert_not_awaited()
 
     async def test_github_never_heals(self, monkeypatch):
@@ -1482,7 +1512,9 @@ class TestPublishPipelineHeal:
         ):
             await publisher.publish(merge_request=mr)
 
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=False)
+        gm.push_head_to.assert_awaited_once_with(
+            "feature", integrate_on_reject=True, skip_ci=False, scope=PublishScope(), from_detached=False
+        )
         trigger.assert_not_awaited()
 
     async def test_a_freshly_opened_mr_is_left_to_gitlabs_own_pipeline(self, monkeypatch):
@@ -1503,7 +1535,9 @@ class TestPublishPipelineHeal:
         ):
             await publisher.publish(merge_request=None)
 
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=False, skip_ci=True)
+        gm.push_head_to.assert_awaited_once_with(
+            "feature", integrate_on_reject=False, skip_ci=True, scope=PublishScope(), from_detached=False
+        )
         trigger.assert_not_awaited()
 
     async def test_a_push_to_an_existing_mr_still_heals(self, monkeypatch):
@@ -1521,7 +1555,9 @@ class TestPublishPipelineHeal:
         ):
             await publisher.publish(merge_request=mr)
 
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=True)
+        gm.push_head_to.assert_awaited_once_with(
+            "feature", integrate_on_reject=True, skip_ci=True, scope=PublishScope(), from_detached=False
+        )
         trigger.assert_awaited_once_with(mr, "post-push-sha")
 
     async def test_a_protected_branch_fallback_mr_is_also_left_to_gitlab(self, monkeypatch):
@@ -1557,7 +1593,9 @@ class TestPublishPipelineHeal:
         ):
             await publisher.publish(merge_request=mr, skip_ci=True)
 
-        gm.push_head_to.assert_awaited_once_with("feature", integrate_on_reject=True, skip_ci=False)
+        gm.push_head_to.assert_awaited_once_with(
+            "feature", integrate_on_reject=True, skip_ci=False, scope=PublishScope(), from_detached=False
+        )
         trigger.assert_not_awaited()
 
 
@@ -1945,7 +1983,9 @@ class TestPublishExtraRepos:
         _, pub_cls, lookup, _ = await _publish_extras(_multi_repo_ctx(mod), open_mr=open_mr, skip_ci=True)
 
         lookup.assert_awaited_once_with(mod.client, "g/mod", "fix-x", strict=True)
-        pub_cls.return_value.publish.assert_awaited_once_with(merge_request=open_mr, skip_ci=True, as_draft=False)
+        pub_cls.return_value.publish.assert_awaited_once_with(
+            merge_request=open_mr, skip_ci=True, as_draft=False, scope=PublishScope()
+        )
 
     async def test_a_failed_lookup_records_an_error_instead_of_opening_a_second_mr(self):
         mod = make_repo_handle("g/mod", current_ref="fix-x")
@@ -2148,3 +2188,288 @@ class TestPublishToADraftMergeRequest:
         _, diff_to_metadata = await self._publish_to_a_draft_opened_by(User(id=99, username="daiv[bot]"))
 
         assert diff_to_metadata.call_args.kwargs["pr_metadata_diff"] is None
+
+
+# ---------------------------------------------------------------------------
+# Submodules: kept out of the publish, or published first and recorded (FR-012 to FR-014, FR-019 to FR-021)
+# ---------------------------------------------------------------------------
+
+
+class _PlatformStub:
+    """A platform client for publishes to local bare remotes: merge requests are recorded, never sent anywhere."""
+
+    git_platform = GitPlatform.GITLAB
+
+    def __init__(self, world) -> None:
+        from tests.unit_tests.submodule_repos import StubClient
+
+        self._repos = StubClient(world)
+        self.opened: list[dict] = []
+        self.current_user = User(id=1, username="daiv")
+
+    def get_repository(self, repo_id):
+        return self._repos.get_repository(repo_id)
+
+    def with_git_auth(self, repository, operation, *, scoped_only=False):
+        return self._repos.with_git_auth(repository, operation, scoped_only=scoped_only)
+
+    def get_git_auth_env(self, repository, *, scoped_only=False):
+        return None
+
+    def is_branch_protected(self, repo_id, branch):
+        return False
+
+    def push_uses_ephemeral_token(self, repository):
+        return False
+
+    def get_repository_file(self, repo_id, path, ref):
+        return "exists"
+
+    def get_merge_request_by_branches(self, repo_id, source_branch):
+        return None
+
+    def update_or_create_merge_request(self, *, repo_id, source_branch, target_branch, **kwargs):
+        self.opened.append({"repo_id": repo_id, "source_branch": source_branch, "target_branch": target_branch})
+        return make_merge_request(
+            repo_id=repo_id,
+            merge_request_id=len(self.opened),
+            source_branch=source_branch,
+            target_branch=target_branch,
+            web_url=f"https://git.example.com/{repo_id}/-/merge_requests/{len(self.opened)}",
+        )
+
+
+def _metadata(branch: str) -> dict:
+    stub = _metadata_stub()
+    stub["pr_metadata"].branch = branch
+    return stub
+
+
+async def _submodule_ctx(world, *, access=None, options=None, clone_branch="main"):
+    """The run's context over a clone of ``group/app`` completed as the run would complete it."""
+    from automation.agent.context import RepoHandle, _submodule_handles, _submodule_roles
+    from codebase.clients.checkout import CheckoutOptions, RepoCheckout
+    from tests.unit_tests.submodule_repos import Access, git
+
+    client = _PlatformStub(world)
+    repo = world.clone("group/app", branch=clone_branch)
+    config = RepositoryConfig(checkout=Checkout(submodules=True, lfs=True))
+    report = RepoCheckout(
+        client, options=options or CheckoutOptions(submodules=True), access=access or Access(), allowed_protocol="file"
+    ).complete(repo, world.repository("group/app"), parent_base_branch=clone_branch)
+    for path in [s.path for s in report.checked_out_submodules]:
+        git(Path(repo.working_dir) / path, "config", "user.name", "Test")
+        git(Path(repo.working_dir) / path, "config", "user.email", "test@example.com")
+    main = RepoHandle(
+        repo_id="group/app",
+        client=client,
+        repository=world.repository("group/app"),
+        gitrepo=repo,
+        config=config,
+        ref=clone_branch,
+        current_ref=clone_branch,
+        head_detached=False,
+        clone_seconds=0.0,
+        checkout=report,
+    )
+    roles = _submodule_roles([main])
+    with patch("automation.agent.context.RepositoryConfig.get_config", return_value=RepositoryConfig()):
+        main = replace(main, submodules=await _submodule_handles(client, main, roles[0], offline=True))
+    return RuntimeCtx(bot_username="daiv", repos=(main,)), client
+
+
+def _remote_tree(world, slug: str, ref: str, path: str) -> list[str]:
+    from tests.unit_tests.submodule_repos import git
+
+    git(world.work(slug), "fetch", "-q", "origin")
+    return git(world.work(slug), "ls-tree", f"origin/{ref}", path).split()
+
+
+class TestKeptOutOfThePublish:
+    async def test_a_turn_whose_only_change_is_inside_a_read_only_submodule_publishes_nothing(self, tmp_path):
+        from automation.agent.workspace.disk import DiskWorkspace
+        from tests.unit_tests.submodule_repos import Access, World, app_with_nested_lib
+
+        world = World(tmp_path)
+        app_with_nested_lib(world)
+        ctx, _ = await _submodule_ctx(world, access=Access(writable=set()))
+        (Path(ctx.gitrepo.working_dir) / "libs/lib/lib.h").write_text("edited\n")
+        publisher = GitChangePublisher(ctx, DiskWorkspace(ctx), settings=agent_settings(), session_links=None)
+
+        outcome = await publisher.publish()
+
+        assert (outcome.published, outcome.merge_request) == (False, None)
+        (kept,) = outcome.kept_out.submodules
+        assert (kept.path, kept.changed_files) == ("libs/lib", ("lib.h",))
+        assert kept.block is not None
+
+    async def test_a_remote_pointer_bump_survives_a_second_publish_from_the_same_checkout(self, tmp_path):
+        from automation.agent.workspace.disk import DiskWorkspace
+        from tests.unit_tests.submodule_repos import World, git
+
+        world = World(tmp_path)
+        world.create("group/lib", {"f": "1\n"})
+        world.create("group/app", submodules={"libs/lib": "../lib.git"})
+        git(world.work("group/app"), "push", "-q", "origin", "HEAD:feat")
+        ctx, client = await _submodule_ctx(world, clone_branch="feat")
+        top = Path(ctx.gitrepo.working_dir)
+        bumped = world.commit("group/lib", {"f": "2\n"})
+        app = world.work("group/app")
+        git(app, "checkout", "-q", "-B", "feat", "origin/feat")
+        git(app / "libs/lib", "fetch", "-q", "origin")
+        git(app / "libs/lib", "checkout", "-q", bumped)
+        git(app, "commit", "-qam", "bump the lib")
+        git(app, "push", "-q", "origin", "HEAD:feat")
+        mr = make_merge_request(repo_id="group/app", source_branch="feat", target_branch="main")
+        workspace = DiskWorkspace(ctx)
+
+        for text in ("first\n", "second\n"):
+            (top / "README.md").write_text(text)
+            publisher = GitChangePublisher(ctx, workspace, settings=agent_settings(), session_links=None)
+            with patch.object(GitChangePublisher, "_diff_to_metadata", AsyncMock(return_value=_metadata("x"))):
+                outcome = await publisher.publish(merge_request=mr)
+            assert outcome.published
+            assert _remote_tree(world, "group/app", "feat", "libs/lib")[2] == bumped
+
+        assert git(top / "libs/lib", "rev-parse", "HEAD").strip() != bumped
+
+
+class TestPublishSubmodules:
+    async def _publish(self, ctx, *, fail=frozenset()):
+        from automation.agent.workspace.disk import DiskWorkspace
+
+        def metadata(self, *args, **kwargs):
+            return _metadata(f"daiv/{self.ctx.repository.slug.replace('/', '-')}")
+
+        original = GitChangePublisher.publish
+
+        async def publish(self, **kwargs):
+            if self.ctx.repo.repo_id in fail:
+                raise GitCommandError(["git", "push"], 1, "rejected")
+            return await original(self, **kwargs)
+
+        with (
+            patch.object(GitChangePublisher, "_diff_to_metadata", side_effect=metadata, autospec=True),
+            patch.object(GitChangePublisher, "publish", publish),
+        ):
+            return await apublish_submodules(
+                ctx, DiskWorkspace(ctx), ctx.repo, settings=agent_settings(), session_links=None
+            )
+
+    async def test_a_changed_submodule_opens_its_merge_request_and_is_recorded(self, tmp_path):
+        from tests.unit_tests.submodule_repos import World
+
+        world = World(tmp_path)
+        world.create("group/lib", {"f": "1\n"})
+        world.create("group/app", submodules={"libs/lib": "../lib.git"})
+        ctx, client = await _submodule_ctx(world)
+        (Path(ctx.gitrepo.working_dir) / "libs/lib/f").write_text("fixed\n")
+
+        publishes, record = await self._publish(ctx)
+
+        (publish,) = publishes
+        assert client.opened == [{"repo_id": "group/lib", "source_branch": "daiv/group-lib", "target_branch": "main"}]
+        assert record == {"libs/lib": publish.pushed_sha}
+        assert (publish.submodule_path, publish.root_repo_id, publish.parent_repo_id) == (
+            "libs/lib",
+            "group/app",
+            "group/app",
+        )
+        assert _remote_tree(world, "group/lib", "daiv/group-lib", "f")
+
+    async def test_nested_submodules_publish_innermost_first_and_their_parent_records_them(self, tmp_path):
+        from tests.unit_tests.submodule_repos import World, app_with_nested_lib, git
+
+        world = World(tmp_path)
+        app_with_nested_lib(world)
+        ctx, client = await _submodule_ctx(world)
+        (Path(ctx.gitrepo.working_dir) / "libs/lib/vendor/inner/inner.c").write_text("fixed\n")
+
+        publishes, record = await self._publish(ctx)
+
+        inner, lib = publishes
+        assert [p.submodule_path for p in publishes] == ["libs/lib/vendor/inner", "libs/lib"]
+        assert [o["repo_id"] for o in client.opened] == ["group/inner", "group/lib"]
+        assert _remote_tree(world, "group/lib", "daiv/group-lib", "vendor/inner")[2] == inner.pushed_sha
+        assert inner.recorded_sha == inner.pushed_sha
+        assert inner.parent_repo_id == "group/lib"
+        assert record == {"libs/lib": lib.pushed_sha}
+        assert lib.recorded_sha == ""
+        assert git(world.work("group/app"), "ls-tree", "origin/main", "libs/lib")
+
+    async def test_a_pinned_child_is_recorded_without_a_publish(self, tmp_path):
+        from codebase.clients.checkout import CheckoutOptions
+        from tests.unit_tests.submodule_repos import World
+
+        world = World(tmp_path)
+        recorded = world.create("group/lib", {"f": "1\n"})
+        world.create("group/app", submodules={"libs/lib": "../lib.git"})
+        merged = world.commit("group/lib", {"f": "squashed\n"})
+        ctx, client = await _submodule_ctx(
+            world, options=CheckoutOptions(submodules=True, pins={"libs/lib": (recorded, merged)})
+        )
+
+        publishes, record = await self._publish(ctx)
+
+        (pin,) = publishes
+        assert record == {"libs/lib": merged}
+        assert (pin.published, pin.submodule_path, client.opened) == (False, "libs/lib", [])
+
+    async def test_a_failed_publish_records_nothing_and_stops_no_other(self, tmp_path):
+        from tests.unit_tests.submodule_repos import World
+
+        world = World(tmp_path)
+        world.create("group/lib", {"f": "1\n"})
+        world.create("group/ui", {"u": "1\n"})
+        world.create("group/app", submodules={"libs/lib": "../lib.git", "libs/ui": "../ui.git"})
+        ctx, _ = await _submodule_ctx(world)
+        top = Path(ctx.gitrepo.working_dir)
+        (top / "libs/lib/f").write_text("x\n")
+        (top / "libs/ui/u").write_text("y\n")
+
+        publishes, record = await self._publish(ctx, fail={"group/lib"})
+
+        by_path = {p.submodule_path: p for p in publishes}
+        assert by_path["libs/lib"].error and not by_path["libs/lib"].published
+        assert by_path["libs/ui"].published
+        assert record == {"libs/ui": by_path["libs/ui"].pushed_sha}
+
+    async def test_a_blocked_nested_submodule_is_kept_out_of_its_parent(self, tmp_path):
+        from tests.unit_tests.submodule_repos import Access, World, app_with_nested_lib
+
+        world = World(tmp_path)
+        app_with_nested_lib(world)
+        ctx, client = await _submodule_ctx(world, access=Access(writable={"group/lib"}))
+        top = Path(ctx.gitrepo.working_dir)
+        (top / "libs/lib/lib.h").write_text("fixed\n")
+        (top / "libs/lib/vendor/inner/inner.c").write_text("not mine\n")
+
+        (lib,), record = await self._publish(ctx)
+
+        assert [o["repo_id"] for o in client.opened] == ["group/lib"]
+        assert _remote_tree(world, "group/lib", "daiv/group-lib", "vendor/inner")[2] == world.head("group/inner")
+        assert [(k.path, k.changed_files) for k in lib.kept_out.submodules] == [("vendor/inner", ("inner.c",))]
+
+    async def test_an_unchanged_submodule_adds_no_record_entry(self, tmp_path):
+        from tests.unit_tests.submodule_repos import World
+
+        world = World(tmp_path)
+        world.create("group/lib", {"f": "1\n"})
+        world.create("group/app", submodules={"libs/lib": "../lib.git"})
+        ctx, client = await _submodule_ctx(world)
+
+        publishes, record = await self._publish(ctx)
+
+        assert (record, client.opened) == ({}, [])
+        assert all(not p.published for p in publishes)
+
+
+def test_a_submodule_with_no_merge_request_bases_its_publish_on_its_target_branch():
+    from automation.agent.context import SubmoduleRole
+
+    handle = replace(
+        make_repo_handle("g/lib", current_ref="daiv/old", default_branch="main"),
+        submodule=SubmoduleRole(path="libs/lib", parent_path="", recorded_commit="a" * 40, target_branch="stable"),
+    )
+
+    assert run_base_branch(RuntimeCtx(bot_username="daiv", repos=(handle,))) == "stable"

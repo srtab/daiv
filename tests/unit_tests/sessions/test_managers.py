@@ -11,7 +11,16 @@ from allauth.socialaccount.models import SocialAccount
 from asgiref.sync import sync_to_async
 from django_tasks_db.models import DBTaskResult
 from sessions.executor.lock import DeadWorkerError
-from sessions.models import Run, RunStatus, Session, SessionOrigin, SessionRepository, SpendRecord, SpendTask
+from sessions.models import (
+    Run,
+    RunStatus,
+    Session,
+    SessionOrigin,
+    SessionRepository,
+    SessionSubmodule,
+    SpendRecord,
+    SpendTask,
+)
 from sessions.signal_defs import run_ended, run_finished
 
 from core import worker_liveness
@@ -413,6 +422,58 @@ class TestMultiRepoVisibility:
 
         assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
         assert Run.objects.visible_to(user).filter(pk=run.pk).exists()
+
+
+@pytest.mark.django_db
+class TestSubmoduleRows:
+    @staticmethod
+    def _session(**kwargs) -> tuple[Session, Run]:
+        session = Session.objects.create(
+            thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="g/app", **kwargs
+        )
+        SessionRepository.objects.create(session=session, position=1, repo_id="g/mod")
+        SessionSubmodule.objects.create(
+            session=session, root_repo_id="g/app", parent_repo_id="g/app", path="libs/core", repo_id="g/core"
+        )
+        return session, Run.objects.create(session=session, trigger_type=SessionOrigin.API_JOB, repo_id="g/app")
+
+    def test_hidden_from_a_reader_of_every_repository_but_a_submodules(self, other_user):
+        session, run = self._session()
+        for repo_id in ("g/app", "g/mod"):
+            grant_read_access(other_user, repo_id)
+
+        assert not Session.objects.visible_to(other_user).filter(pk=session.pk).exists()
+        assert not Run.objects.visible_to(other_user).filter(pk=run.pk).exists()
+
+    def test_visible_to_a_reader_of_every_repository_and_submodule(self, other_user):
+        session, run = self._session()
+        for repo_id in ("g/app", "g/mod", "g/core"):
+            grant_read_access(other_user, repo_id)
+
+        assert Session.objects.visible_to(other_user).filter(pk=session.pk).exists()
+        assert Run.objects.visible_to(other_user).filter(pk=run.pk).exists()
+
+    def test_owners_and_admins_see_it_without_access(self, member_user, admin_user):
+        session, _run = self._session(user=member_user)
+
+        for user in (member_user, admin_user):
+            assert Session.objects.visible_to(user).filter(pk=session.pk).exists()
+
+    def test_a_submodule_merge_pending_is_live_work(self):
+        session, _run = self._session()
+        Run.objects.filter(session=session).update(status=RunStatus.SUCCESSFUL)
+        idle = Session.objects.filter(pk=session.pk).without_live_work()
+
+        assert idle.exists()
+        SessionSubmodule.objects.filter(session=session).update(merge_pending=True)
+        assert not idle.exists()
+
+    def test_a_submodules_merge_request_finds_its_session(self):
+        session, _run = self._session()
+        SessionSubmodule.objects.filter(session=session).update(merge_request_iid=12)
+
+        assert list(Session.objects.on_merge_request(12, repo_id="g/core")) == [session]
+        assert not Session.objects.on_merge_request(12, repo_id="g/app").exists()
 
 
 @pytest.mark.django_db

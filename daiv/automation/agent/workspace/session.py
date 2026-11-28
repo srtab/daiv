@@ -15,7 +15,7 @@ import logging
 import tarfile
 from enum import StrEnum
 from itertools import zip_longest
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, NamedTuple
 
 import httpx
@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from sandbox_envs.spec import SandboxSpec
 
     from automation.agent.context import CredentialSource, RuntimeCtx
+    from codebase.base import Repository
     from codebase.clients.base import GitEgressCredential
     from core.sandbox.client import DAIVSandboxClient
     from core.sandbox.schemas import EgressConfigRequest, EgressSecret
@@ -108,6 +109,7 @@ class SandboxSession:
         self._checkpointed = False
         self._skills_seed_errors: list[str] = []
         self._cleanups: set[asyncio.Task[None]] = set()
+        self._added_slots: dict[str, int] = {}
 
     @property
     def client(self) -> DAIVSandboxClient:
@@ -220,6 +222,32 @@ class SandboxSession:
         await self._client.update_egress(session_id, egress)
         self._egress, self._credentials = egress, credentials
         return True
+
+    async def aadd_repository(
+        self, repository: Repository, mint: Callable[[], Awaitable[GitEgressCredential | None]]
+    ) -> None:
+        """Give the held container a git egress credential for ``repository``, a submodule about to publish, and push
+        it now: the rule is new, so no refresh window applies.
+
+        It takes a slot after the acquire-time ones, whose secret indices stay put; a second call for the same
+        repository mints anew into the same slot. A later turn's acquire mints the acquire-time list alone, so the
+        credential leaves the container until that repository's next publish. Raises on a failed mint or push.
+        """
+        session_id = self._session_id
+        if session_id is None:
+            raise RuntimeError("Adding a repository's egress credential needs an acquired sandbox session")
+        credential = await mint()
+        credentials = list(self._credentials)
+        slot = self._added_slots.get(repository.slug)
+        if slot is None or slot >= len(credentials):
+            slot = len(credentials)
+            credentials.append(credential)
+        else:
+            credentials[slot] = credential
+        egress = with_platform_credentials(self._egress, credentials)
+        await self._client.update_egress(session_id, egress)
+        self._added_slots[repository.slug] = slot
+        self._egress, self._credentials = egress, credentials
 
     async def release(self, *, resumable: bool) -> None:
         """Stop the container, keeping it for the thread's next turn (``resumable``), or remove it. A container the
@@ -398,13 +426,30 @@ class SandboxSession:
 
 
 def _make_repo_archive(working_dir: str) -> bytes:
-    """Tar the contents of `working_dir` (members are relative to working_dir)."""
+    """Tar the contents of `working_dir` (members are relative to working_dir), without git-lfs's object store."""
     repo_dir = Path(working_dir)
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
         for child in repo_dir.iterdir():
-            tf.add(child, arcname=child.name)
+            tf.add(child, arcname=child.name, filter=_without_lfs_store(repo_dir))
     return buf.getvalue()
+
+
+def _without_lfs_store(root: Path, arc_prefix: str = "") -> Callable[[tarfile.TarInfo], tarfile.TarInfo | None]:
+    """A tar filter that leaves out the ``lfs`` directory directly inside every git directory (``.git/lfs``,
+    ``.git/modules/**/lfs``): git-lfs's object store, whose content the checked-out files already hold."""
+
+    def keep(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
+        path = PurePosixPath(info.name.removeprefix(arc_prefix))
+        if info.isdir() and path.name == "lfs" and ".git" in path.parts and _is_git_dir(root / path.parent):
+            return None
+        return info
+
+    return keep
+
+
+def _is_git_dir(path: Path) -> bool:
+    return (path / "HEAD").is_file() and (path / "objects").is_dir()
 
 
 def _make_repos_archive(extra_dirs: Mapping[str, str]) -> bytes | None:
@@ -425,7 +470,7 @@ def _make_repos_archive(extra_dirs: Mapping[str, str]) -> bytes | None:
                     info.type, info.mode = tarfile.DIRTYPE, 0o755
                     tf.addfile(info)
             for child in Path(working_dir).iterdir():
-                tf.add(child, arcname=f"{slug}/{child.name}")
+                tf.add(child, arcname=f"{slug}/{child.name}", filter=_without_lfs_store(Path(working_dir), f"{slug}/"))
     return buf.getvalue()
 
 

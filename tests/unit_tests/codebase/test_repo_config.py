@@ -58,6 +58,26 @@ def test_memory_section_can_be_disabled():
     assert config.memory.enabled is False
 
 
+def test_checkout_section_is_off_by_default():
+    from codebase.repo_config import RepositoryConfig
+
+    checkout = RepositoryConfig().checkout
+    assert (checkout.submodules, checkout.lfs) == (False, False)
+
+
+def test_checkout_section_turns_submodules_and_lfs_on_from_yaml():
+    from io import StringIO
+
+    import yaml
+
+    from codebase.repo_config import RepositoryConfig
+
+    loaded = yaml.safe_load(StringIO("checkout:\n  submodules: true\n  lfs: true\n"))
+
+    checkout = RepositoryConfig(**loaded).checkout
+    assert (checkout.submodules, checkout.lfs) == (True, True)
+
+
 def test_pipeline_watch_defaults_leave_the_cap_to_the_site():
     from codebase.repo_config import RepositoryConfig
 

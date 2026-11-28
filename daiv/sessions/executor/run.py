@@ -7,7 +7,7 @@ import uuid
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass
 from functools import partial
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.urls import reverse
 from django.utils import timezone
@@ -30,7 +30,14 @@ from sessions.executor.recovery import recover_draft
 from sessions.executor.spec import RunHooks, RunOutcome
 from sessions.inbox.ownership import Ownerships
 from sessions.models import PublishStatus, Run, RunStatus, publish_field_updates
-from sessions.multi_repo import aload_extra_repos, apersist_extra_repo_state
+from sessions.multi_repo import (
+    FetchedSubmodule,
+    aload_extra_repos,
+    aload_submodules,
+    apersist_extra_repo_state,
+    apersist_submodule_state,
+    arecord_fetched_submodules,
+)
 from sessions.services import aget_session_ref, apersist_session_ref, areset_session_ref
 from sessions.spend_recording import RunSpendRecorder
 from sessions.tool_media import RunToolMediaStore
@@ -63,6 +70,163 @@ logger = logging.getLogger("daiv.sessions")
 STREAM_HEARTBEAT_INTERVAL_S = 5.0
 STOP_POLL_INTERVAL_S = 10.0
 ARCHIVE_TIMEOUT_S = 30.0
+
+
+class PersonRepoAccess:
+    """What ``run_id``'s person may read and write, as DAIV's repository access records it (research R4, R14): a DAIV
+    user by the rules of repository visibility and running, else a platform account by its mirrored access.
+
+    The person is the run's attributed one, whatever ``acts_as_user`` says: its DAIV user, else its platform account,
+    else, for a run DAIV started on its own, its session's platform account; no one answers no to everything. It is
+    looked up on the first check, which the checkout makes in its worker thread, so a run whose repositories don't
+    opt in never queries it, and every query is synchronous.
+    """
+
+    def __init__(self, run_id: str | None) -> None:
+        self._run_id = run_id
+        self._person: tuple[Any, str] | None = None
+
+    def _resolve(self) -> tuple[Any, str]:
+        if self._person is None:
+            self._person = self._lookup()
+        return self._person
+
+    def _lookup(self) -> tuple[Any, str]:
+        from codebase.conf import settings as codebase_settings
+        from sessions.models import SessionOrigin
+
+        if not self._run_id:
+            return None, ""
+        run = Run.objects.select_related("user", "session").filter(pk=self._run_id).first()
+        if run is None:
+            return None, ""
+        if run.user is not None:
+            return run.user, ""
+        provider = codebase_settings.CLIENT.value
+        if run.external_uid and run.external_provider == provider:
+            return None, run.external_uid
+        session = run.session
+        if (
+            run.trigger_type in SessionOrigin.daiv_authored()
+            and session.external_uid
+            and session.external_provider == provider
+        ):
+            return None, session.external_uid
+        return None, ""
+
+    def can_read(self, repo_id: str) -> bool:
+        from codebase.authorization import can_view, platform_account_can_view
+
+        user, uid = self._resolve()
+        if user is not None:
+            return can_view(user, repo_id)
+        return bool(uid) and platform_account_can_view(uid, repo_id)
+
+    def can_write(self, repo_id: str) -> bool:
+        from codebase.authorization import can_run, platform_account_can_write
+
+        user, uid = self._resolve()
+        if user is not None:
+            return can_run(user, repo_id)
+        return bool(uid) and platform_account_can_write(uid, repo_id)
+
+    def in_catalog(self, repo_id: str) -> bool:
+        from codebase.authorization import is_catalogued
+
+        user, uid = self._resolve()
+        return (user is not None or bool(uid)) and is_catalogued(repo_id)
+
+
+@dataclass(frozen=True)
+class SubmoduleHints:
+    """What a session's earlier turns left for checking out its submodules: each root's working branches (research
+    R19), the pins a ``submodule_merged`` run applies (R21), and the repositories whose merge request a pinned
+    submodule's parent merged, which start again from their default branch."""
+
+    branches: dict[str, dict[str, str]]
+    pins: dict[str, dict[str, tuple[str, str]]]
+    merged_parents: frozenset[str]
+
+    @classmethod
+    async def aload(cls, spec: RunSpec, extra_rows: Sequence[Any]) -> SubmoduleHints:
+        """Best-effort: without them a submodule starts detached at the commit its parent records, and a pin is left
+        for the parent's next publish to miss, so a failure is logged and the run goes on."""
+        if spec.thread_id is None:
+            return cls({}, {}, frozenset())
+        try:
+            return await cls._aload(spec, extra_rows)
+        except Exception:
+            logger.exception("executor: could not load the submodule hints of thread_id=%s", spec.thread_id)
+            return cls({}, {}, frozenset())
+
+    @classmethod
+    async def _aload(cls, spec: RunSpec, extra_rows: Sequence[Any]) -> SubmoduleHints:
+        from sessions.models import EventKind, InboxEvent
+
+        rows = await aload_submodules(cast("str", spec.thread_id))
+        events = (
+            [e async for e in InboxEvent.objects.filter(run_id=spec.run_id, kind=EventKind.SUBMODULE_MERGED)]
+            if spec.run_id
+            else []
+        )
+        pins: dict[str, dict[str, tuple[str, str]]] = {}
+        for event in events:
+            payload = event.payload
+            pins.setdefault(payload["root_repo_id"], {})[payload["path"]] = (
+                payload["recorded_sha"],
+                payload["merged_sha"],
+            )
+        merged = await cls._amerged_parents(spec, events, rows, extra_rows) if events else frozenset()
+        branches: dict[str, dict[str, str]] = {}
+        for row in rows:
+            if row.ref and row.repo_id not in merged:
+                branches.setdefault(row.root_repo_id, {})[row.path] = row.ref
+        return cls(branches, pins, merged)
+
+    @staticmethod
+    async def _amerged_parents(
+        spec: RunSpec, events: Sequence[Any], rows: Sequence[Any], extra_rows: Sequence[Any]
+    ) -> frozenset[str]:
+        """The parents of the pinned submodules whose merge request has merged, asked of the platform: the session's,
+        an extra repository's or an outer submodule's. One the platform can't answer for counts as open."""
+        from codebase.clients import RepoClient
+        from sessions.models import Session
+
+        by_repo = {row.repo_id: row for row in rows}
+        merge_requests = {row.repo_id: row.merge_request_iid for row in extra_rows}
+        merge_requests |= {row.repo_id: row.merge_request_iid for row in rows}
+        merge_requests[spec.repo_id] = (
+            await Session.objects.filter(thread_id=spec.thread_id).values_list("merge_request_iid", flat=True).afirst()
+        )
+        merged: set[str] = set()
+        client = RepoClient.create_instance()
+        for event in events:
+            row = by_repo.get(event.repo_id)
+            parent = row.parent_repo_id if row is not None else event.payload["root_repo_id"]
+            if parent in merged or not (iid := merge_requests.get(parent)):
+                continue
+            try:
+                merge_request = await sync_to_async(client.get_merge_request)(parent, iid)
+            except Exception:
+                logger.exception("executor: could not read the merge request !%s of %s", iid, parent)
+                continue
+            if merge_request.merged:
+                merged.add(parent)
+        return frozenset(merged)
+
+
+async def _arecord_submodules(thread_id: str, ctx: RuntimeCtx) -> None:
+    """Note every submodule the checkout fetched on the session before the agent reads it, so the session is hidden
+    from whoever can't read one (FR-027)."""
+    fetched = []
+    for root in ctx.repos:
+        parents = {sub.submodule.path: sub.repo_id for sub in root.submodules if sub.submodule is not None}
+        for sub in root.submodules:
+            if (role := sub.submodule) is not None:
+                parent = parents[role.parent_path] if role.parent_path else root.repo_id
+                fetched.append(FetchedSubmodule(root.repo_id, parent, role.path, sub.repo_id))
+    if fetched:
+        await arecord_fetched_submodules(thread_id, fetched)
 
 
 @dataclass(frozen=True)
@@ -419,18 +583,25 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
     else:
         thread_id, checkpoints = spec.thread_id, open_checkpointer()
     extra_rows = await aload_extra_repos(spec.thread_id) if spec.thread_id is not None else []
+    hints = await SubmoduleHints.aload(spec, extra_rows)
     main_ref = spec.ref
     if extra_rows and not main_ref:
         main_ref = await aget_session_ref(thread_id=thread_id) or None
+    main_merged = spec.repo_id in hints.merged_parents
     async with (
         set_runtime_ctx(
             repo_id=spec.repo_id,
             scope=spec.scope,
-            ref=main_ref,
+            ref=None if main_merged else main_ref,
             issue=spec.issue,
-            merge_request=spec.merge_request,
+            merge_request=None if main_merged else spec.merge_request,
             fallback_ref_on_missing=spec.fallback_ref_on_missing,
-            extra_repos=[ExtraRepo(row.repo_id, row.ref) for row in extra_rows],
+            extra_repos=[
+                ExtraRepo(row.repo_id, "" if row.repo_id in hints.merged_parents else row.ref) for row in extra_rows
+            ],
+            access=PersonRepoAccess(spec.run_id),
+            submodule_branches=hints.branches,
+            submodule_pins=hints.pins,
             sandbox_spec=sandbox_spec,
             acting_user_id=spec.acting_user_id,
             references=spec.references,
@@ -442,6 +613,8 @@ async def _agent_run(spec: RunSpec, hooks: RunHooks, recovery: _Recovery) -> Asy
         logger.info("executor: %s for thread_id=%s", type(workspace).__name__, thread_id)
         handed_over = False
         try:
+            if spec.thread_id is not None:
+                await _arecord_submodules(spec.thread_id, ctx)
             if spec.fallback_ref_on_missing and main_ref and ctx.repo.ref != main_ref:
                 await _repin_fallback_ref(thread_id, ctx.repo.ref)
             if hooks.on_context_ready is not None:
@@ -537,8 +710,10 @@ async def _fast_forward(spec: RunSpec, ctx: RuntimeCtx, workspace: Workspace) ->
         return None
     if ctx.repo.head_detached or not ctx.repo.ref:
         return None
+    from automation.agent.workspace.git_manager import PublishScope
+
     try:
-        return await workspace.fast_forward(ctx.repo.ref)
+        return await workspace.fast_forward(ctx.repo.ref, scope=PublishScope.from_config(ctx.config.checkout))
     except Exception:
         logger.exception("executor: could not fast-forward the checkout for thread_id=%s", spec.thread_id)
         return None
@@ -708,12 +883,18 @@ async def _after_run(spec: RunSpec, run: AgentRun, *, response_text: str | None 
 
 
 async def _persist_sibling_state(spec: RunSpec, run: AgentRun, publishes: Sequence[RepoPublish]) -> None:
-    """Keep each extra repository's branch and merge request on its row, so the next turn continues there."""
+    """Keep each extra repository's branch and merge request on its row, so the next turn continues there, and each
+    submodule's on its row whatever ``persist_ref`` says: only the session's own ref follows it."""
     if publishes and spec.persist_ref:
         try:
             await apersist_extra_repo_state(run.thread_id, publishes)
         except Exception:
             logger.exception("executor: failed to persist extra repository state for thread_id=%s", run.thread_id)
+    if spec.thread_id is not None and any(publish.submodule_path for publish in publishes):
+        try:
+            await apersist_submodule_state(spec.thread_id, publishes)
+        except Exception:
+            logger.exception("executor: failed to persist submodule state for thread_id=%s", spec.thread_id)
 
 
 async def _claim_merge_request(

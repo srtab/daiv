@@ -122,6 +122,14 @@ class MergeRequestJobPayload(TypedDict):
     sandbox_environment_id: NotRequired[str]
 
 
+class SubmoduleMergedPayload(TypedDict):
+    path: str
+    root_repo_id: str
+    merge_request_iid: int
+    recorded_sha: str
+    merged_sha: str
+
+
 PAYLOADS: dict[str, type] = {
     EventKind.CHAT_MESSAGE: ChatMessagePayload,
     EventKind.MENTION: CommentPayload,
@@ -139,6 +147,7 @@ PAYLOADS: dict[str, type] = {
     EventKind.NOTICE: NoticePayload,
     EventKind.LEG_FOLLOW_UP: LegFollowUpPayload,
     EventKind.MERGE_REQUEST_JOB: MergeRequestJobPayload,
+    EventKind.SUBMODULE_MERGED: SubmoduleMergedPayload,
 }
 
 #: Waking kinds, highest precedence first: the run that takes several gets the trigger type of the first (R6).
@@ -150,6 +159,7 @@ PRECEDENCE: dict[str, int] = {
     EventKind.MERGE_REQUEST_JOB: 3,
     EventKind.DELEGATION_FINISHED: 4,
     EventKind.CI_FAILED: 5,
+    EventKind.SUBMODULE_MERGED: 6,
 }
 WAKING_KINDS = frozenset(PRECEDENCE)
 
@@ -172,6 +182,7 @@ _TRIGGERS: dict[str, str] = {
     EventKind.MENTION: SessionOrigin.MR_WEBHOOK,
     EventKind.DELEGATION_FINISHED: SessionOrigin.DELEGATION_RESUME,
     EventKind.CI_FAILED: SessionOrigin.PIPELINE_WEBHOOK,
+    EventKind.SUBMODULE_MERGED: SessionOrigin.SUBMODULE_MERGE,
 }
 _JOB_TRIGGERS = frozenset({SessionOrigin.API_JOB, SessionOrigin.MCP_JOB})
 
@@ -276,6 +287,10 @@ class SourceKey:
     def child_ci(child_thread_id: str, pipeline_id: int, outcome: str) -> str:
         """Keyed on the outcome too: a retried pipeline keeps its id, so a pass after ``no_push`` is a new ending."""
         return _join("child-ci", child_thread_id, pipeline_id, outcome)
+
+    @staticmethod
+    def submodule_merged(repo_id: str, merge_request_iid: int) -> str:
+        return _join("submodule_merged", f"{repo_id}!{merge_request_iid}")
 
 
 class Subject:

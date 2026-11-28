@@ -62,9 +62,10 @@ def addressor_ctx() -> SimpleNamespace:
     """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads, the clone's working dir included."""
     return SimpleNamespace(
         config=MagicMock(),
-        repo=SimpleNamespace(ref="feature", clone_seconds=0.0),
+        repo=SimpleNamespace(ref="feature", clone_seconds=0.0, submodules=()),
         gitrepo=SimpleNamespace(working_dir="/clone"),
         extra_repos=(),
+        repos=(),
         sandbox=None,
         sandbox_client=None,
         bot_username="daiv",

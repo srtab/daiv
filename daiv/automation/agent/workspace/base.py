@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
     from automation.agent.context import RepoHandle
     from automation.agent.workspace.browser import SandboxBrowser
-    from automation.agent.workspace.git_manager import FastForward, GitManager
+    from automation.agent.workspace.git_manager import FastForward, GitManager, PublishScope
     from automation.agent.workspace.sandbox_backend import SandboxFileBackend
     from automation.agent.workspace.session import SandboxSession
     from core.site_settings import SiteSnapshot
@@ -93,10 +93,11 @@ class Workspace(PublishWorkspace, Protocol):
         environment's Browser field are on, the session is acquired, and the sandbox service can run one."""
         ...
 
-    async def fast_forward(self, branch: str) -> FastForward:
+    async def fast_forward(self, branch: str, *, scope: PublishScope = ...) -> FastForward:
         """Bring the checkout up to the remote ``branch`` before the agent starts, when someone pushed to it or rewrote
-        it since the checkout was made and it holds nothing unpublished (``GitManager.fast_forward``). A disk clone is
-        fresh, so it is mostly ``"unchanged"``; a warm sandbox keeps its checkout between runs."""
+        it since the checkout was made and it holds nothing unpublished (``GitManager.fast_forward``); ``scope`` says
+        which changes a publish keeps out, so they don't count as unpublished. A disk clone is fresh, so it is mostly
+        ``"unchanged"``; a warm sandbox keeps its checkout between runs."""
         ...
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
@@ -106,6 +107,6 @@ class Workspace(PublishWorkspace, Protocol):
         ...
 
     def for_repo(self, handle: RepoHandle) -> PublishWorkspace:
-        """What a publish of ``handle``, one of the run's extra repositories, reaches: the run's files, and git in
-        ``handle``'s clone."""
+        """What a publish of ``handle``, one of the run's extra repositories or a submodule, reaches: the run's files,
+        and git in ``handle``'s checkout."""
         ...

@@ -7,6 +7,7 @@ from sessions.auto_archive import MergeArchive
 from sessions.inbox.ownership import Ownerships
 from sessions.pipeline_watch.judgment import JUDGEABLE_PIPELINE_STATUSES
 from sessions.pipeline_watch.service import PipelineWatch
+from sessions.submodule_merges import SubmoduleMerges
 
 from codebase.base import GitPlatform
 from codebase.clients import RepoClient
@@ -317,8 +318,8 @@ class PullRequestCallback(GitHubCallback):
 
     async def process_callback(self):
         """
-        Record merge metrics for a merge into the default branch, then tell the session owning the pull request, then
-        archive every session that worked on a merged one.
+        Record merge metrics for a merge into the default branch, settle the submodules DAIV published on it, then tell
+        the session owning the pull request, then archive every session that worked on a merged one.
         """
         if (
             self.action == "closed"
@@ -334,6 +335,10 @@ class PullRequestCallback(GitHubCallback):
         if self.action == "reopened":
             await Ownerships(repo_id).areopen(number, by_username=by_username, draft=self.pull_request.draft)
             return
+        if self.pull_request.merged:
+            await SubmoduleMerges(repo_id, number).amark_merged()
+        else:
+            await SubmoduleMerges(repo_id, number).aclose()
         await Ownerships(repo_id).aclose(
             number, merged=self.pull_request.merged, by_username=by_username, target_branch=self.pull_request.base.ref
         )

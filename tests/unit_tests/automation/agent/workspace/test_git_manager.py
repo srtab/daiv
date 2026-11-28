@@ -1189,3 +1189,416 @@ async def test_fast_forward_through_a_sandbox_that_cannot_reach_the_remote_chang
 
     assert not client.ran("FETCH_HEAD")
     assert "Could not fetch origin/b" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Publish scope: submodules, LFS paths and recorded commits (research R8, R16, R20)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingRunner:
+    """A ``LocalGitRunner`` that records the argument list of every command it runs."""
+
+    def __init__(self, repo: Repo) -> None:
+        self._runner = LocalGitRunner(repo)
+        self.calls: list[tuple[str, ...]] = []
+
+    async def run(self, args):
+        self.calls.append(tuple(args))
+        return await self._runner.run(args)
+
+    async def run_batch(self, commands):
+        self.calls.extend(tuple(c) for c in commands)
+        return await self._runner.run_batch(commands)
+
+
+def _submodule_app(tmp_path: Path, *, lfs_files: dict[str, bytes] | None = None):
+    from tests.unit_tests.submodule_repos import LFS_ATTRIBUTES, World, git, lfs_pointer
+
+    world = World(tmp_path)
+    world.create("group/lib", {"f": "1\n"})
+    files: dict[str, str] = {"README.md": "app\n"}
+    if lfs_files is not None:
+        files |= {".gitattributes": LFS_ATTRIBUTES, **{p: lfs_pointer(c) for p, c in lfs_files.items()}}
+    world.create("group/app", files, submodules={"libs/lib": "../lib.git"})
+    repo = world.clone("group/app")
+    top = Path(repo.working_dir)
+    git(top, "submodule", "update", "-q", "--init")
+    return world, repo, top
+
+
+def _committed_paths(top: Path) -> list[str]:
+    from tests.unit_tests.submodule_repos import git
+
+    return git(top, "show", "--name-only", "--format=", "HEAD").split()
+
+
+async def _snapshot(gm: GitManager, scope) -> object:
+    return await gm.status_snapshot(base_branch="main", mr_source_branch=None, scope=scope)
+
+
+class TestDefaultScopeSendsTodaysCommands:
+    async def test_snapshot_commit_fast_forward_and_push_send_exactly_todays_arguments(self, tmp_path):
+        from automation.agent.workspace.git_manager import PublishScope
+
+        _, repo, top = _submodule_app(tmp_path)
+        (top / "README.md").write_text("changed\n")
+        runner = _RecordingRunner(repo)
+        gm = GitManager(runner)
+
+        status = await gm.status_snapshot(base_branch="main", mr_source_branch="main", scope=PublishScope())
+        assert status.kept_out.lfs_paths == () and status.kept_out.submodules == ()
+        assert await gm.commit_all("msg") is True
+        await gm.fast_forward("main")
+        await gm.push_head_to("main", integrate_on_reject=True)
+
+        head = runner.calls[4:5]
+        assert runner.calls[:6] == [
+            ("status", "--porcelain"),
+            ("merge-base", "origin/main", "HEAD"),
+            ("ls-files", "--others", "--exclude-standard"),
+            ("ls-remote", "--heads", "origin"),
+            ("rev-parse", "HEAD"),
+            ("log", "origin/main..HEAD", "--oneline"),
+        ]
+        assert head == [("rev-parse", "HEAD")]
+        assert runner.calls[6][0] == "diff" and runner.calls[6][1] != "--ignore-submodules=all"
+        assert ("add", "-A") in runner.calls and ("commit", "-m", "msg") in runner.calls
+        assert ("status", "--porcelain") in runner.calls[runner.calls.index(("commit", "-m", "msg")) :]
+        assert not any("--ignore-submodules=all" in call or "--literal-pathspecs" in call for call in runner.calls)
+        assert not any(call[:2] == ("diff", "--cached") for call in runner.calls)
+
+
+class TestSubmoduleScope:
+    SCOPE_KWARGS = {"submodules": True}
+
+    def _scope(self, **kwargs):
+        from automation.agent.workspace.git_manager import PublishScope
+
+        return PublishScope(**self.SCOPE_KWARGS, **kwargs)
+
+    async def test_an_edit_inside_a_submodule_alone_is_kept_out(self, tmp_path):
+        _, repo, top = _submodule_app(tmp_path)
+        (top / "libs/lib/f").write_text("edited\n")
+
+        status = await _snapshot(GitManager(LocalGitRunner(repo)), self._scope())
+
+        assert (status.dirty, status.diff) == (False, "")
+        (sub,) = status.kept_out.submodules
+        assert (sub.path, sub.changed_files, sub.commit_moved) == ("libs/lib", ("f",), False)
+
+    async def test_only_the_superprojects_file_is_committed(self, tmp_path):
+        _, repo, top = _submodule_app(tmp_path)
+        (top / "README.md").write_text("changed\n")
+        (top / "libs/lib/f").write_text("edited\n")
+        gm = GitManager(LocalGitRunner(repo))
+
+        status = await _snapshot(gm, self._scope())
+        assert status.dirty
+        assert await gm.commit_all("msg", keep_out=status.kept_out.paths, record={}) is True
+
+        assert _committed_paths(top) == ["README.md"]
+
+    async def test_a_moved_submodule_head_stays_out_of_the_commit(self, tmp_path):
+        from tests.unit_tests.submodule_repos import git
+
+        _, repo, top = _submodule_app(tmp_path)
+        git(top / "libs/lib", "commit", "-q", "--allow-empty", "-m", "moved")
+        (top / "README.md").write_text("changed\n")
+        gm = GitManager(LocalGitRunner(repo))
+
+        status = await _snapshot(gm, self._scope())
+        await gm.commit_all("msg", keep_out=status.kept_out.paths, record={})
+
+        assert status.kept_out.submodules[0].commit_moved
+        assert _committed_paths(top) == ["README.md"]
+
+    @pytest.mark.parametrize("how", ["deleted", "moved"])
+    async def test_a_removed_or_moved_submodule_stays_out_of_the_commit(self, tmp_path, how):
+        import shutil
+
+        from tests.unit_tests.submodule_repos import git
+
+        _, repo, top = _submodule_app(tmp_path)
+        before = git(top, "ls-tree", "HEAD", "libs/lib")
+        if how == "deleted":
+            shutil.rmtree(top / "libs/lib")
+        else:
+            git(top, "mv", "libs/lib", "libs/moved")
+        (top / "README.md").write_text("changed\n")
+        gm = GitManager(LocalGitRunner(repo))
+
+        status = await _snapshot(gm, self._scope())
+        await gm.commit_all("msg", keep_out=status.kept_out.paths, record={})
+
+        removed = {sub.path for sub in status.kept_out.submodules if sub.removed}
+        assert removed == {"libs/lib"}
+        assert git(top, "ls-tree", "HEAD", "libs/lib") == before
+        assert git(top, "ls-tree", "HEAD", "libs/moved") == ""
+
+    async def test_an_added_submodule_stays_out_but_gitmodules_is_committed(self, tmp_path):
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, top = _submodule_app(tmp_path)
+        world.create("group/extra")
+        git(top, "submodule", "add", "-q", str(world.bare("group/extra")), "libs/extra")
+        gm = GitManager(LocalGitRunner(repo))
+
+        status = await _snapshot(gm, self._scope())
+        await gm.commit_all("msg", keep_out=status.kept_out.paths, record={})
+
+        assert any(sub.path == "libs/extra" and sub.added for sub in status.kept_out.submodules)
+        assert _committed_paths(top) == [".gitmodules"]
+        assert git(top, "ls-tree", "HEAD", "libs/extra") == ""
+
+    async def test_a_repository_cloned_inside_the_checkout_alone_is_no_change(self, tmp_path):
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, top = _submodule_app(tmp_path)
+        world.create("group/extra")
+        git(top, "clone", "-q", str(world.bare("group/extra")), "tools/vendored")
+        gm = GitManager(LocalGitRunner(repo))
+        head = git(top, "rev-parse", "HEAD")
+
+        status = await _snapshot(gm, self._scope())
+
+        assert status.dirty is False
+        assert [(sub.path, sub.added) for sub in status.kept_out.submodules] == [("tools/vendored", True)]
+        assert await gm.commit_all("msg", keep_out=status.kept_out.paths, record={}) is False
+        assert git(top, "rev-parse", "HEAD") == head
+
+    async def test_more_than_twenty_files_are_capped(self, tmp_path):
+        _, repo, top = _submodule_app(tmp_path)
+        for i in range(25):
+            (top / f"libs/lib/n{i:02}.txt").write_text("x")
+
+        status = await _snapshot(GitManager(LocalGitRunner(repo)), self._scope())
+
+        (sub,) = status.kept_out.submodules
+        assert (len(sub.changed_files), sub.more) == (20, 5)
+
+    @pytest.mark.parametrize(("scoped", "expected"), [(False, "diverged"), (True, "replaced")])
+    async def test_fast_forward_ignores_changes_kept_out_of_publishes(self, tmp_path, scoped, expected):
+        from automation.agent.workspace.git_manager import PublishScope
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, top = _submodule_app(tmp_path)
+        (top / "libs/lib/f").write_text("edited\n")
+        work = world.work("group/app")
+        git(work, "commit", "-q", "--amend", "-m", "rewritten")
+        git(work, "push", "-q", "--force", "origin", "HEAD:main")
+        scope = self._scope() if scoped else PublishScope()
+
+        assert await GitManager(LocalGitRunner(repo)).fast_forward("main", scope=scope) == expected
+
+    async def test_fast_forward_still_advances_with_changes_inside_a_submodule(self, tmp_path):
+        world, repo, top = _submodule_app(tmp_path)
+        (top / "libs/lib/f").write_text("edited\n")
+        world.commit("group/app", {"other.txt": "x"})
+
+        assert await GitManager(LocalGitRunner(repo)).fast_forward("main", scope=self._scope()) == "advanced"
+
+
+class TestRecord:
+    def _lib_commit(self, world, message: str = "lib change") -> str:
+        return world.commit("group/lib", {"f": f"{message}\n"}, message=message)
+
+    async def test_a_recorded_commit_counts_as_a_change_with_a_summary(self, tmp_path):
+        from automation.agent.workspace.git_manager import PublishScope
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, top = _submodule_app(tmp_path)
+        old = git(top / "libs/lib", "rev-parse", "HEAD").strip()
+        new = self._lib_commit(world, "fix the lib")
+        git(top / "libs/lib", "fetch", "-q", "origin")
+
+        status = await _snapshot(
+            GitManager(LocalGitRunner(repo)), PublishScope(submodules=True, record={"libs/lib": new})
+        )
+
+        assert status.dirty is True
+        assert f"Submodule libs/lib {old[:7]}..{new[:7]}:\n  > fix the lib\n" in status.diff
+        assert status.kept_out.submodules == ()
+
+    async def test_a_commit_missing_from_the_clone_shows_its_short_ids(self, tmp_path):
+        from automation.agent.workspace.git_manager import PublishScope
+        from tests.unit_tests.submodule_repos import git
+
+        _, repo, top = _submodule_app(tmp_path)
+        old = git(top / "libs/lib", "rev-parse", "HEAD").strip()
+        missing = "d" * 40
+
+        status = await _snapshot(
+            GitManager(LocalGitRunner(repo)), PublishScope(submodules=True, record={"libs/lib": missing})
+        )
+
+        assert f"Submodule libs/lib {old[:7]}...{missing[:7]} (commits not present)" in status.diff
+
+    async def test_commit_all_records_exactly_the_given_commit(self, tmp_path):
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, top = _submodule_app(tmp_path)
+        world.create("group/other")
+        git(top / "libs/lib", "commit", "-q", "--allow-empty", "-m", "local, never recorded")
+        unknown = "e" * 40
+        gm = GitManager(LocalGitRunner(repo))
+
+        assert await gm.commit_all("msg", keep_out=("libs/lib",), record={"libs/lib": unknown}) is True
+
+        assert git(top, "ls-tree", "HEAD", "libs/lib").split()[:3] == ["160000", "commit", unknown]
+
+
+class TestRemoteMovedARecordedCommit:
+    """Research R20: a remote branch that moved a gitlink the run's commit also moves keeps the remote's commit."""
+
+    def _setup(self, tmp_path):
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, top = _submodule_app(tmp_path)
+        lib = world.work("group/lib")
+        base = world.head("group/lib")
+        git(lib, "checkout", "-q", "-b", "x", base)
+        remote_commit = world.commit("group/lib", {"x": "x"}, branch="x")
+        git(lib, "checkout", "-q", "-b", "y", base)
+        run_commit = world.commit("group/lib", {"y": "y"}, branch="y")
+        app = world.work("group/app")
+        git(app / "libs/lib", "fetch", "-q", "origin")
+        git(app / "libs/lib", "checkout", "-q", remote_commit)
+        git(app, "commit", "-qam", "someone moved the lib")
+        git(app, "push", "-q", "origin", "HEAD:main")
+        git(top / "libs/lib", "fetch", "-q", "origin")
+        return world, repo, top, remote_commit, run_commit
+
+    async def _publish(self, repo, run_commit, *, readme: bool = True):
+        from automation.agent.workspace.git_manager import PublishScope
+
+        top = Path(repo.working_dir)
+        if readme:
+            (top / "README.md").write_text("run change\n")
+        gm = GitManager(LocalGitRunner(repo))
+        record = {"libs/lib": run_commit}
+        await gm.commit_all("run", keep_out=(), record=record)
+        await gm.push_head_to("main", integrate_on_reject=True, scope=PublishScope(submodules=True, record=record))
+        return gm
+
+    async def test_a_rebase_keeps_the_remotes_commit_and_the_runs_other_changes(self, tmp_path):
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, _, remote_commit, run_commit = self._setup(tmp_path)
+
+        gm = await self._publish(repo, run_commit)
+
+        assert gm.remote_moved == ("libs/lib",)
+        work = world.work("group/app")
+        git(work, "fetch", "-q", "origin")
+        assert git(work, "ls-tree", "origin/main", "libs/lib").split()[2] == remote_commit
+        assert git(work, "show", "origin/main:README.md") == "run change\n"
+
+    async def test_a_merge_does_the_same(self, tmp_path):
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, top, remote_commit, run_commit = self._setup(tmp_path)
+        git(top, "checkout", "-q", "-b", "side")
+        (top / "side.txt").write_text("side\n")
+        git(top, "add", "side.txt")
+        git(top, "commit", "-qm", "side")
+        git(top, "checkout", "-q", "main")
+        git(top, "merge", "-q", "--no-ff", "--no-edit", "side")
+
+        gm = await self._publish(repo, run_commit)
+
+        assert gm.remote_moved == ("libs/lib",)
+        work = world.work("group/app")
+        git(work, "fetch", "-q", "origin")
+        assert git(work, "ls-tree", "origin/main", "libs/lib").split()[2] == remote_commit
+        assert git(work, "show", "origin/main:side.txt") == "side\n"
+
+    async def test_a_conflict_on_an_ordinary_file_still_aborts(self, tmp_path):
+        world, repo, top, _, run_commit = self._setup(tmp_path)
+        world.commit("group/app", {"README.md": "theirs\n"})
+
+        with pytest.raises(GitPushStaleError):
+            await self._publish(repo, run_commit)
+
+    async def test_a_commit_the_resolution_empties_is_dropped(self, tmp_path):
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, top, remote_commit, run_commit = self._setup(tmp_path)
+
+        gm = await self._publish(repo, run_commit, readme=False)
+
+        assert gm.remote_moved == ("libs/lib",)
+        work = world.work("group/app")
+        git(work, "fetch", "-q", "origin")
+        assert git(work, "log", "--format=%s", "-1", "origin/main").strip() == "someone moved the lib"
+
+
+class TestLfsScope:
+    def _scope(self):
+        from automation.agent.workspace.git_manager import PublishScope
+
+        return PublishScope(lfs=True)
+
+    async def test_lfs_paths_are_kept_out_and_listed(self, tmp_path):
+        from tests.unit_tests.submodule_repos import git
+
+        _, repo, top = _submodule_app(tmp_path, lfs_files={"a.bin": b"a", "b.bin": b"b", "c.bin": b"c"})
+        (top / "a.bin").write_bytes(b"edited")
+        (top / "new.bin").write_bytes(b"new")
+        (top / "b.bin").unlink()
+        git(top, "mv", "c.bin", "d.bin")
+        (top / "README.md").write_text("changed\n")
+        runner = _RecordingRunner(repo)
+        gm = GitManager(runner)
+
+        status = await _snapshot(gm, self._scope())
+        await gm.commit_all("msg", keep_out=status.kept_out.paths)
+
+        assert set(status.kept_out.lfs_paths) == {"a.bin", "new.bin", "b.bin", "c.bin", "d.bin"}
+        assert _committed_paths(top) == ["README.md"]
+        for args in (("status", "--porcelain"), ("ls-files", "--others", "--exclude-standard")):
+            assert (*args, "--", ".", ":(exclude,attr:filter=lfs)") in runner.calls
+        assert any(call[0] == "diff" and call[-2:] == (".", ":(exclude,attr:filter=lfs)") for call in runner.calls)
+
+    async def test_lfs_changes_alone_are_no_change(self, tmp_path):
+        _, repo, top = _submodule_app(tmp_path, lfs_files={"a.bin": b"a"})
+        (top / "a.bin").write_bytes(b"edited")
+
+        status = await _snapshot(GitManager(LocalGitRunner(repo)), self._scope())
+
+        assert (status.dirty, status.kept_out.lfs_paths) == (False, ("a.bin",))
+
+    @pytest.mark.parametrize(("scoped", "expected"), [(False, "diverged"), (True, "replaced")])
+    async def test_fast_forward_ignores_lfs_changes(self, tmp_path, scoped, expected):
+        from automation.agent.workspace.git_manager import PublishScope
+        from tests.unit_tests.submodule_repos import git
+
+        world, repo, top = _submodule_app(tmp_path, lfs_files={"a.bin": b"a"})
+        (top / "a.bin").write_bytes(b"edited")
+        work = world.work("group/app")
+        git(work, "commit", "-q", "--amend", "-m", "rewritten")
+        git(work, "push", "-q", "--force", "origin", "HEAD:main")
+        scope = self._scope() if scoped else PublishScope()
+
+        assert await GitManager(LocalGitRunner(repo)).fast_forward("main", scope=scope) == expected
+
+    async def test_fast_forward_still_advances_with_an_lfs_change(self, tmp_path):
+        world, repo, top = _submodule_app(tmp_path, lfs_files={"a.bin": b"a"})
+        (top / "a.bin").write_bytes(b"edited")
+        world.commit("group/app", {"other.txt": "x"})
+
+        assert await GitManager(LocalGitRunner(repo)).fast_forward("main", scope=self._scope()) == "advanced"
+
+
+async def test_a_push_from_a_detached_head_creates_the_branch(tmp_path):
+    repo, origin_dir = _init_repo_with_origin(tmp_path)
+    repo.git.checkout("--detach")
+    (Path(repo.working_dir) / "new.txt").write_text("x\n")
+    gm = GitManager(LocalGitRunner(repo))
+    await gm.commit_all("detached work")
+
+    with pytest.raises(GitCommandError):
+        await gm.push_head_to("daiv/fresh")
+    assert await gm.push_head_to("daiv/fresh", from_detached=True) == "daiv/fresh"
+
+    assert Repo(origin_dir).git.rev_parse("refs/heads/daiv/fresh") == repo.head.commit.hexsha

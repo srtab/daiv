@@ -349,8 +349,8 @@ The job status adds two lists:
 
 | Field | Meaning |
 |-------|---------|
-| `merge_requests` | `[{"repo_id": "...", "url": "..."}]`, one per opened or updated merge request. |
-| `publish_errors` | `[{"repo_id": "...", "error": "..."}]`, one per repository that could not be published. |
+| `merge_requests` | `[{"repo_id": "...", "url": "..."}]`, one per opened or updated merge request, the merge requests of [submodules](../customization/repository-config.md#submodules-and-lfs) DAIV published included. |
+| `publish_errors` | `[{"repo_id": "...", "error": "..."}]`, one per repository that could not be published, submodules included. |
 
 `merge_request_url` stays: the main repository's merge request, else the first one opened.
 

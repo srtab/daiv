@@ -1,19 +1,23 @@
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from git import GitCommandError
 from langchain_core.messages import AIMessage
+from langchain_core.prompts import SystemMessagePromptTemplate
 
 from automation.agent.context import RuntimeCtx
 from automation.agent.events import ASSISTANT_MESSAGE_EVENT, PUBLISH_RESULT_EVENT, publish_result_payload
 from automation.agent.git_state import RepoPublish
-from automation.agent.middlewares.git import GitMiddleware
+from automation.agent.middlewares.git import GIT_SYSTEM_PROMPT, GitMiddleware
 from automation.agent.publishers import PublishOutcome, UnresolvedMergeConflictsError
 from automation.agent.synthetic import is_synthetic
 from automation.agent.workspace.git_manager import GitPushPermissionError
 from automation.agent.workspace.git_runners import SandboxGitProtocolError
-from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
+from codebase.base import GitPlatform, MergeRequest, MergeRequestDiffStats, Scope, User
+from codebase.clients.checkout import CheckoutReport
+from codebase.repo_config import Checkout
 from tests.unit_tests.automation.agent.conftest import make_repo_handle
 from tests.unit_tests.conftest import FakeWorkspace, agent_settings
 
@@ -26,12 +30,15 @@ def _make_runtime(*, scope: Scope = Scope.ISSUE) -> Mock:
     runtime.context.scope = scope
     runtime.context.merge_request = None
     runtime.context.repository = Mock(slug="a/b")
-    runtime.context.config = Mock(default_branch="main")
+    runtime.context.config = Mock(default_branch="main", checkout=Checkout())
     runtime.context.repo.repository = runtime.context.repository
     runtime.context.repo.repo_id = "a/b"
     runtime.context.repo.config = runtime.context.config
     runtime.context.repo.head_detached = False
+    runtime.context.repo.submodules = ()
+    runtime.context.repo.checkout = CheckoutReport.EMPTY
     runtime.context.extra_repos = ()
+    runtime.context.repos = (runtime.context.repo,)
     return runtime
 
 
@@ -57,9 +64,12 @@ def _build_runtime_for_prompt(*, scope: Scope = Scope.GLOBAL) -> Mock:
     runtime.context.merge_request = None
     runtime.context.issue = None
     runtime.context.repository = Mock(slug="a/b")
-    runtime.context.config = Mock(default_branch="main")
+    runtime.context.config = Mock(default_branch="main", checkout=Checkout())
     runtime.context.git_platform = Mock(value="gitlab")
     runtime.context.extra_repos = ()
+    runtime.context.repo.checkout = CheckoutReport.EMPTY
+    runtime.context.repo.submodules = ()
+    runtime.context.repos = (runtime.context.repo,)
     return runtime
 
 
@@ -856,6 +866,7 @@ class TestGitMiddleware:
                 repository=SimpleNamespace(slug="g/mod"),
                 current_ref="fix-x",
                 config=SimpleNamespace(default_branch="main"),
+                workspace_path="/workspace/repos/g/mod",
             ),
         )
 
@@ -913,7 +924,16 @@ class TestGitMiddleware:
             git=MagicMock(get_changed_files=AsyncMock(return_value=[]), get_diff=AsyncMock(return_value=""))
         )
         mw = GitMiddleware(settings=SETTINGS, workspace=workspace, auto_commit_changes=True, capture_patch=True)
-        repository, config = Mock(slug="a/b"), Mock(default_branch="main")
+        repository, config = Mock(slug="a/b"), Mock(default_branch="main", checkout=Checkout())
+        repo = SimpleNamespace(
+            repository=repository,
+            config=config,
+            current_ref="feature-x",
+            head_detached=False,
+            client=MagicMock(get_merge_request_by_branches=MagicMock(return_value=None)),
+            checkout=CheckoutReport.EMPTY,
+            submodules=(),
+        )
         runtime = Mock(
             context=SimpleNamespace(
                 scope=Scope.GLOBAL,
@@ -923,13 +943,8 @@ class TestGitMiddleware:
                 config=config,
                 git_platform=Mock(value="gitlab"),
                 extra_repos=(),
-                repo=SimpleNamespace(
-                    repository=repository,
-                    config=config,
-                    current_ref="feature-x",
-                    head_detached=False,
-                    client=MagicMock(get_merge_request_by_branches=MagicMock(return_value=None)),
-                ),
+                repo=repo,
+                repos=(repo,),
             )
         )
         request = MagicMock(runtime=runtime, state={"merge_request": None}, system_prompt="")
@@ -1460,3 +1475,393 @@ class TestRelatedLinks:
             await mw.aafter_agent({"merge_request": None}, _multi_repo_runtime())
 
         ensure.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# Submodules and LFS: the prompt section, the publish order and the turn-end notice
+# ---------------------------------------------------------------------------
+
+
+def _with_checkout(handle, *, submodules=(), skipped=(), lfs_files=(), lfs=True, sub_on=True):
+    from codebase.clients.checkout import CheckoutOptions, CheckoutReport
+
+    report = CheckoutReport(
+        CheckoutOptions(submodules=sub_on, lfs=lfs), submodules=tuple(skipped), lfs_files=tuple(lfs_files)
+    )
+    return replace(handle, checkout=report, submodules=tuple(submodules))
+
+
+def _sub_handle(
+    path, slug, *, parent="", block=None, published_from="", branch="", note="", pinned="", root="/workspace/repo"
+):
+    from automation.agent.context import SubmoduleRole
+
+    handle = make_repo_handle(
+        slug, current_ref=branch or f"{path}-sha", head_detached=not branch, workspace_path=f"{root}/{path}"
+    )
+    return replace(
+        handle,
+        submodule=SubmoduleRole(
+            path=path,
+            parent_path=parent,
+            recorded_commit=f"{path}-sha",
+            target_branch="main",
+            publish_block=block,
+            published_from=published_from,
+            pinned=pinned,
+            note=note,
+        ),
+    )
+
+
+def _skipped(path, reason, *, repo_id=None, url=""):
+    from codebase.clients.checkout import SubmoduleCheckout
+
+    return SubmoduleCheckout(path=path, parent_path="", url=url, repo_id=repo_id, skipped=reason)
+
+
+class TestCheckoutSection:
+    def test_an_empty_report_renders_nothing_and_leaves_the_prompt_as_it_was(self):
+        from automation.agent.middlewares.git import checkout_section
+
+        handle = make_repo_handle("g/app", workspace_path="/workspace/repo")
+        old_template = GIT_SYSTEM_PROMPT.prompt.template.replace(
+            "\n{{#has_checkout_sections}}\n\n{{&checkout_sections}}\n{{/has_checkout_sections}}", ""
+        )
+        context = {
+            "git_platform": "gitlab",
+            "repository": "g/app",
+            "current_branch": "main",
+            "default_branch": "main",
+            "issue_iid": None,
+            "merge_request_iid": None,
+            "has_other_repositories": True,
+            "other_repositories": [
+                {
+                    "repository": "g/mod",
+                    "path": "/workspace/repos/g/mod",
+                    "current_branch": "x",
+                    "default_branch": "main",
+                }
+            ],
+        }
+
+        assert checkout_section(handle) == ""
+        old = SystemMessagePromptTemplate.from_template(old_template, template_format="mustache")
+        assert GIT_SYSTEM_PROMPT.format(**context).content == old.format(**context).content
+
+    def test_the_section_lists_published_read_only_and_missing_submodules_and_lfs_files(self):
+        from automation.agent.middlewares.git import SKIP_PHRASES, checkout_section
+        from codebase.clients.checkout import LfsFile, PublishBlock, SkipReason, SubmoduleNote
+
+        subs = [
+            _sub_handle("libs/core", "g/core"),
+            _sub_handle("libs/core/vendor/fmt", "g/fmt", parent="libs/core", branch="daiv/fmt"),
+            _sub_handle("libs/moved", "g/moved", note=SubmoduleNote.BRANCH_MOVED_ON),
+            _sub_handle("libs/ui", "g/ui", block=PublishBlock.PERSON_NO_WRITE),
+            _sub_handle(
+                "libs/shared",
+                "g/shared",
+                block=PublishBlock.PUBLISHED_ELSEWHERE,
+                published_from="/workspace/repos/g/shared",
+            ),
+            _sub_handle("libs/ui/deep", "g/deep", parent="libs/ui", block=PublishBlock.PARENT_NOT_PUBLISHED),
+        ]
+        skipped = [
+            _skipped("libs/billing", reason, repo_id="g/billing")
+            for reason in SkipReason
+            if reason not in (SkipReason.OUTSIDE_PLATFORM, SkipReason.OVER_LIMIT)
+        ]
+        skipped.append(_skipped("third_party/zlib", SkipReason.OUTSIDE_PLATFORM, url="https://github.com/madler/zlib"))
+        handle = _with_checkout(
+            make_repo_handle("g/app", workspace_path="/workspace/repo"),
+            submodules=subs,
+            skipped=skipped,
+            lfs_files=[LfsFile("assets/model.bin", 10, SkipReason.OVER_LIMIT), LfsFile("ok.bin", 1)],
+        )
+
+        section = checkout_section(handle)
+
+        assert section.startswith("## Submodules and LFS files in `g/app`\n\n- Submodules whose changes are published")
+        assert "  - `libs/core` (`g/core`, into `main`).\n" in section
+        assert (
+            "  - `libs/core/vendor/fmt` (`g/fmt`, into `main`): continues its open "
+            "merge request on its branch `daiv/fmt`." in section
+        )
+        assert (
+            "its branch no longer contains the commit this repository records, so "
+            "changes there open a new merge request" in section
+        )
+        assert "  - `libs/ui` (`g/ui`): the person this run belongs to can't write to that repository." in section
+        assert (
+            "  - `libs/shared` (`g/shared`): that repository is published from `/workspace/repos/g/shared`." in section
+        )
+        assert "  - `libs/ui/deep` (`g/deep`): the submodule that contains it is read-only." in section
+        for reason, phrase in SKIP_PHRASES.items():
+            if reason is not SkipReason.OVER_LIMIT:
+                assert f": {phrase}." in section, reason
+        assert "`third_party/zlib` (`https://github.com/madler/zlib`): it is outside this git platform." in section
+        assert (
+            "- LFS files not downloaded (they hold their pointer text): "
+            "`assets/model.bin` (over the LFS download limit)." in section
+        )
+        assert "ok.bin" not in section
+        assert section.endswith(
+            "- Changes to LFS-tracked files, adding or removing a submodule, and "
+            "changes inside read-only submodules are "
+            "not published: the harness leaves them out of the commit and says so when your turn ends. Don't commit "
+            "inside a submodule; the harness does that for the published ones."
+        )
+
+    def test_lists_stop_at_twenty(self):
+        from automation.agent.middlewares.git import checkout_section
+        from codebase.clients.checkout import LfsFile, SkipReason
+
+        handle = _with_checkout(
+            make_repo_handle("g/app"),
+            submodules=[_sub_handle(f"libs/{i:02}", f"g/{i:02}") for i in range(23)],
+            skipped=[_skipped(f"x/{i:02}", SkipReason.NOT_CATALOGUED, repo_id=f"o/{i}") for i in range(21)],
+            lfs_files=[LfsFile(f"{i:02}.bin", 1, SkipReason.OVER_LIMIT) for i in range(25)],
+        )
+
+        section = checkout_section(handle)
+
+        assert "  - and 3 more." in section and "  - and 1 more." in section
+        assert "and 5 more." in section
+        assert "`libs/20`" not in section and "`x/20`" not in section
+
+    def test_the_last_bullet_follows_the_settings_that_are_on(self):
+        from automation.agent.middlewares.git import checkout_section
+
+        lfs_only = checkout_section(_with_checkout(make_repo_handle("g/app"), sub_on=False))
+        sub_only = checkout_section(_with_checkout(make_repo_handle("g/app"), lfs=False))
+
+        assert lfs_only.endswith(
+            "- Changes to LFS-tracked files are not published: the harness leaves them out of "
+            "the commit and says so when your turn ends."
+        )
+        assert sub_only.splitlines()[-1].startswith(
+            "- Adding or removing a submodule, and changes inside read-only submodules"
+        )
+
+    async def test_the_prompt_carries_one_section_per_opted_in_repository_in_order(self):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        main = _with_checkout(make_repo_handle("g/app", workspace_path="/workspace/repo"))
+        quiet = make_repo_handle("g/quiet")
+        other = _with_checkout(make_repo_handle("g/mod"), sub_on=False)
+        runtime = Mock(context=RuntimeCtx(bot_username="daiv", repos=(main, quiet, other)))
+        request = MagicMock(runtime=runtime, state={}, system_prompt="")
+        captured = {}
+
+        async def handler(req):
+            captured["prompt"] = req.system_prompt
+
+        request.override = lambda **kw: MagicMock(system_prompt=kw["system_prompt"])
+        await mw.awrap_model_call(request, handler)
+
+        prompt = captured["prompt"]
+        assert prompt.count("## Submodules and LFS files in") == 2
+        assert prompt.index("in `g/app`") < prompt.index("in `g/mod`")
+        assert "in `g/quiet`" not in prompt
+
+
+class TestKeptOutNotice:
+    def test_each_kind_of_change_left_out_gets_its_line(self):
+        from automation.agent.middlewares.git import kept_out_notice
+        from automation.agent.workspace.git_manager import KeptOut, KeptOutSubmodule
+        from codebase.clients.checkout import PublishBlock
+
+        ui = _sub_handle("libs/ui", "g/ui", block=PublishBlock.PERSON_NO_WRITE)
+        core = _sub_handle("libs/core", "g/core")
+        core.client.git_platform = GitPlatform.GITLAB
+        root = replace(make_repo_handle("g/app"), submodules=(ui, core))
+        kept_out = KeptOut(
+            lfs_paths=("assets/logo.png",),
+            submodules=(
+                KeptOutSubmodule(
+                    "libs/ui", block=PublishBlock.PERSON_NO_WRITE, changed_files=("src/button.ts",), more=2
+                ),
+                KeptOutSubmodule("libs/old", removed=True),
+                KeptOutSubmodule("tools/vendored", added=True),
+                KeptOutSubmodule("libs/core", remote_moved=True),
+            ),
+        )
+        core_publish = RepoPublish(
+            repo_id="g/core",
+            merge_request=_mr(iid=12),
+            published=True,
+            current_ref="",
+            submodule_path="libs/core",
+            root_repo_id="g/app",
+            kept_out=KeptOut(lfs_paths=("data/new.bin",)),
+        )
+        failed = RepoPublish(
+            repo_id="g/fmt",
+            merge_request=None,
+            published=False,
+            current_ref="",
+            error="boom",
+            submodule_path="libs/fmt",
+        )
+
+        notice = kept_out_notice(root, kept_out, [core_publish, failed], where="")
+
+        assert notice.splitlines() == [
+            "I didn't publish some of my changes:",
+            "- Inside the read-only submodule `libs/ui` (the person this run belongs "
+            "to can't write to that repository): "
+            "`src/button.ts`, and 2 more.",
+            "- The submodule `libs/old` was removed or moved, which DAIV doesn't publish.",
+            "- `tools/vendored` was added as a submodule, which DAIV doesn't publish.",
+            "- The submodule `libs/core` is still at the commit the branch's latest push set: someone moved it while I "
+            "worked, and their commit wins. My changes there are in `g/core!12`.",
+            "- The submodule `libs/fmt` couldn't be published, so its parent still points at its old commit.",
+            "- LFS-tracked files: `assets/logo.png`, `libs/core/data/new.bin`.",
+        ]
+
+    def test_nothing_left_out_adds_nothing(self):
+        from automation.agent.middlewares.git import kept_out_notice
+        from automation.agent.workspace.git_manager import KeptOut
+
+        assert kept_out_notice(make_repo_handle("g/app"), KeptOut(), [], where="") is None
+        assert kept_out_notice(make_repo_handle("g/app"), None, [], where="") is None
+
+    def test_a_pin_applied_or_left_gets_its_own_line(self):
+        from automation.agent.middlewares.git import kept_out_notice
+        from codebase.clients.checkout import SubmoduleNote
+
+        applied = _sub_handle("libs/core", "g/core", pinned="1a2b3c4d" + "0" * 32)
+        left = _sub_handle("libs/other", "g/other", note=SubmoduleNote.PIN_LEFT)
+        root = replace(make_repo_handle("g/app"), submodules=(applied, left))
+        pin = RepoPublish(
+            repo_id="g/core",
+            merge_request=None,
+            published=False,
+            current_ref="",
+            submodule_path="libs/core",
+            recorded_sha=applied.submodule.pinned,
+        )
+
+        notice = kept_out_notice(root, None, [pin], where="")
+
+        assert notice.split("\n\n") == [
+            "Updated the submodule `libs/core` to `1a2b3c4`, the commit its merge request in `g/core` was merged as.",
+            "Left the submodule `libs/other` as it is: this branch no longer records "
+            "the commit DAIV pushed to `g/other`.",
+        ]
+
+
+class TestSubmodulePublishOrder:
+    def _runtime(self, *, extra=False):
+        main_sub = _sub_handle("libs/lib", "g/lib")
+        main = replace(make_repo_handle("g/app", workspace_path="/workspace/repo"), submodules=(main_sub,))
+        repos = [main]
+        if extra:
+            extra_sub = _sub_handle("vendor/x", "g/x", root="/workspace/repos/g/mod")
+            repos.append(replace(make_repo_handle("g/mod"), submodules=(extra_sub,)))
+        return Mock(context=RuntimeCtx(bot_username="daiv", repos=tuple(repos)))
+
+    @staticmethod
+    def _sub_publish(slug, path, root, *, error=None, mr=None):
+        return RepoPublish(
+            repo_id=slug,
+            merge_request=mr,
+            published=error is None,
+            current_ref="",
+            pushed_sha="" if error else f"{slug}-sha",
+            error=error,
+            submodule_path=path,
+            root_repo_id=root,
+            parent_repo_id=root,
+        )
+
+    async def test_submodules_publish_before_their_repository_which_records_them(self, emit_custom_event):
+        order: list[str] = []
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        runtime = self._runtime(extra=True)
+
+        async def submodules(ctx, workspace, handle, **_):
+            order.append(f"{handle.repo_id} submodules")
+            path = handle.submodules[0].submodule.path
+            return [self._sub_publish(handle.submodules[0].repo_id, path, handle.repo_id, mr=_mr())], {path: "rec"}
+
+        def publish(**kwargs):
+            order.append(f"publish {kwargs['scope'].record}")
+            return PublishOutcome(merge_request=_mr(), published=True)
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_submodules", side_effect=submodules),
+            patch("automation.agent.publishers.apublish_submodules", side_effect=submodules),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.publishers.GitChangePublisher") as extra_cls,
+            patch("automation.agent.middlewares.git.aensure_related_links", AsyncMock()) as link,
+        ):
+            main_cls.return_value.publish = AsyncMock(side_effect=publish)
+            extra_cls.return_value.publish = AsyncMock(side_effect=publish)
+            result = await mw.aafter_agent({"merge_request": None}, runtime)
+
+        assert order == [
+            "g/app submodules",
+            "publish {'libs/lib': 'rec'}",
+            "g/mod submodules",
+            "publish {'vendor/x': 'rec'}",
+        ]
+        publishes = [RepoPublish.from_state(p) for p in result["repo_publishes"]]
+        assert [(p.repo_id, p.recorded_sha) for p in publishes] == [("g/lib", "rec"), ("g/x", "rec"), ("g/mod", "")]
+        entries = link.await_args.args[0]
+        assert {(e.repo_slug, e.parent_repo_id) for e in entries} >= {("g/lib", "g/app"), ("g/x", "g/mod")}
+
+    async def test_a_failed_main_publish_after_its_submodules_is_noticed_not_raised(self, emit_custom_event):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        runtime = self._runtime()
+        sub = self._sub_publish("g/lib", "libs/lib", "g/app", mr=_mr())
+
+        with (
+            patch(
+                "automation.agent.middlewares.git.apublish_submodules",
+                AsyncMock(return_value=([sub], {"libs/lib": "rec"})),
+            ),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.middlewares.git.aensure_related_links", AsyncMock()),
+        ):
+            main_cls.return_value.publish = AsyncMock(side_effect=RuntimeError("push rejected"))
+            result = await mw.aafter_agent({"merge_request": None}, runtime)
+
+        assert result["main_publish_error"] == "Publishing to g/app failed (RuntimeError)"
+        assert [RepoPublish.from_state(p) for p in result["repo_publishes"]] == [sub]
+        assert "Its submodules were published on their own" in result["messages"][0].content
+
+    async def test_a_submodule_merge_request_links_even_without_extra_repositories(self, emit_custom_event):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        runtime = self._runtime()
+        sub = self._sub_publish("g/lib", "libs/lib", "g/app", mr=_mr(iid=3))
+
+        with (
+            patch(
+                "automation.agent.middlewares.git.apublish_submodules",
+                AsyncMock(return_value=([sub], {"libs/lib": "rec"})),
+            ),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+            patch("automation.agent.middlewares.git.aensure_related_links", AsyncMock()) as link,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            await mw.aafter_agent({"merge_request": None}, runtime)
+
+        entries = link.await_args.args[0]
+        assert [(e.repo_slug, e.parent_repo_id) for e in entries] == [("g/app", ""), ("g/lib", "g/app")]
+
+    async def test_a_failed_submodule_publish_is_in_the_visible_notice(self, emit_custom_event):
+        mw = GitMiddleware(settings=SETTINGS, workspace=FakeWorkspace())
+        runtime = self._runtime()
+        failed = self._sub_publish("g/lib", "libs/lib", "g/app", error="Publishing to g/lib failed (RuntimeError)")
+
+        with (
+            patch("automation.agent.middlewares.git.apublish_submodules", AsyncMock(return_value=([failed], {}))),
+            patch("automation.agent.middlewares.git.GitChangePublisher") as main_cls,
+        ):
+            main_cls.return_value.publish = AsyncMock(return_value=PublishOutcome(merge_request=_mr(), published=True))
+            result = await mw.aafter_agent({"merge_request": None}, runtime)
+
+        (message,) = result["messages"]
+        assert "The submodule `libs/lib` couldn't be published" in message.content
+        assert main_cls.return_value.publish.await_args.kwargs["scope"].record == {}

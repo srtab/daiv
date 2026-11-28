@@ -45,9 +45,10 @@ def _ctx() -> SimpleNamespace:
     """The ``RuntimeCtx`` the stubbed clone yields: only what the executor reads, the clone's working dir included."""
     return SimpleNamespace(
         config=RepositoryConfig(),
-        repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=0.0),
+        repo=SimpleNamespace(ref="main", head_detached=False, clone_seconds=0.0, submodules=()),
         gitrepo=SimpleNamespace(working_dir="/clone"),
         extra_repos=(),
+        repos=(),
         sandbox=None,
         sandbox_client=None,
         bot_username="daiv",
@@ -61,7 +62,7 @@ def _sandbox_ctx(client: FakeSandboxClient) -> SimpleNamespace:
     sandbox = {
         "merge_request": None,
         "gitrepo": None,
-        "repo": SimpleNamespace(ref="main", current_ref="daiv/issue-42"),
+        "repo": SimpleNamespace(ref="main", current_ref="daiv/issue-42", submodules=()),
         "sandbox": sandbox_spec(),
         "sandbox_client": client,
         "bot_username": "daiv",

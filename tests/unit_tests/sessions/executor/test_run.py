@@ -21,13 +21,22 @@ from redisvl.exceptions import RedisSearchError
 from sessions.archive import ArchiveRestoreError
 from sessions.artifacts import RunArtifactStore, aresolve_active_run
 from sessions.executor.lock import Held, NoLock, SessionLockLostError, SessionLockTimeoutError, Wait
-from sessions.executor.run import RunStoppedError, _record_publish_result, _until_stopped, execute_run, stream_run
+from sessions.executor.run import (
+    PersonRepoAccess,
+    RunStoppedError,
+    SubmoduleHints,
+    _record_publish_result,
+    _until_stopped,
+    execute_run,
+    stream_run,
+)
 from sessions.executor.spec import RunHooks
 from sessions.inbox.ownership import Ownerships
 from sessions.models import Run, RunStatus, Session, SessionOrigin, SpendRecord
 
 from automation.agent.agent_settings import RunOverrides, resolve_agent_settings
 from automation.agent.events import PUBLISH_RESULT_EVENT, publish_result_payload, repo_publish_payload
+from automation.agent.git_state import RepoPublish
 from automation.agent.provider_errors import tag_provider_failure
 from automation.agent.publishers import PublishOutcome
 from automation.agent.questions import render_questions
@@ -38,7 +47,7 @@ from automation.agent.workspace.browser import SandboxBrowser
 from automation.agent.workspace.disk import DiskWorkspace
 from automation.agent.workspace.git_runners import LocalGitRunner
 from automation.agent.workspace.sandbox import SandboxWorkspace
-from codebase.base import MergeRequestDiffStats, Scope
+from codebase.base import MergeRequest, MergeRequestDiffStats, Scope, User
 from codebase.clients.base import GitEgressCredential
 from codebase.repo_config import RepositoryConfig
 from core.constants import INTERRUPTED_MESSAGE
@@ -92,6 +101,8 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
     with agent_stack(agent) as stack:
         await execute_run(spec)
 
+    access = stack.context_kwargs.pop("access")
+    assert (stack.context_kwargs.pop("submodule_branches"), stack.context_kwargs.pop("submodule_pins")) == ({}, {})
     assert stack.context_kwargs == {
         "repo_id": "owner/repo",
         "scope": Scope.GLOBAL,
@@ -104,6 +115,7 @@ async def test_it_builds_the_context_and_the_agent_from_the_spec():
         "acting_user_id": 7,
         "references": refs,
     }
+    assert isinstance(access, PersonRepoAccess)
     stack.build_spec.assert_awaited_once_with("env-1")
     stack.snapshot.assert_called_once_with()
     stack.resolve.assert_called_once_with(
@@ -2416,15 +2428,22 @@ class TestFastForward:
         return SimpleNamespace(session=session, fast_forward=AsyncMock(return_value=result))
 
     def _ctx(self, *, ref="chore/x", detached=False):
-        return SimpleNamespace(repo=SimpleNamespace(ref=ref, head_detached=detached))
+        from codebase.repo_config import Checkout
+
+        return SimpleNamespace(
+            repo=SimpleNamespace(ref=ref, head_detached=detached),
+            config=SimpleNamespace(checkout=Checkout(submodules=True, lfs=True)),
+        )
 
     async def test_a_warm_sandbox_is_brought_up_to_the_remote_branch(self):
         from sessions.executor.run import _fast_forward
 
+        from automation.agent.workspace.git_manager import PublishScope
+
         workspace = self._workspace("WARM")
 
         assert await _fast_forward(make_spec(), self._ctx(), workspace) == "advanced"
-        workspace.fast_forward.assert_awaited_once_with("chore/x")
+        workspace.fast_forward.assert_awaited_once_with("chore/x", scope=PublishScope(submodules=True, lfs=True))
 
     @pytest.mark.parametrize(
         ("acquisition", "ctx", "thread_id"),
@@ -2606,3 +2625,253 @@ class TestBrowserRelease:
 
         assert events == ["browser released stop=False"]
         assert client.calls_to("close_session") == []
+
+
+@pytest.mark.django_db
+class TestPersonRepoAccess:
+    """Research R4, R14: the checkout reads and publishes as the run's attributed person."""
+
+    @staticmethod
+    def _run(**kwargs):
+        from tests.unit_tests.sessions.conftest import make_run
+
+        return make_run(session_id=str(uuid.uuid4()), status="RUNNING", **kwargs)
+
+    def test_a_daiv_user_is_checked_by_visibility_and_running(self, member_user):
+        run = self._run(user=member_user, acts_as_user=False)
+        access = PersonRepoAccess(str(run.pk))
+
+        with (
+            patch("codebase.authorization.can_view", return_value=True) as can_view,
+            patch("codebase.authorization.can_run", return_value=False) as can_run,
+            patch("codebase.authorization.is_catalogued", return_value=True) as catalogued,
+        ):
+            assert (access.can_read("g/lib"), access.can_write("g/lib"), access.in_catalog("g/lib")) == (
+                True,
+                False,
+                True,
+            )
+
+        can_view.assert_called_once_with(member_user, "g/lib")
+        can_run.assert_called_once_with(member_user, "g/lib")
+        catalogued.assert_called_once_with("g/lib")
+
+    def test_a_platform_account_is_checked_by_its_mirrored_access(self):
+        run = self._run(external_provider="gitlab", external_uid="42")
+        access = PersonRepoAccess(str(run.pk))
+
+        with (
+            patch("codebase.authorization.platform_account_can_view", return_value=True) as can_view,
+            patch("codebase.authorization.platform_account_can_write", return_value=True) as can_write,
+        ):
+            assert access.can_read("g/lib") and access.can_write("g/lib")
+
+        can_view.assert_called_once_with("42", "g/lib")
+        can_write.assert_called_once_with("42", "g/lib")
+
+    def test_a_run_daiv_started_on_its_own_uses_its_sessions_platform_account(self):
+        from sessions.models import Session, SessionOrigin
+
+        run = self._run(trigger_type=SessionOrigin.PIPELINE_WEBHOOK)
+        Session.objects.filter(pk=run.session_id).update(external_provider="gitlab", external_uid="77")
+        access = PersonRepoAccess(str(run.pk))
+
+        with patch("codebase.authorization.platform_account_can_view", return_value=True) as can_view:
+            assert access.can_read("g/lib")
+
+        can_view.assert_called_once_with("77", "g/lib")
+        run.refresh_from_db()
+        assert (run.user_id, run.external_uid) == (None, "")
+
+    @pytest.mark.parametrize("run_id", [None, "missing"])
+    def test_no_person_answers_no(self, run_id):
+        from sessions.models import Session
+
+        if run_id == "missing":
+            run = self._run()
+            Session.objects.filter(pk=run.session_id).update(external_provider="gitlab", external_uid="77")
+            run_id = str(run.pk)
+        access = PersonRepoAccess(run_id)
+
+        with patch("codebase.authorization.is_catalogued", return_value=True):
+            assert (access.can_read("g/lib"), access.can_write("g/lib"), access.in_catalog("g/lib")) == (
+                False,
+                False,
+                False,
+            )
+
+    def test_the_lookup_happens_once_on_the_first_check(self, django_assert_num_queries, member_user):
+        run = self._run(user=member_user)
+        access = PersonRepoAccess(str(run.pk))
+
+        with patch("codebase.authorization.can_view", return_value=True), django_assert_num_queries(1):
+            access.can_read("a")
+            access.can_read("b")
+
+
+def _submodule_ctx():
+    from automation.agent.context import SubmoduleRole
+
+    def sub(path, repo_id, parent=""):
+        role = SubmoduleRole(path=path, parent_path=parent, recorded_commit="c" * 40, target_branch="main")
+        return SimpleNamespace(repo_id=repo_id, submodule=role)
+
+    root = SimpleNamespace(
+        repo_id="owner/repo",
+        ref="main",
+        head_detached=False,
+        clone_seconds=0.0,
+        submodules=(sub("libs/lib", "g/lib"), sub("libs/lib/vendor/inner", "g/inner", "libs/lib")),
+    )
+    return disk_ctx(repo=root, repos=(root,))
+
+
+class TestSubmodulesInTheRun:
+    async def test_fetched_submodules_are_recorded_before_the_agent_runs(self):
+        from sessions.multi_repo import FetchedSubmodule
+
+        agent = _agent()
+        spec = make_spec()
+        recorded_at_invoke = []
+
+        with agent_stack(agent, ctx=_submodule_ctx()) as stack:
+            agent.ainvoke.side_effect = lambda *a, **k: (
+                recorded_at_invoke.append(stack.record_submodules.await_count)
+                or {"messages": [MagicMock(content="ok")]}
+            )
+            await execute_run(spec)
+
+        assert recorded_at_invoke == [1]
+        stack.record_submodules.assert_awaited_once_with(
+            spec.thread_id,
+            [
+                FetchedSubmodule("owner/repo", "owner/repo", "libs/lib", "g/lib"),
+                FetchedSubmodule("owner/repo", "g/lib", "libs/lib/vendor/inner", "g/inner"),
+            ],
+        )
+
+    async def test_the_hints_reach_the_checkout(self):
+        hints = SubmoduleHints(
+            {"owner/repo": {"libs/lib": "daiv/x"}}, {"owner/repo": {"libs/lib": ("a", "b")}}, frozenset()
+        )
+
+        with agent_stack(_agent()) as stack:
+            stack.submodule_hints.return_value = hints
+            await execute_run(make_spec())
+
+        assert stack.context_kwargs["submodule_branches"] == {"owner/repo": {"libs/lib": "daiv/x"}}
+        assert stack.context_kwargs["submodule_pins"] == {"owner/repo": {"libs/lib": ("a", "b")}}
+
+    async def test_a_parent_whose_merge_request_merged_starts_from_its_default_branch(self):
+        from automation.agent.context import ExtraRepo
+
+        hints = SubmoduleHints({}, {"owner/repo": {"libs/lib": ("a", "b")}}, frozenset({"owner/repo", "g/mod"}))
+        merge_request = MagicMock()
+
+        with agent_stack(_agent()) as stack:
+            stack.submodule_hints.return_value = hints
+            stack.load_extra_repos.return_value = [
+                SimpleNamespace(repo_id="g/mod", ref="daiv/mod", sandbox_environment_id=None)
+            ]
+            await execute_run(make_spec(ref="daiv/fix", merge_request=merge_request))
+
+        assert (stack.context_kwargs["ref"], stack.context_kwargs["merge_request"]) == (None, None)
+        assert stack.context_kwargs["extra_repos"] == [ExtraRepo("g/mod", "")]
+
+    @pytest.mark.parametrize("persist_ref", [True, False])
+    async def test_a_submodule_publish_updates_its_row_and_is_claimed_for_the_watch(self, persist_ref):
+        sub = RepoPublish(
+            repo_id="g/lib",
+            merge_request=MergeRequest(
+                repo_id="g/lib",
+                merge_request_id=3,
+                source_branch="daiv/lib",
+                target_branch="main",
+                title="t",
+                description="d",
+                author=User(id=1, username="daiv"),
+                web_url="u",
+            ),
+            published=True,
+            current_ref="",
+            pushed_sha="lib-sha",
+            submodule_path="libs/lib",
+            root_repo_id="owner/repo",
+            parent_repo_id="owner/repo",
+        )
+        agent = _agent(state={"repo_publishes": [sub.to_state()]})
+        spec = make_spec(persist_ref=persist_ref, arm_watch=True, run_id=str(uuid.uuid4()))
+
+        with agent_stack(agent) as stack:
+            await execute_run(spec)
+
+        stack.persist_submodules.assert_awaited_once()
+        assert stack.persist_submodules.await_args.args == (spec.thread_id, [sub])
+        assert ("g/lib", "lib-sha") in [(claim["repo_id"], claim["pushed_sha"]) for claim in stack.claimed]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSubmoduleHintsLoad:
+    async def _session(self, **fields):
+        from sessions.models import Session
+
+        return await Session.objects.acreate(thread_id=str(uuid.uuid4()), origin="chat", repo_id="owner/repo", **fields)
+
+    async def test_branches_come_from_the_rows_and_pins_from_the_runs_merge_event(self):
+        from sessions.models import EventKind, InboxEvent, Run, SessionSubmodule
+
+        session = await self._session()
+        run = await Run.objects.acreate(
+            session=session, trigger_type="submodule_merge", repo_id="owner/repo", status="RUNNING", prompt=""
+        )
+        await SessionSubmodule.objects.acreate(
+            session=session,
+            root_repo_id="owner/repo",
+            parent_repo_id="owner/repo",
+            path="libs/lib",
+            repo_id="g/lib",
+            ref="daiv/lib",
+        )
+        await SessionSubmodule.objects.acreate(
+            session=session, root_repo_id="owner/repo", parent_repo_id="owner/repo", path="libs/ui", repo_id="g/ui"
+        )
+        await InboxEvent.objects.acreate(
+            session=session,
+            kind=EventKind.SUBMODULE_MERGED,
+            source_key="submodule_merged:g/core!12",
+            repo_id="g/core",
+            wake=True,
+            run=run,
+            state="taken",
+            payload={
+                "path": "libs/core",
+                "root_repo_id": "owner/repo",
+                "merge_request_iid": 12,
+                "recorded_sha": "r",
+                "merged_sha": "m",
+            },
+        )
+
+        with patch.object(SubmoduleHints, "_amerged_parents", AsyncMock(return_value=frozenset())):
+            hints = await SubmoduleHints.aload(make_spec(thread_id=session.thread_id, run_id=str(run.pk)), [])
+
+        assert hints.branches == {"owner/repo": {"libs/lib": "daiv/lib"}}
+        assert hints.pins == {"owner/repo": {"libs/core": ("r", "m")}}
+
+    async def test_a_merged_parent_is_asked_of_the_platform(self):
+        from sessions.models import SessionSubmodule
+
+        session = await self._session(merge_request_iid=5)
+        await SessionSubmodule.objects.acreate(
+            session=session, root_repo_id="owner/repo", parent_repo_id="owner/repo", path="libs/lib", repo_id="g/lib"
+        )
+        event = SimpleNamespace(repo_id="g/lib", payload={"root_repo_id": "owner/repo"})
+        client = MagicMock()
+        client.get_merge_request.return_value = MagicMock(merged=True)
+        rows = [row async for row in SessionSubmodule.objects.filter(session=session)]
+
+        with patch("codebase.clients.RepoClient.create_instance", return_value=client):
+            merged = await SubmoduleHints._amerged_parents(make_spec(thread_id=session.thread_id), [event], rows, [])
+
+        assert merged == frozenset({"owner/repo"})
+        client.get_merge_request.assert_called_once_with("owner/repo", 5)

@@ -101,3 +101,41 @@ def test_git_egress_credential_carries_clone_url_path():
     assert credential.host == "gitlab.com"
     assert credential.path == "/g/sub/app.git"
     assert GitEgressCredential.for_token(host="h", token=None).path == ""
+
+
+def _base_repository() -> Repository:
+    return Repository(
+        pk=1,
+        slug="g/app",
+        name="app",
+        clone_url="https://gitlab.com/g/app.git",
+        html_url="https://gitlab.com/g/app",
+        default_branch="main",
+        git_platform=GitPlatform.GITLAB,
+    )
+
+
+def test_with_git_auth_runs_the_operation_once_with_the_auth_env():
+    repository = _base_repository()
+    client = MagicMock(spec=RepoClient)
+    auth_env = GitAuthEnv.for_token(repository.clone_url, "tok")
+    client.get_git_auth_env.return_value = auth_env
+    operation = MagicMock(return_value="done")
+
+    assert RepoClient.with_git_auth(client, repository, operation, scoped_only=True) == "done"
+
+    operation.assert_called_once_with(auth_env)
+    client.get_git_auth_env.assert_called_once_with(repository, scoped_only=True)
+
+
+def test_complete_checkout_with_both_settings_off_runs_no_git(monkeypatch):
+    from codebase.clients.checkout import DENY_ALL, CheckoutOptions, RepoCheckout
+
+    run_command = MagicMock()
+    monkeypatch.setattr(RepoCheckout, "run_command", run_command)
+    client = MagicMock(spec=RepoClient)
+
+    report = RepoClient.complete_checkout(client, MagicMock(), _base_repository(), CheckoutOptions.off(), DENY_ALL)
+
+    assert report.is_empty
+    run_command.assert_not_called()

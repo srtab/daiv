@@ -14,6 +14,7 @@ from sessions.models import (
     Session,
     SessionOrigin,
     SessionRepository,
+    SessionSubmodule,
     agent_result_field_updates,
     publish_field_updates,
 )
@@ -92,6 +93,7 @@ def test_session_origin_includes_chat():
         "pipeline_webhook",
         "delegated_job",
         "delegation_resume",
+        "submodule_merge",
     }
 
 
@@ -109,6 +111,7 @@ def test_retryable_origins_exclude_webhooks_and_the_runs_reporting_to_a_coordina
         SessionOrigin.PIPELINE_WEBHOOK,
         SessionOrigin.DELEGATED_JOB,
         SessionOrigin.DELEGATION_RESUME,
+        SessionOrigin.SUBMODULE_MERGE,
     }
 
 
@@ -560,6 +563,44 @@ def test_session_repository_unique_per_session():
         SessionRepository.objects.create(session=session, position=1, repo_id="g/lib")
 
     SessionRepository.objects.create(session=_mk_session(), position=1, repo_id="g/mod")
+
+
+def _submodule(session: Session, repo_id: str = "g/core", **fields) -> SessionSubmodule:
+    defaults = {"root_repo_id": session.repo_id, "parent_repo_id": session.repo_id, "path": "libs/core"}
+    return SessionSubmodule.objects.create(session=session, repo_id=repo_id, **(defaults | fields))
+
+
+def test_session_submodule_unique_per_session_and_gone_with_it():
+    session = _mk_session()
+    _submodule(session)
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        _submodule(session, path="vendor/core")
+
+    _submodule(_mk_session())
+    session.delete()
+    assert list(SessionSubmodule.objects.values_list("repo_id", flat=True)) == ["g/core"]
+
+
+def test_a_submodule_merge_is_daivs_own_classified_run():
+    assert SessionOrigin.SUBMODULE_MERGE in SessionOrigin.daiv_authored()
+    assert SessionOrigin.SUBMODULE_MERGE in SessionOrigin.classified()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    ("extra", "submodule", "holds"), [(False, False, False), (True, False, True), (False, True, True)]
+)
+async def test_a_session_holds_other_repositories_with_an_extra_one_or_a_submodule(extra, submodule, holds):
+    session = await Session.objects.acreate(thread_id=str(uuid.uuid4()), origin=SessionOrigin.API_JOB, repo_id="g/app")
+    if extra:
+        await SessionRepository.objects.acreate(session=session, position=1, repo_id="g/mod")
+    if submodule:
+        await SessionSubmodule.objects.acreate(
+            session=session, root_repo_id="g/app", parent_repo_id="g/app", path="libs/core", repo_id="g/core"
+        )
+
+    assert await session.aholds_other_repositories() is holds
 
 
 def test_merge_request_links_prefers_list_and_falls_back_to_legacy_url():

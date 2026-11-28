@@ -4,27 +4,38 @@ import sys
 from collections.abc import AsyncGenerator, Awaitable, Generator  # noqa: TC003
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
+from pathlib import Path
 from time import monotonic
 from typing import TYPE_CHECKING, Protocol, cast, runtime_checkable
 
 from asgiref.sync import sync_to_async
-from git import Repo  # noqa: TC002
+from git import Repo
 from sandbox_envs.spec import SandboxSpec  # noqa: TC002
 
-from automation.agent.constants import EXTRA_REPOS_PATH
+from automation.agent.constants import EXTRA_REPOS_PATH, REPO_PATH
 from automation.agent.references import ExternalRef, assemble_run_references  # noqa: TC001
 from codebase.base import GitPlatform, Issue, MergeRequest, Repository, Scope  # noqa: TC001
 from codebase.clients import RepoClient
 from codebase.clients.base import GitEgressCredential  # noqa: TC001
+from codebase.clients.checkout import (
+    DENY_ALL,
+    CheckoutOptions,
+    CheckoutReport,
+    PublishBlock,
+    RunRepoAccess,
+    SubmoduleCheckout,
+    SubmoduleNote,
+)
+from codebase.conf import settings as codebase_settings
 from codebase.exceptions import CloneRefNotFoundError
-from codebase.repo_config import RepositoryConfig  # noqa: TC001
+from codebase.repo_config import RepositoryConfig
 from codebase.utils import get_repo_ref
 from core.sandbox.client import DAIVSandboxClient
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
 
 logger = logging.getLogger("daiv.agent")
@@ -44,6 +55,26 @@ class ExtraRepo:
 
     repo_id: str
     ref: str = ""
+
+
+@dataclass(frozen=True)
+class SubmoduleRole:
+    """What makes a :class:`RepoHandle` a submodule's: where it sits in its root's checkout and whether DAIV publishes
+    it. ``path`` and ``parent_path`` are relative to the root's top (``parent_path`` is ``""`` under the root)."""
+
+    path: str
+    parent_path: str
+    recorded_commit: str
+    """The commit the parent's clone records."""
+    target_branch: str
+    """The branch a new merge request of this submodule targets (research R17)."""
+    publish_block: PublishBlock | None = None
+    """Why DAIV doesn't publish it, settled across the whole session; ``None`` when it does."""
+    published_from: str = ""
+    """With ``PUBLISHED_ELSEWHERE``: the workspace path of the checkout that publishes the repository."""
+    pinned: str = ""
+    """The merged commit its parent records this turn (research R21), or ``""``."""
+    note: SubmoduleNote | str = ""
 
 
 @dataclass(frozen=True)
@@ -67,11 +98,27 @@ class RepoHandle:
     """Whether the clone's HEAD named no branch (``ref`` was a tag or a commit)."""
     clone_seconds: float
     """How long the worker took to clone the repository; both attempts count when the fallback ran."""
+    workspace_path: str = REPO_PATH
+    """Where the repository sits in ``/workspace``: the main one at ``/workspace/repo``, an extra one under
+    ``/workspace/repos``, a submodule inside its root's."""
+    checkout: CheckoutReport = field(default=CheckoutReport.EMPTY, compare=False, repr=False)
+    """What completing the clone fetched and left out; empty unless the repository's ``.daiv.yml`` opts in."""
+    submodules: tuple[RepoHandle, ...] = field(default=(), compare=False, repr=False)
+    """Every checked-out submodule below this repository, nested ones included, in checkout order. Never in
+    ``RuntimeCtx.repos``: they travel inside their root's checkout."""
+    submodule: SubmoduleRole | None = None
+    """Set on a submodule's handle; ``None`` on the session's own repositories."""
 
+    def child_path(self, sub: RepoHandle) -> str:
+        """``sub``'s path relative to this repository, for a submodule below it."""
+        prefix = f"{self.submodule.path}/" if self.submodule is not None else ""
+        return cast("SubmoduleRole", sub.submodule).path.removeprefix(prefix)
 
-def extra_repo_path(handle: RepoHandle) -> str:
-    """Where one of the run's extra repositories sits in ``/workspace``."""
-    return f"{EXTRA_REPOS_PATH}/{handle.repository.slug}"
+    @property
+    def direct_submodules(self) -> tuple[RepoHandle, ...]:
+        """The submodules whose parent is this repository."""
+        own_path = self.submodule.path if self.submodule is not None else ""
+        return tuple(sub for sub in self.submodules if cast("SubmoduleRole", sub.submodule).parent_path == own_path)
 
 
 @dataclass(frozen=True)
@@ -182,6 +229,7 @@ def _clone_handle(
     ref: str,
     *,
     fallback: bool,
+    workspace_path: str = REPO_PATH,
 ) -> RepoHandle:
     """Clone ``repository`` at ``ref`` for as long as ``clones`` stays open, and bind it into a handle."""
     started = monotonic()
@@ -198,6 +246,7 @@ def _clone_handle(
         current_ref=get_repo_ref(repo),
         head_detached=repo.head.is_detached,
         clone_seconds=monotonic() - started,
+        workspace_path=workspace_path,
     )
 
 
@@ -210,7 +259,157 @@ def _clone_extra_handle(
         repo_id=extra.repo_id, repository=repository, offline=offline, repo_client=repo_client
     )
     ref = extra.ref or cast("str", config.default_branch)
-    return _clone_handle(clones, repo_client, extra.repo_id, repository, config, ref, fallback=fallback)
+    return _clone_handle(
+        clones,
+        repo_client,
+        extra.repo_id,
+        repository,
+        config,
+        ref,
+        fallback=fallback,
+        workspace_path=f"{EXTRA_REPOS_PATH}/{repository.slug}",
+    )
+
+
+def _complete_checkout(
+    repo_client: RepoClient, handle: RepoHandle, options: CheckoutOptions, access: RunRepoAccess
+) -> CheckoutReport:
+    """Complete ``handle``'s clone; an unexpected failure leaves it as cloned, with an empty report."""
+    base_branch = cast("str", handle.config.default_branch) if handle.head_detached else handle.current_ref
+    try:
+        return repo_client.complete_checkout(
+            handle.gitrepo, handle.repository, options, access, parent_base_branch=base_branch
+        )
+    except Exception:
+        # The clone itself is intact, so the run goes on without what completing it would have added.
+        logger.exception("Could not complete the checkout of %s", handle.repository.slug)
+        return CheckoutReport.EMPTY
+
+
+async def _complete_checkouts(
+    repo_client: RepoClient,
+    handles: Sequence[RepoHandle],
+    *,
+    access: RunRepoAccess,
+    branches: Mapping[str, Mapping[str, str]],
+    pins: Mapping[str, Mapping[str, tuple[str, str]]],
+    offline: bool,
+) -> list[RepoHandle]:
+    """Complete every clone, each in a worker thread and all in parallel, then settle across the session which
+    checkout publishes each repository and bind a handle per checked-out submodule."""
+    reports = await asyncio.gather(
+        *(
+            asyncio.to_thread(
+                _complete_checkout,
+                repo_client,
+                handle,
+                CheckoutOptions.from_config(
+                    handle.config.checkout,
+                    codebase_settings.LFS_MAX_CLONE_BYTES,
+                    branches=branches.get(handle.repo_id),
+                    pins=pins.get(handle.repo_id),
+                ),
+                access,
+            )
+            for handle in handles
+        )
+    )
+    handles = [replace(handle, checkout=report) for handle, report in zip(handles, reports, strict=True)]
+    roles = _submodule_roles(handles)
+    return [
+        replace(handle, submodules=await _submodule_handles(repo_client, handle, roles[i], offline=offline))
+        if roles[i]
+        else handle
+        for i, handle in enumerate(handles)
+    ]
+
+
+def _submodule_roles(handles: Sequence[RepoHandle]) -> list[list[tuple[SubmoduleCheckout, SubmoduleRole]]]:
+    """Each root's checked-out submodules with their session-wide publish verdict (research R14).
+
+    A repository is published by one checkout only: the session's main or extra one, or else the first checkout of it,
+    in session order, that nothing else blocks. A submodule inside a blocked one can't be recorded by a published
+    parent, so it is blocked too. The checkout's own verdict (the person can't write) comes last.
+    """
+    publisher = {handle.repo_id: handle.workspace_path for handle in handles}
+    roles: list[list[tuple[SubmoduleCheckout, SubmoduleRole]]] = []
+    for handle in handles:
+        blocked: dict[str, bool] = {}
+        root_roles: list[tuple[SubmoduleCheckout, SubmoduleRole]] = []
+        for sub in handle.checkout.checked_out_submodules:
+            repo_id = cast("str", sub.repo_id)
+            workspace_path = f"{handle.workspace_path}/{sub.path}"
+            published_from = ""
+            if repo_id in publisher:
+                block: PublishBlock | None = PublishBlock.PUBLISHED_ELSEWHERE
+                published_from = publisher[repo_id]
+            elif blocked.get(sub.parent_path, False):
+                block = PublishBlock.PARENT_NOT_PUBLISHED
+            else:
+                block = sub.publish_block
+            if block is None:
+                publisher[repo_id] = workspace_path
+            blocked[sub.path] = block is not None
+            root_roles.append((
+                sub,
+                SubmoduleRole(
+                    path=sub.path,
+                    parent_path=sub.parent_path,
+                    recorded_commit=sub.commit,
+                    target_branch=sub.target_branch,
+                    publish_block=block,
+                    published_from=published_from,
+                    pinned=sub.pinned,
+                    note=sub.note,
+                ),
+            ))
+        roles.append(root_roles)
+    return roles
+
+
+async def _submodule_handles(
+    repo_client: RepoClient,
+    root: RepoHandle,
+    roles: Sequence[tuple[SubmoduleCheckout, SubmoduleRole]],
+    *,
+    offline: bool,
+) -> tuple[RepoHandle, ...]:
+    """A handle per checked-out submodule of ``root``, in checkout order, each holding the submodules below it."""
+    configs = await asyncio.gather(
+        *(
+            asyncio.to_thread(
+                RepositoryConfig.get_config,
+                repo_id=cast("str", sub.repo_id),
+                repository=sub.repository,
+                offline=offline,
+                repo_client=repo_client,
+            )
+            for sub, _ in roles
+        )
+    )
+    top = Path(root.gitrepo.working_dir)
+    flat = [
+        RepoHandle(
+            repo_id=cast("str", sub.repo_id),
+            client=repo_client,
+            repository=cast("Repository", sub.repository),
+            gitrepo=Repo(top / sub.path),
+            config=config,
+            ref=sub.branch or sub.commit,
+            current_ref=sub.branch or sub.commit,
+            head_detached=not sub.branch,
+            clone_seconds=0.0,
+            workspace_path=f"{root.workspace_path}/{sub.path}",
+            submodule=role,
+        )
+        for (sub, role), config in zip(roles, configs, strict=True)
+    ]
+    paths = [role.path for _, role in roles]
+    built: dict[str, RepoHandle] = {}
+    for index in sorted(range(len(flat)), key=lambda i: -paths[i].count("/")):
+        below = tuple(built[other] for other in paths if other.startswith(f"{paths[index]}/"))
+        built[paths[index]] = replace(flat[index], submodules=below)
+    return tuple(built[path] for path in paths)
 
 
 def _credential_source(repo_client: RepoClient, repositories: Sequence[Repository]) -> CredentialSource:
@@ -247,6 +446,9 @@ async def set_runtime_ctx(
     fallback_ref_on_missing: bool = False,
     repo_client: RepoClient | None = None,
     extra_repos: Sequence[ExtraRepo] = (),
+    access: RunRepoAccess = DENY_ALL,
+    submodule_branches: Mapping[str, Mapping[str, str]] | None = None,
+    submodule_pins: Mapping[str, Mapping[str, tuple[str, str]]] | None = None,
 ) -> AsyncGenerator[RuntimeCtx]:
     """Set the runtime context and load repository files to a temporary directory.
 
@@ -265,6 +467,9 @@ async def set_runtime_ctx(
             instead of raising. ``ctx.repo.ref`` then reflects the branch actually used.
         repo_client: The run's platform client (``ctx.repo.client``); the configured platform's when omitted.
         extra_repos: Repositories cloned in parallel beside the main one, in order; a missing ref falls back alike.
+        access: What the run's person may read and write; it decides which submodules are checked out and published.
+        submodule_branches: Per repository, each submodule path's working branch from earlier turns (research R19).
+        submodule_pins: Per repository, each submodule path's ``(recorded_sha, merged_sha)`` (research R21).
 
     Yields:
         RuntimeCtx: The runtime context
@@ -302,6 +507,14 @@ async def set_runtime_ctx(
                 if isinstance(extra_handle, BaseException):
                     raise extra_handle
                 handles.append(extra_handle)
+            handles = await _complete_checkouts(
+                repo_client,
+                handles,
+                access=access,
+                branches=submodule_branches or {},
+                pins=submodule_pins or {},
+                offline=offline,
+            )
             ctx = RuntimeCtx(
                 bot_username=repo_client.current_user.username,
                 repos=tuple(handles),

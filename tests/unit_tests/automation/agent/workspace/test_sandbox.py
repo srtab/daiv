@@ -64,7 +64,7 @@ async def test_publishes_close_together_share_one_credential_refresh():
     session.refresh_credential = AsyncMock(return_value=True)
     workspace = SandboxWorkspace(session)
 
-    await workspace.for_repo(MagicMock()).authenticated_git()
+    await workspace.for_repo(MagicMock(submodule=None)).authenticated_git()
     await workspace.authenticated_git()
 
     session.refresh_credential.assert_awaited_once_with()
@@ -130,7 +130,7 @@ async def test_for_repo_sibling_refreshes_credentials_then_returns_its_git():
     session.refresh_credential = AsyncMock(return_value=True)
     workspace = SandboxWorkspace(session)
 
-    handle = MagicMock()
+    handle = MagicMock(submodule=None, workspace_path="/workspace/repos/g/mod")
     handle.repository.slug = "g/mod"
 
     view = workspace.for_repo(handle)
@@ -221,3 +221,24 @@ async def test_a_service_without_the_capability_gives_no_browser_and_logs_why(ca
 
     assert workspace.browser is None
     assert [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR] == [NO_BROWSER_MESSAGE]
+
+
+async def test_for_repo_submodule_adds_its_scoped_credential_before_its_publish():
+    session = acquired_session(FakeSandboxClient.opened())
+    session.aadd_repository = AsyncMock()
+    session.refresh_credential = AsyncMock()
+    workspace = SandboxWorkspace(session)
+    handle = MagicMock(workspace_path="/workspace/repo/libs/lib")
+    credential = object()
+    handle.client.get_git_egress_credential.return_value = credential
+
+    view = workspace.for_repo(handle)
+    session.aadd_repository.assert_not_awaited()
+    git = await view.authenticated_git()
+
+    (repository, mint), _ = session.aadd_repository.await_args
+    assert repository is handle.repository
+    assert await mint() is credential
+    handle.client.get_git_egress_credential.assert_called_once_with(handle.repository, scoped_only=True)
+    session.refresh_credential.assert_not_awaited()
+    assert git._runner == SandboxGitRunner(workspace.bash, repo_path="/workspace/repo/libs/lib")

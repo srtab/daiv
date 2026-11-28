@@ -2,6 +2,7 @@
 {% comment %}
 One of ``repositoryRows`` as ``row`` at ``index``, inside ``sessionPage``. ``header`` names the main repository for the
 session list's filter; ``can_act`` and the row's own ``can_act`` add a CI toggle per merge request in ``ciItems(row)``.
+A submodule's row names its path and the repository that records it (``row.submodule``).
 {% endcomment %}
 <article class="repo-card" data-testid="repository-card"
          :class="{ 'repo-card--quiet': isQuiet(row) }">
@@ -70,6 +71,12 @@ session list's filter; ``can_act`` and the row's own ``can_act`` add a CI toggle
       </div>
     </template>
   </div>
+
+  <template x-if="row.submodule">
+    <p class="repo-card__submodule" data-testid="repository-card-submodule"
+       x-data="{ get label() { return '{{ _("submodule %(path)s of %(parent)s")|escapejs }}'.replace('%(path)s', row.submodule.path).replace('%(parent)s', row.submodule.parent); } }"
+       :title="label" x-text="label"></p>
+  </template>
 
   <div class="repo-card__branch">
     {% icon "branch" "h-3 w-3 shrink-0" %}

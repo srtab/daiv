@@ -222,6 +222,25 @@ def viewable_repo_ids_subquery(user: User):
     return _fresh_rows(uid).values_list("repo_id", flat=True)
 
 
+def platform_account_can_view(uid: str, repo_id: str) -> bool:
+    """Whether the platform account ``uid`` holds at least READ access on ``repo_id`` (fresh within the hard TTL), for
+    a run started by an account no DAIV user signed in with."""
+    _maybe_enqueue_backstop()
+    return _fresh_rows(uid).filter(repo_id=repo_id).exists()
+
+
+def platform_account_can_write(uid: str, repo_id: str) -> bool:
+    """Whether the platform account ``uid`` holds WRITE access on ``repo_id`` (fresh within the hard TTL)."""
+    _maybe_enqueue_backstop()
+    return _fresh_rows(uid).filter(repo_id=repo_id, access_level=RepoAccessLevel.WRITE).exists()
+
+
+def is_catalogued(repo_id: str) -> bool:
+    """Whether ``repo_id`` is in DAIV's catalog. Strict, unlike :func:`assert_catalogued`: an empty catalog holds
+    nothing."""
+    return RepositoryCatalog.objects.filter(provider=_provider(), slug=repo_id).exists()
+
+
 def can_run(user: User, repo_id: str) -> bool:
     """Whether ``user`` may run on ``repo_id``: see :func:`runnable_repo_ids`."""
     return repo_id in runnable_repo_ids(user, [repo_id])

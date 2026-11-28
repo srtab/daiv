@@ -40,9 +40,10 @@ async def _run(*, published_mr: MergeRequest | None, cloned_ref: str, persist_ra
     )
     ctx = SimpleNamespace(
         config=MagicMock(),
-        repo=SimpleNamespace(ref=cloned_ref, head_detached=False),
+        repo=SimpleNamespace(ref=cloned_ref, head_detached=False, submodules=()),
         gitrepo=SimpleNamespace(working_dir="/clone"),
         extra_repos=(),
+        repos=(),
         sandbox=None,
         sandbox_client=None,
         bot_username="daiv",

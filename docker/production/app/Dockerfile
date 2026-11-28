@@ -53,6 +53,7 @@ RUN apt-get update \
     gettext \
     # Git
     git \
+    git-lfs \
     # Ripgrep for file search
     ripgrep \
   # Install GitHub CLI

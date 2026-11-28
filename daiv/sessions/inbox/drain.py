@@ -5,9 +5,10 @@ is active, takes its pending events in one transaction: it moves the requests th
 supersedes all but the newest event per subject, turns the CI and delegation wakes the policy blocks into remembered
 events, and drops a QUEUED next run left with nothing to wake it. When a waking event survives, it picks the branch and
 requester of the oldest one (an event about another of the session's repositories is on the session's branch,
-:meth:`sessions.inbox.next_runs.NextRuns.branch_of`), checks that requester may still run on the repository (a mention
-is gated where it is made, FR-026), and takes their waking events for the branch with every remembered one, up to their
-first request that runs alone (:meth:`sessions.inbox.splits.RequestSplits.runs_alone`). A builtin slash command that
+:meth:`sessions.inbox.next_runs.NextRuns.branch_of`), checks that requester may still run on the repository and read the
+submodules DAIV fetched in the session (a mention is gated where it is made, FR-026), and takes their waking events for
+the branch with every remembered one, up to their first request that runs alone
+(:meth:`sessions.inbox.splits.RequestSplits.runs_alone`). A builtin slash command that
 comes first is taken alone, with nothing remembered: the slash-command middleware answers it only as the whole request,
 and ends the run. A leg follow-up or a merge request job that comes first is taken alone with every remembered event,
 unless its request is a builtin slash command, and its own run, posted with it, is promoted to READY to run it; when its
@@ -20,8 +21,8 @@ reports in that same transaction, so a crash before the enqueue still counts it.
 their next run ends FAILED with the ``access_denied`` label; their leg follow-ups and merge request jobs are stopped
 with it, a job saying so on its merge request (a job's id still resolves, a leg follow-up's batch finishes), and the
 drain goes on to the next requester. A merge request job only attributed to its requester, a CI identity's, needs no
-access to the repository the platform proved, but its linked user must be able to run on the session's others, and
-with none there must be none; it neither counts toward nor fails with that user's own requests.
+access to the repository the platform proved, but its linked user must be able to run on the session's others and read
+its submodules, and with none there must be none; it neither counts toward nor fails with that user's own requests.
 The run is enqueued once the take commits; a failed enqueue frees the slot, puts the events back and refunds the
 attempt, for the sweep to retry.
 
@@ -47,6 +48,7 @@ from sandbox_envs.models import SandboxEnvironment
 from sandbox_envs.selection import resolve_env_for_run
 
 from automation.agent.references import merge_stored_refs
+from codebase.authorization import viewable_repo_ids
 from sessions.admission import RepoAccessError, assert_repo_access
 from sessions.executor.lock import SessionLock, stale_cutoff
 from sessions.inbox.kinds import OWN_RUN_KINDS, PERSON_KINDS, PRECEDENCE, EventContent
@@ -266,7 +268,9 @@ class _Take:
             user = None
         elif user is not None:
             acting = self._acting_as_requester(requested)
-            if any(event.kind != EventKind.MENTION for event in acting) and not self._may_run(user, session.repo_ids()):
+            if any(event.kind != EventKind.MENTION for event in acting) and not (
+                self._may_run(user, session.repo_ids()) and self._may_read(user, session.submodule_repo_ids())
+            ):
                 refused = (acting, waiting_run)
         if refused is not None:
             self._fail(*refused)
@@ -385,11 +389,14 @@ class _Take:
     def _proves_access(self, user: User | None, job: InboxEvent) -> bool:
         """Whether a job only attributed to ``user`` (a CI identity's) may run in the session. The platform proved the
         job's own repository, so ``user`` must be able to run on the session's other repositories, which its run checks
-        out too; with no linked user, there must be none."""
+        out too, and read the submodules DAIV fetched in it; with no linked user, there must be none of either."""
         others = [
             repo_id for repo_id in self.session.repo_ids() if repo_id != job.effective_repo_id(self.session.repo_id)
         ]
-        return not others or (user is not None and self._may_run(user, others))
+        submodules = self.session.submodule_repo_ids()
+        if user is None:
+            return not others and not submodules
+        return (not others or self._may_run(user, others)) and self._may_read(user, submodules)
 
     @staticmethod
     def _acting_as_requester(events: list[InboxEvent]) -> list[InboxEvent]:
@@ -409,6 +416,10 @@ class _Take:
         except RepoAccessError:
             return False
         return True
+
+    @staticmethod
+    def _may_read(user: User, repo_ids: list[str]) -> bool:
+        return not repo_ids or viewable_repo_ids(user, repo_ids) >= set(repo_ids)
 
     def _fail(self, asked: list[InboxEvent], next_run: Run | None) -> None:
         """Fail the events of a requester who may no longer run on the repository and finish their QUEUED next run

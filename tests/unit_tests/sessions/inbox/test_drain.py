@@ -28,6 +28,7 @@ from sessions.models import (
     Session,
     SessionOrigin,
     SessionRepository,
+    SessionSubmodule,
 )
 from sessions.queue import EnqueueFailure
 
@@ -377,6 +378,23 @@ class TestNothingToWake:
         stored = await _state(finished)
         assert (stored.wake, stored.reason, stored.state) == (False, QuietReason.RUN_LIMIT, EventState.PENDING)
 
+    async def test_a_merged_submodule_wakes_past_the_run_limit_as_a_submodule_merge(self, enqueue):
+        session = await amake_session()
+        for _ in range(3):
+            await Run.objects.acreate(
+                session=session, trigger_type=SessionOrigin.PIPELINE_WEBHOOK, repo_id=session.repo_id,
+                status=RunStatus.SUCCESSFUL,
+            )  # fmt: skip
+        merged = await amake_event(
+            session, EventKind.SUBMODULE_MERGED, repo_id="group/core", ref="", merge_request_iid=12
+        )
+
+        run = await Drain(session.thread_id).astart()
+
+        assert (run.trigger_type, run.ref, run.merge_request_iid) == (SessionOrigin.SUBMODULE_MERGE, session.ref, None)
+        assert run.prompt.startswith("The merge request `group/core!12` for the submodule `libs/core` was merged")
+        assert (await _state(merged)).state == EventState.TAKEN
+
     async def test_the_run_limit_is_reported_once_the_block_commits(self, enqueue):
         session = await amake_session()
         for _ in range(3):
@@ -481,6 +499,52 @@ class TestAccess:
 
         assert run.user_id == member_user.pk
         denied.assert_not_called()
+
+    async def test_a_requester_who_cant_read_a_fetched_submodule_fails_their_events(self, enqueue, member_user):
+        session = await amake_session(user=member_user)
+        await SessionSubmodule.objects.acreate(
+            session=session, root_repo_id=session.repo_id, parent_repo_id=session.repo_id, path="libs/core",
+            repo_id="group/core",
+        )  # fmt: skip
+        event = await amake_event(session)
+        readable = Mock(return_value=set())
+
+        with patch("sessions.admission.assert_can_run"), patch("sessions.inbox.drain.viewable_repo_ids", readable):
+            assert await Drain(session.thread_id).astart() is None
+
+        readable.assert_called_once_with(member_user, ["group/core"])
+        stored = await _state(event)
+        assert (stored.state, stored.failure) == (EventState.FAILED, EventFailure.ACCESS_DENIED)
+        enqueue.assert_not_awaited()
+
+    async def test_a_requester_who_reads_every_fetched_submodule_starts_the_run(self, enqueue, member_user):
+        session = await amake_session(user=member_user)
+        await SessionSubmodule.objects.acreate(
+            session=session, root_repo_id=session.repo_id, parent_repo_id=session.repo_id, path="libs/core",
+            repo_id="group/core",
+        )  # fmt: skip
+        await amake_event(session)
+
+        with (
+            patch("sessions.admission.assert_can_run"),
+            patch("sessions.inbox.drain.viewable_repo_ids", Mock(return_value={"group/core"})),
+        ):
+            assert await Drain(session.thread_id).astart() is not None
+
+    async def test_a_mention_is_held_to_no_submodule_check(self, enqueue, member_user):
+        session = await amake_session(user=None)
+        await SessionSubmodule.objects.acreate(
+            session=session, root_repo_id=session.repo_id, parent_repo_id=session.repo_id, path="libs/core",
+            repo_id="group/core",
+        )  # fmt: skip
+        await amake_event(session, EventKind.MENTION, author=member_user)
+        readable = Mock(return_value=set())
+
+        with patch("sessions.inbox.drain.viewable_repo_ids", readable):
+            run = await Drain(session.thread_id).astart()
+
+        assert run.user_id == member_user.pk
+        readable.assert_not_called()
 
     async def test_a_denied_requester_fails_only_their_own_requests(self, enqueue, member_user, admin_user):
         session = await amake_session(user=admin_user)
@@ -1289,6 +1353,37 @@ class TestMergeRequestJob:
         assert (await _state(mention)).state != EventState.FAILED
         if linked:
             denied.assert_called_once_with(member_user, ["group/private"])
+
+    @pytest.mark.parametrize("linked", [True, False], ids=["user", "account"])
+    async def test_a_ci_job_is_refused_on_a_session_whose_submodules_it_cant_read(self, enqueue, member_user, linked):
+        person = {"user": member_user, "username": "", "provider": "", "uid": ""} if linked else {}
+        run, job = await _merge_request_job(**person)
+        await SessionSubmodule.objects.acreate(
+            session_id=job.session_id, root_repo_id="group/repo", parent_repo_id="group/repo", path="libs/core",
+            repo_id="group/core",
+        )  # fmt: skip
+        readable = Mock(return_value=set())
+
+        with patch("sessions.inbox.drain.viewable_repo_ids", readable):
+            await Drain(job.session_id).astart()
+
+        stored = await _state(job)
+        assert (stored.state, stored.failure, stored.run_id) == (EventState.FAILED, EventFailure.ACCESS_DENIED, run.pk)
+        assert (await Run.objects.aget(pk=run.pk)).status == RunStatus.FAILED
+        if linked:
+            readable.assert_called_once_with(member_user, ["group/core"])
+
+    async def test_a_ci_job_runs_on_a_session_whose_submodules_its_linked_user_can_read(self, enqueue, member_user):
+        run, job = await _merge_request_job(user=member_user, username="", provider="", uid="")
+        await SessionSubmodule.objects.acreate(
+            session_id=job.session_id, root_repo_id="group/repo", parent_repo_id="group/repo", path="libs/core",
+            repo_id="group/core",
+        )  # fmt: skip
+
+        with patch("sessions.inbox.drain.viewable_repo_ids", Mock(return_value={"group/core"})):
+            started = await Drain(job.session_id).astart()
+
+        assert started.pk == run.pk
 
     async def test_a_ci_job_runs_on_a_session_whose_other_repositories_its_linked_user_can_run_on(
         self, enqueue, member_user

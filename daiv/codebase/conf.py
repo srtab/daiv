@@ -35,6 +35,14 @@ class CodebaseSettings(BaseSettings):
         default=24,
         description="Deny non-admin access to a repository when its synced access data is older than this many hours",
     )
+    LFS_MAX_CLONE_BYTES: int = Field(
+        default=256 * 1024 * 1024,
+        ge=0,
+        description=(
+            "The most Git LFS content one clone downloads, summed over the repository and its submodules; 0 downloads "
+            "none"
+        ),
+    )
 
     # GitHub
     GITHUB_URL: HttpUrl | None = Field(default=None, description="URL of the GitHub instance")

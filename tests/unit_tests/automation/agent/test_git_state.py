@@ -117,3 +117,35 @@ def test_repo_publish_reads_a_state_without_outcome_fields():
     rp = RepoPublish.from_state({"repo_id": "srtab/daiv", "merge_request": None, "published": True, "current_ref": "b"})
 
     assert (rp.created_merge_request, rp.error_kind, rp.conflicted_paths) == (False, None, ())
+
+
+def test_a_submodule_publish_round_trips_its_placement_and_what_it_kept_out():
+    from automation.agent.workspace.git_manager import KeptOut, KeptOutSubmodule
+    from codebase.clients.checkout import PublishBlock
+
+    kept_out = KeptOut(
+        lfs_paths=("a.bin",),
+        submodules=(
+            KeptOutSubmodule(path="vendor/x", block=PublishBlock.PERSON_NO_WRITE, changed_files=("f",), more=2),
+        ),
+    )
+    publish = RepoPublish(
+        repo_id="g/lib",
+        merge_request=None,
+        published=True,
+        current_ref="daiv/fix",
+        kept_out=kept_out,
+        submodule_path="libs/lib",
+        root_repo_id="g/app",
+        parent_repo_id="g/app",
+        recorded_sha="a" * 40,
+    )
+
+    assert RepoPublish.from_state(publish.to_state()) == publish
+
+
+def test_a_state_from_before_submodules_loads_with_empty_placement():
+    publish = RepoPublish.from_state({"repo_id": "g/mod", "merge_request": None, "published": False})
+
+    assert (publish.kept_out, publish.submodule_path, publish.root_repo_id) == (None, "", "")
+    assert (publish.parent_repo_id, publish.recorded_sha) == ("", "")

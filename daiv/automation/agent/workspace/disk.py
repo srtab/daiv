@@ -6,9 +6,8 @@ from typing import TYPE_CHECKING
 from asgiref.sync import sync_to_async
 
 from automation.agent.constants import REPO_PATH
-from automation.agent.context import extra_repo_path
 from automation.agent.workspace.backends import WORKSPACE_FENCE_PERMISSIONS, build_disk_workspace_backend
-from automation.agent.workspace.git_manager import FastForward, GitManager
+from automation.agent.workspace.git_manager import FastForward, GitManager, PublishScope
 from automation.agent.workspace.git_runners import LocalGitRunner
 from automation.agent.workspace.repo_view import RepoWorkspace
 
@@ -42,7 +41,7 @@ class DiskWorkspace:
         self._ctx = ctx
         self.backend = build_disk_workspace_backend(
             Path(ctx.gitrepo.working_dir),
-            extra_clones={extra_repo_path(h): Path(h.gitrepo.working_dir) for h in ctx.extra_repos},
+            extra_clones={h.workspace_path: Path(h.gitrepo.working_dir) for h in ctx.extra_repos},
         )
         self.git = GitManager(LocalGitRunner(ctx.gitrepo))
 
@@ -55,16 +54,21 @@ class DiskWorkspace:
         auth_env = await sync_to_async(self._ctx.repo.client.get_git_auth_env)(self._ctx.repository)
         return GitManager(LocalGitRunner(self._ctx.gitrepo, auth_env=auth_env))
 
-    async def fast_forward(self, branch: str) -> FastForward:
-        return await (await self.authenticated_git()).fast_forward(branch)
+    async def fast_forward(self, branch: str, *, scope: PublishScope = PublishScope()) -> FastForward:  # noqa: B008
+        return await (await self.authenticated_git()).fast_forward(branch, scope=scope)
 
     async def download_file(self, path: str, *, max_bytes: int) -> FileDownloadResponse:
         (response,) = await self.backend.adownload_files([path])
         return response
 
     def for_repo(self, handle: RepoHandle) -> PublishWorkspace:
+        """A submodule's publish gets a credential minted for its repository alone."""
+
         async def authenticate() -> GitManager:
-            auth_env = await sync_to_async(handle.client.get_git_auth_env)(handle.repository)
+            if handle.submodule is not None:
+                auth_env = await sync_to_async(handle.client.get_git_auth_env)(handle.repository, scoped_only=True)
+            else:
+                auth_env = await sync_to_async(handle.client.get_git_auth_env)(handle.repository)
             return GitManager(LocalGitRunner(handle.gitrepo, auth_env=auth_env))
 
-        return RepoWorkspace(self.backend, extra_repo_path(handle), authenticate)
+        return RepoWorkspace(self.backend, handle.workspace_path, authenticate)

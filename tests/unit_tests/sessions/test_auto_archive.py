@@ -15,6 +15,7 @@ from sessions.models import (
     Session,
     SessionOrigin,
     SessionRepository,
+    SessionSubmodule,
 )
 
 from tests.unit_tests.sessions.conftest import amake_owned_merge_request
@@ -143,6 +144,20 @@ class TestMergeArchive:
 
         assert await MergeArchive("group/repo", 7).aarchive() == []
         assert (await Session.objects.aget(pk="s")).archive_pending
+
+    async def test_a_session_whose_submodule_merge_is_unsettled_is_left_pending_by_both_merges(self):
+        await _merged("s")
+        await SessionSubmodule.objects.acreate(
+            session_id="s", root_repo_id="group/repo", parent_repo_id="group/repo", path="libs/core",
+            repo_id="group/core", merge_request_iid=12, merge_pending=True,
+        )  # fmt: skip
+
+        assert await MergeArchive("group/core", 12).aarchive() == []
+        assert await MergeArchive("group/repo", 7).aarchive() == []
+        assert (await Session.objects.aget(pk="s")).archive_pending
+
+        await SessionSubmodule.objects.filter(session_id="s").aupdate(merge_pending=False, merge_request_iid=None)
+        assert await sync_to_async(MergeArchive.settle)("s") == ["s"]
 
     async def test_a_merge_no_session_worked_on_records_nothing(self):
         assert await MergeArchive("group/repo", 7).aarchive() == []
